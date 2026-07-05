@@ -1,0 +1,445 @@
+import { Router, type Request } from 'express';
+import { pool } from '../db.js';
+import { authMiddleware } from '../middleware/auth.js';
+import {
+  assertCandidateInTenant,
+  assertJobInTenant,
+  requireTenant,
+  tenantClause,
+  tenantMiddleware,
+} from '../middleware/tenant.js';
+
+const router = Router();
+router.use(authMiddleware);
+router.use(tenantMiddleware);
+router.use(requireTenant);
+
+const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
+const tid = (req: Request) => req.tenant!.id;
+
+router.get('/', async (req, res) => {
+  const { job_id, stage, search } = req.query;
+  const t = tenantClause(tid(req), 'c', 1);
+  let sql = `
+    SELECT c.*, j.title AS job_title, u.name AS recruiter_name
+    FROM candidates c
+    LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
+    LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
+    WHERE ${t.sql}
+  `;
+  const params: unknown[] = [t.param];
+  let i = t.nextIndex;
+
+  if (job_id) {
+    sql += ` AND c.job_id = $${i++}`;
+    params.push(Number(job_id));
+  }
+  if (stage) {
+    sql += ` AND c.stage = $${i++}`;
+    params.push(stage);
+  }
+  if (search) {
+    sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
+    params.push(`%${search}%`);
+    i++;
+  }
+
+  if (req.user!.role === 'recruiter') {
+    sql += ` AND c.recruiter_id = $${i++}`;
+    params.push(req.user!.id);
+  } else if (req.user!.role === 'hiring_manager') {
+    sql += ` AND c.recruiter_id IN (
+      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
+      AND (r.managed_by_id = $${i + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1}))
+    )`;
+    params.push(tid(req), req.user!.id);
+    i += 2;
+  }
+
+  sql += ' ORDER BY c.updated_at DESC';
+
+  const { rows } = await pool.query(sql, params);
+  res.json(rows);
+});
+
+router.get('/export', async (req, res) => {
+  const { job_id, stage, search, ids } = req.query;
+  const t = tenantClause(tid(req), 'c', 1);
+  let sql = `
+    SELECT c.name, c.email, c.phone, c.stage, j.title AS job_title, u.name AS recruiter_name, c.ai_score, c.updated_at
+    FROM candidates c
+    LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
+    LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
+    WHERE ${t.sql}
+  `;
+  const params: unknown[] = [t.param];
+  let i = t.nextIndex;
+
+  if (ids) {
+    const idList = String(ids).split(',').map(Number).filter(Boolean);
+    if (idList.length) {
+      sql += ` AND c.id = ANY($${i++}::int[])`;
+      params.push(idList);
+    }
+  }
+  if (job_id) {
+    sql += ` AND c.job_id = $${i++}`;
+    params.push(Number(job_id));
+  }
+  if (stage) {
+    sql += ` AND c.stage = $${i++}`;
+    params.push(stage);
+  }
+  if (search) {
+    sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
+    params.push(`%${search}%`);
+  }
+  sql += ' ORDER BY c.updated_at DESC';
+
+  const { rows } = await pool.query(sql, params);
+  const headers = ['name', 'email', 'phone', 'stage', 'job_title', 'recruiter_name', 'ai_score', 'updated_at'];
+  const csv = [
+    headers.join(','),
+    ...rows.map((r) => headers.map((h) => JSON.stringify(r[h] ?? '')).join(',')),
+  ].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="candidates.csv"');
+  res.send(csv);
+});
+
+router.post('/import/validate', async (req, res) => {
+  const { rows: rowData } = req.body as { rows: Record<string, string>[] };
+  if (!Array.isArray(rowData) || rowData.length === 0) {
+    return res.status(400).json({ error: 'rows array required' });
+  }
+
+  const tenantId = tid(req);
+  const { rows: existing } = await pool.query(
+    'SELECT email, phone FROM candidates WHERE tenant_id = $1',
+    [tenantId]
+  );
+  const emails = new Set(existing.map((r) => r.email?.toLowerCase()).filter(Boolean));
+  const phones = new Set(existing.map((r) => r.phone?.replace(/\s/g, '')).filter(Boolean));
+
+  const issues: {
+    row: number;
+    name?: string;
+    phone?: string;
+    issue: string;
+    severity: 'error' | 'warning' | 'duplicate';
+  }[] = [];
+  let valid = 0;
+
+  rowData.forEach((row, idx) => {
+    const rowNum = idx + 2;
+    const name = row.name || row.full_name || '';
+    const phone = row.phone || row.mobile || '';
+    const email = row.email || row.email_id || '';
+
+    if (!name.trim()) {
+      issues.push({ row: rowNum, name, phone, issue: 'Missing name', severity: 'error' });
+      return;
+    }
+    if (!phone.trim() && !email.trim()) {
+      issues.push({ row: rowNum, name, phone, issue: 'Missing phone and email', severity: 'error' });
+      return;
+    }
+    const normPhone = phone.replace(/\s/g, '');
+    if (email && emails.has(email.toLowerCase())) {
+      issues.push({ row: rowNum, name, phone, issue: 'Duplicate email in database', severity: 'duplicate' });
+      return;
+    }
+    if (normPhone && phones.has(normPhone)) {
+      issues.push({ row: rowNum, name, phone, issue: 'Duplicate phone in database', severity: 'duplicate' });
+      return;
+    }
+    if (phone && !/^\+?[\d\s-]{10,}$/.test(phone)) {
+      issues.push({ row: rowNum, name, phone, issue: 'Invalid phone format', severity: 'warning' });
+    }
+    valid++;
+    if (email) emails.add(email.toLowerCase());
+    if (normPhone) phones.add(normPhone);
+  });
+
+  res.json({ valid, errors: issues.filter((i) => i.severity === 'error').length, warnings: issues.filter((i) => i.severity === 'warning').length, issues });
+});
+
+router.post('/import', async (req, res) => {
+  const { rows: rowData, skip_errors } = req.body as { rows: Record<string, string>[]; skip_errors?: boolean };
+  if (!Array.isArray(rowData)) return res.status(400).json({ error: 'rows array required' });
+
+  const tenantId = tid(req);
+  const recruiterId = req.user!.id;
+  let imported = 0;
+  let skipped = 0;
+
+  for (const row of rowData) {
+    const name = (row.name || row.full_name || '').trim();
+    const phone = row.phone || row.mobile || null;
+    const email = row.email || row.email_id || null;
+    if (!name) {
+      skipped++;
+      continue;
+    }
+    if (!phone && !email) {
+      if (skip_errors) {
+        skipped++;
+        continue;
+      }
+      return res.status(400).json({ error: `Row missing contact info: ${name}` });
+    }
+
+    const dup = await pool.query(
+      'SELECT id FROM candidates WHERE tenant_id = $1 AND (email = $2 OR phone = $3) LIMIT 1',
+      [tenantId, email, phone]
+    );
+    if (dup.rows[0]) {
+      skipped++;
+      continue;
+    }
+
+    await pool.query(
+      `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, recruiter_id, tenant_id, source)
+       VALUES ($1, $2, $3, '[]'::jsonb, 0, 5, 'applied', $4, $5, 'import')`,
+      [name, email, phone, recruiterId, tenantId]
+    );
+    imported++;
+  }
+
+  res.json({ imported, skipped });
+});
+
+router.patch('/bulk', async (req, res) => {
+  const { ids, stage, recruiter_id } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array required' });
+  }
+  if (!stage && recruiter_id === undefined) {
+    return res.status(400).json({ error: 'stage or recruiter_id required' });
+  }
+  if (stage && !STAGES.includes(stage)) return res.status(400).json({ error: 'Invalid stage' });
+
+  const updates: string[] = ['updated_at = NOW()'];
+  const params: unknown[] = [];
+  let i = 1;
+
+  if (stage) {
+    updates.push(`stage = $${i++}`);
+    params.push(stage);
+  }
+  if (recruiter_id !== undefined) {
+    updates.push(`recruiter_id = $${i++}`);
+    params.push(recruiter_id);
+  }
+
+  params.push(ids, tid(req));
+  const { rowCount } = await pool.query(
+    `UPDATE candidates SET ${updates.join(', ')} WHERE id = ANY($${i++}::int[]) AND tenant_id = $${i}`,
+    params
+  );
+
+  if (stage) {
+    for (const id of ids) {
+      await pool.query(
+        'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+        ['pipeline', `Bulk update to ${stage}`, req.user!.id, id, tid(req)]
+      );
+    }
+  }
+
+  res.json({ updated: rowCount });
+});
+
+router.get('/:id/timeline', async (req, res) => {
+  const candidateId = Number(req.params.id);
+  if (!(await assertCandidateInTenant(candidateId, tid(req)))) {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
+
+  const [activities, messages, interviews, followUps] = await Promise.all([
+    pool.query(
+      `SELECT id, type, description, created_at, 'activity' AS source FROM activities
+       WHERE candidate_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`,
+      [candidateId, tid(req)]
+    ),
+    pool.query(
+      `SELECT id, sender, content, sent_at AS created_at, 'message' AS source FROM messages
+       WHERE candidate_id = $1 ORDER BY sent_at DESC`,
+      [candidateId]
+    ),
+    pool.query(
+      `SELECT id, round_type AS description, scheduled_at AS created_at, status, 'interview' AS source FROM interviews
+       WHERE candidate_id = $1 ORDER BY scheduled_at DESC`,
+      [candidateId]
+    ),
+    pool.query(
+      `SELECT id, type AS description, due_at AS created_at, status, 'follow_up' AS source FROM follow_ups
+       WHERE candidate_id = $1 AND tenant_id = $2 ORDER BY due_at DESC`,
+      [candidateId, tid(req)]
+    ),
+  ]);
+
+  const timeline = [
+    ...activities.rows,
+    ...messages.rows,
+    ...interviews.rows,
+    ...followUps.rows,
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  res.json(timeline);
+});
+
+router.get('/:id/suggestions', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM candidates WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    tid(req),
+  ]);
+  const c = rows[0];
+  if (!c) return res.status(404).json({ error: 'Candidate not found' });
+
+  const suggestions = [
+    `Hi ${c.name.split(' ')[0]}, quick follow-up on your application. Any questions?`,
+    `Would Tuesday 2 PM work for a quick call?`,
+    `I'll share the interview link shortly.`,
+  ];
+  if (c.salary_expectation) {
+    suggestions.push(`Based on profile, salary range looks like ${c.salary_expectation}.`);
+  }
+  res.json({ suggestions, ai_score: c.ai_score, salary_expectation: c.salary_expectation });
+});
+
+router.get('/:id', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT c.*, j.title AS job_title, j.client, j.location, u.name AS recruiter_name
+     FROM candidates c
+     LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
+     LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
+     WHERE c.id = $1 AND c.tenant_id = $2`,
+    [req.params.id, tid(req)]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Candidate not found' });
+  res.json(rows[0]);
+});
+
+router.post('/', async (req, res) => {
+  const { name, email, phone, skills, experience_years, job_id, recruiter_id, notes, salary_expectation } =
+    req.body;
+  if (!name) return res.status(400).json({ error: 'Name required' });
+
+  if (job_id && !(await assertJobInTenant(Number(job_id), tid(req)))) {
+    return res.status(400).json({ error: 'Invalid job for this workspace' });
+  }
+
+  const ai_score = computeAiScore(skills || [], experience_years || 0);
+  const { rows } = await pool.query(
+    `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, job_id, recruiter_id, notes, salary_expectation, tenant_id)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    [
+      name,
+      email || null,
+      phone || null,
+      JSON.stringify(skills || []),
+      experience_years || 0,
+      ai_score,
+      job_id || null,
+      recruiter_id || req.user!.id,
+      notes || null,
+      salary_expectation || null,
+      tid(req),
+    ]
+  );
+
+  await pool.query(
+    'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+    ['pipeline', `${name} added to pipeline`, req.user!.id, rows[0].id, tid(req)]
+  );
+
+  res.status(201).json(rows[0]);
+});
+
+router.patch('/:id', async (req, res) => {
+  const { stage, notes, skills, experience_years, salary_expectation, recruiter_id, job_id } = req.body;
+
+  const { rows: existing } = await pool.query(
+    'SELECT id, name FROM candidates WHERE id = $1 AND tenant_id = $2',
+    [req.params.id, tid(req)]
+  );
+  if (!existing[0]) return res.status(404).json({ error: 'Candidate not found' });
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+
+  if (stage !== undefined) {
+    if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Invalid stage' });
+    updates.push(`stage = $${i++}`);
+    params.push(stage);
+  }
+  if (notes !== undefined) {
+    updates.push(`notes = $${i++}`);
+    params.push(notes);
+  }
+  if (skills !== undefined) {
+    updates.push(`skills = $${i++}::jsonb`);
+    params.push(JSON.stringify(skills));
+    updates.push(`ai_score = $${i++}`);
+    params.push(computeAiScore(skills, experience_years || 0));
+  }
+  if (experience_years !== undefined) {
+    updates.push(`experience_years = $${i++}`);
+    params.push(experience_years);
+  }
+  if (salary_expectation !== undefined) {
+    updates.push(`salary_expectation = $${i++}`);
+    params.push(salary_expectation);
+  }
+  if (recruiter_id !== undefined) {
+    updates.push(`recruiter_id = $${i++}`);
+    params.push(recruiter_id);
+  }
+  if (job_id !== undefined) {
+    if (job_id && !(await assertJobInTenant(Number(job_id), tid(req)))) {
+      return res.status(400).json({ error: 'Invalid job for this workspace' });
+    }
+    updates.push(`job_id = $${i++}`);
+    params.push(job_id);
+  }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+  updates.push('updated_at = NOW()');
+  const idParam = i;
+  const tenantParam = i + 1;
+  params.push(req.params.id, tid(req));
+
+  const { rows } = await pool.query(
+    `UPDATE candidates SET ${updates.join(', ')} WHERE id = $${idParam} AND tenant_id = $${tenantParam} RETURNING *`,
+    params
+  );
+
+  if (stage) {
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      ['pipeline', `${rows[0].name} moved to ${stage}`, req.user!.id, rows[0].id, tid(req)]
+    );
+  }
+
+  res.json(rows[0]);
+});
+
+router.delete('/:id', async (req, res) => {
+  const { rowCount } = await pool.query('DELETE FROM candidates WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    tid(req),
+  ]);
+  if (!rowCount) return res.status(404).json({ error: 'Candidate not found' });
+  res.status(204).send();
+});
+
+function computeAiScore(skills: string[], years: number): number {
+  const base = Math.min(10, 5 + years * 0.4 + skills.length * 0.3);
+  return Math.round(base * 10) / 10;
+}
+
+export default router;

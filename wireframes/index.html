@@ -1,0 +1,1953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIOS Recruitment - Wireframe Suite</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --secondary: #ec4899;
+            --background: #ffffff;
+            --surface: #f8fafc;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--surface);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        header {
+            background: var(--background);
+            border-bottom: 1px solid var(--border);
+            padding: 1.5rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .header-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        nav.header-nav {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        nav.header-nav a {
+            text-decoration: none;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        nav.header-nav a:hover,
+        nav.header-nav a.active {
+            color: var(--primary);
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .section {
+            margin-bottom: 4rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .section-description {
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            font-size: 1rem;
+        }
+
+        .wireframe {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 2rem;
+        }
+
+        .wireframe-frame {
+            background: var(--background);
+            aspect-ratio: 16 / 9;
+            display: flex;
+            position: relative;
+            min-height: 500px;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: 260px;
+            background: var(--background);
+            border-right: 1px solid var(--border);
+            padding: 1.5rem 1rem;
+            overflow-y: auto;
+        }
+
+        .sidebar-logo {
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 0.75rem;
+            text-align: center;
+            padding: 0 0.5rem;
+        }
+
+        .nav-item {
+            height: 40px;
+            background: var(--surface);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-item:hover {
+            background: var(--border);
+            color: var(--text);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(236, 72, 153, 0.1));
+            color: var(--primary);
+            border-left: 3px solid var(--primary);
+            padding-left: calc(1rem - 3px);
+        }
+
+        .nav-item::before {
+            content: '';
+            width: 20px;
+            height: 20px;
+            background: var(--surface);
+            border-radius: 4px;
+            margin-right: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        /* Main Content Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+        }
+
+        .topbar {
+            height: 60px;
+            background: var(--background);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 2rem;
+            gap: 1rem;
+        }
+
+        .search-bar {
+            flex: 1;
+            height: 36px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0 1rem;
+            display: flex;
+            align-items: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .icon-placeholder {
+            width: 32px;
+            height: 32px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+        }
+
+        .page-content {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-meta {
+            font-size: 0.85rem;
+            color: var(--success);
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .card-meta.negative {
+            color: var(--danger);
+        }
+
+        /* Kanban Board */
+        .kanban {
+            display: flex;
+            gap: 1.5rem;
+            overflow-x: auto;
+            padding-bottom: 1rem;
+        }
+
+        .kanban-column {
+            flex: 0 0 320px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+        }
+
+        .column-header {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .column-count {
+            background: var(--border);
+            color: var(--text-secondary);
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .candidate-card {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+
+        .candidate-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .candidate-name {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .candidate-skills {
+            display: flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.75rem;
+        }
+
+        .skill-tag {
+            background: var(--surface);
+            color: var(--text-secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .candidate-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .ai-score {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 600;
+        }
+
+        /* Messaging Interface */
+        .messaging-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr 320px;
+            gap: 1px;
+            height: 100%;
+            background: var(--border);
+        }
+
+        .conversation-list {
+            background: var(--background);
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .conversation-item {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .conversation-item:hover {
+            background: var(--surface);
+        }
+
+        .conversation-item.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(236, 72, 153, 0.1));
+            border-color: var(--primary);
+        }
+
+        .conversation-name {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .conversation-preview {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-panel {
+            background: var(--background);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            display: flex;
+            gap: 0.75rem;
+            max-width: 70%;
+        }
+
+        .message.sent {
+            align-self: flex-end;
+            max-width: 70%;
+        }
+
+        .message-bubble {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .message.sent .message-bubble {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+        }
+
+        .chat-input {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .input-field {
+            flex: 1;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            background: var(--surface);
+            font-size: 0.9rem;
+        }
+
+        .ai-suggestions {
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            padding: 1rem;
+            font-size: 0.85rem;
+        }
+
+        .suggestion-title {
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.75rem;
+        }
+
+        .suggestion-item {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            line-height: 1.3;
+        }
+
+        .suggestion-item:hover {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(236, 72, 153, 0.05));
+            border-color: var(--primary);
+            color: var(--text);
+        }
+
+        /* Login Page */
+        .login-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            min-height: 100vh;
+            background: var(--background);
+        }
+
+        .login-left {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            color: white;
+        }
+
+        .login-illustration {
+            width: 100%;
+            max-width: 300px;
+            aspect-ratio: 1;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            color: rgba(255,255,255,0.3);
+        }
+
+        .login-right {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 2rem;
+        }
+
+        .login-form {
+            width: 100%;
+            max-width: 380px;
+        }
+
+        .form-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        .form-input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+            background: var(--surface);
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: var(--background);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .form-button {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.875rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1rem;
+        }
+
+        .form-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3);
+        }
+
+        .oauth-button {
+            width: 100%;
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.875rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 0.75rem;
+        }
+
+        .oauth-button:hover {
+            background: var(--background);
+            border-color: var(--primary);
+        }
+
+        /* Calendar */
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            background: var(--background);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .calendar-day:hover {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(236, 72, 153, 0.05));
+        }
+
+        .calendar-day.today {
+            border-color: var(--primary);
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .calendar-day.event::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            width: 4px;
+            height: 4px;
+            background: var(--success);
+            border-radius: 50%;
+        }
+
+        .schedule-slot {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .schedule-slot:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+        }
+
+        .slot-info {
+            flex: 1;
+        }
+
+        .slot-time {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .slot-candidate {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .slot-status {
+            background: var(--success);
+            color: white;
+            padding: 0.35rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        /* Chart Placeholder */
+        .chart-placeholder {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(236, 72, 153, 0.05));
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        /* Floating Button */
+        .floating-button {
+            position: absolute;
+            bottom: 2rem;
+            right: 2rem;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .floating-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+        }
+
+        /* Mobile Wireframe */
+        .mobile-frame {
+            width: 375px;
+            height: 812px;
+            border: 12px solid #1a1a1a;
+            border-radius: 40px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            background: white;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mobile-status-bar {
+            height: 44px;
+            background: var(--background);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1rem;
+            font-size: 0.75rem;
+        }
+
+        .mobile-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .mobile-bottom-nav {
+            height: 60px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            background: var(--background);
+        }
+
+        .nav-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--surface);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+        }
+
+        .nav-icon.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(236, 72, 153, 0.1));
+            color: var(--primary);
+        }
+
+        /* Grid Layout for Wireframes */
+        .wireframes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(900px, 1fr));
+            gap: 2rem;
+        }
+
+        .mobile-grid {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1.5rem;
+        }
+
+        .tab {
+            padding: 0.75rem 1.5rem;
+            color: var(--text-secondary);
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9rem;
+            position: relative;
+            transition: color 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text);
+        }
+
+        .tab.active {
+            color: var(--primary);
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--primary);
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            background: var(--danger);
+            color: white;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+
+        .badge.warning {
+            background: var(--warning);
+        }
+
+        .badge.success {
+            background: var(--success);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .messaging-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .ai-suggestions {
+                display: none;
+            }
+        }
+
+        .hide-on-mobile {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            header {
+                padding: 1rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .hide-on-mobile {
+                display: none;
+            }
+
+            .wireframe-frame {
+                min-height: 300px;
+            }
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background: white;
+            }
+
+            .wireframe {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo">⚡ AIOS Recruitment</div>
+            <nav class="header-nav">
+                <a href="#dashboard" class="active">Dashboard</a>
+                <a href="#pipeline">Pipeline</a>
+                <a href="#messaging">Messaging</a>
+                <a href="#analytics">Analytics</a>
+                <a href="#mobile">Mobile</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- LOGIN PAGE -->
+        <section class="section" id="login">
+            <h2 class="section-title">1. LOGIN PAGE</h2>
+            <p class="section-description">Authentication and onboarding for recruiters. Modern split-screen design with AI illustration.</p>
+            
+            <div class="wireframe">
+                <div class="login-container">
+                    <div class="login-left">
+                        <div>
+                            <div class="login-illustration">🤖</div>
+                            <p style="text-align: center; margin-top: 1.5rem; font-size: 1.1rem;">AI-Powered Recruitment Operating System</p>
+                        </div>
+                    </div>
+                    <div class="login-right">
+                        <div class="login-form">
+                            <h3 class="form-title">Welcome</h3>
+                            <p class="form-subtitle">Sign in to your recruitment workspace</p>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Email Address</label>
+                                <input type="email" class="form-input" placeholder="you@company.com">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-input" placeholder="••••••••">
+                            </div>
+                            
+                            <button class="form-button">Sign In</button>
+                            
+                            <div style="text-align: center; margin-bottom: 1.5rem; color: var(--text-secondary); font-size: 0.85rem;">Or continue with</div>
+                            
+                            <button class="oauth-button">🔵 Sign in with Google</button>
+                            <button class="oauth-button">💼 Sign in with Microsoft</button>
+                            
+                            <p style="text-align: center; font-size: 0.85rem; color: var(--text-secondary); margin-top: 1.5rem;">Don't have an account? <strong style="color: var(--primary);">Start free trial</strong></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- MAIN DASHBOARD -->
+        <section class="section" id="dashboard">
+            <h2 class="section-title">2. MAIN DASHBOARD</h2>
+            <p class="section-description">Executive overview with KPIs, AI recommendations, and activity feed. Sidebar navigation with search and notifications.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar">
+                        <div class="sidebar-logo">AIOS</div>
+                        <a class="nav-item active" href="#dashboard">📊 Dashboard</a>
+                        <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                        <a class="nav-item" href="#job-openings">💼 Job Openings</a>
+                        <a class="nav-item" href="#messaging">💬 WhatsApp Inbox</a>
+                        <a class="nav-item" href="#interviews">📅 Interviews</a>
+                        <a class="nav-item" href="#analytics">📈 Analytics</a>
+                        <a class="nav-item" href="#settings">⚙️ Settings</a>
+                    </div>
+                    
+                    <div class="main-content">
+                        <div class="topbar">
+                            <div class="search-bar">🔍 Search candidates, jobs, activity...</div>
+                            <div class="icon-placeholder">🔔</div>
+                            <div class="icon-placeholder">👤</div>
+                        </div>
+                        
+                        <div class="page-content">
+                            <h3 style="font-size: 1.3rem; margin-bottom: 1.5rem;">Dashboard</h3>
+                            
+                            <div class="grid">
+                                <div class="card">
+                                    <div class="card-title">Total Candidates</div>
+                                    <div class="card-value">1,240</div>
+                                    <div class="card-meta">↑ 12% from last month</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Interviews Today</div>
+                                    <div class="card-value">8</div>
+                                    <div class="card-meta">3 completed</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Pending Follow-ups</div>
+                                    <div class="card-value">24</div>
+                                    <div class="card-meta negative">↓ 3 overdue</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Hot Candidates</div>
+                                    <div class="card-value">15</div>
+                                    <div class="card-meta">AI identified</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Analytics</div>
+                                    <div class="card-value">Dashboard</div>
+                                    <div class="card-meta">Performance & funnel metrics</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Settings</div>
+                                    <div class="card-value">Team & integrations</div>
+                                    <div class="card-meta">Manage roles, API, WhatsApp</div>
+                                </div>
+                            </div>
+
+                            <div style="margin: 2rem 0;">
+                                <h4 style="font-size: 1rem; margin-bottom: 1rem; font-weight: 600;">Hiring Funnel</h4>
+                                <div class="chart-placeholder">📊 Funnel Chart (Applied → Joined)</div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+                                <div>
+                                    <h4 style="font-size: 1rem; margin-bottom: 1rem; font-weight: 600;">Recent Activity</h4>
+                                    <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                                        <div style="padding: 0.75rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;">📋 Raj Kumar moved to Interview</div>
+                                        <div style="padding: 0.75rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;">💬 Priya Sharma replied on WhatsApp</div>
+                                        <div style="padding: 0.75rem 0; font-size: 0.9rem;">✅ 5 candidates rejected</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 style="font-size: 1rem; margin-bottom: 1rem; font-weight: 600;">AI Recommendations</h4>
+                                    <div class="suggestion-item" style="margin-bottom: 0.75rem;">
+                                        <strong style="color: var(--text);">Follow up Arun</strong><br>
+                                        No response in 5 days
+                                    </div>
+                                    <div class="suggestion-item">
+                                        <strong style="color: var(--text);">Schedule with Neha</strong><br>
+                                        Top match for Java role
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="floating-button">+</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CANDIDATE PIPELINE -->
+        <section class="section" id="pipeline">
+            <h2 class="section-title">3. CANDIDATE PIPELINE (KANBAN)</h2>
+            <p class="section-description">Modern drag-and-drop Kanban board with candidate cards, skills, AI scores, and quick actions. Filter and search capabilities.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar hide-on-mobile">
+                        <div class="sidebar-logo">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item active" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item" href="#job-openings">💼 Job Openings</a>
+                            <a class="nav-item" href="#messaging">💬 WhatsApp Inbox</a>
+                            <a class="nav-item" href="#interviews">📅 Interviews</a>
+                            <a class="nav-item" href="#analytics">📈 Analytics</a>
+                            <a class="nav-item" href="#settings">⚙️ Settings</a>
+                    <div class="main-content">
+                        <div class="topbar">
+                            <div class="search-bar">🔍 Search candidates...</div>
+                            <div class="icon-placeholder">🔽 Filter</div>
+                        </div>
+                        
+                        <div class="page-content" style="overflow-x: auto;">
+                            <h3 style="font-size: 1.3rem; margin-bottom: 1.5rem;">Java Developer - Mumbai</h3>
+                            
+                            <div class="kanban">
+                                <div class="kanban-column">
+                                    <div class="column-header">
+                                        <span>Applied</span>
+                                        <div class="column-count">12</div>
+                                    </div>
+                                    
+                                    <div class="candidate-card">
+                                        <div class="candidate-name">Rajesh Patel</div>
+                                        <div class="candidate-skills">
+                                            <div class="skill-tag">Java</div>
+                                            <div class="skill-tag">Spring</div>
+                                            <div class="skill-tag">AWS</div>
+                                        </div>
+                                        <div class="candidate-meta">
+                                            <span>5 yrs</span>
+                                            <span class="ai-score">8.2/10</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="candidate-card">
+                                        <div class="candidate-name">Neha Sharma</div>
+                                        <div class="candidate-skills">
+                                            <div class="skill-tag">Java</div>
+                                            <div class="skill-tag">Microservices</div>
+                                        </div>
+                                        <div class="candidate-meta">
+                                            <span>4 yrs</span>
+                                            <span class="ai-score">7.9/10</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="kanban-column">
+                                    <div class="column-header">
+                                        <span>Screening</span>
+                                        <div class="column-count">8</div>
+                                    </div>
+                                    
+                                    <div class="candidate-card">
+                                        <div class="candidate-name">Arun Kumar</div>
+                                        <div class="candidate-skills">
+                                            <div class="skill-tag">Java</div>
+                                            <div class="skill-tag">React</div>
+                                        </div>
+                                        <div class="candidate-meta">
+                                            <span>6 yrs</span>
+                                            <span class="ai-score">8.5/10</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="kanban-column">
+                                    <div class="column-header">
+                                        <span>Interview Scheduled</span>
+                                        <div class="column-count">5</div>
+                                    </div>
+                                    
+                                    <div class="candidate-card">
+                                        <div class="candidate-name">Priya Singh</div>
+                                        <div class="candidate-skills">
+                                            <div class="skill-tag">Java</div>
+                                            <div class="skill-tag">SQL</div>
+                                        </div>
+                                        <div class="candidate-meta">
+                                            <span>5 yrs</span>
+                                            <span class="ai-score">8.7/10</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="kanban-column">
+                                    <div class="column-header">
+                                        <span>Selected</span>
+                                        <div class="column-count">2</div>
+                                    </div>
+                                    
+                                    <div class="candidate-card">
+                                        <div class="candidate-name">Vikram Desai</div>
+                                        <div class="candidate-skills">
+                                            <div class="skill-tag">Java</div>
+                                            <div class="skill-tag">Kafka</div>
+                                        </div>
+                                        <div class="candidate-meta">
+                                            <span>7 yrs</span>
+                                            <span class="ai-score">9.1/10</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="kanban-column">
+                                    <div class="column-header">
+                                        <span>Joined</span>
+                                        <div class="column-count">3</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CANDIDATE DETAILS -->
+        <section class="section">
+            <h2 class="section-title">4. CANDIDATE DETAILS PAGE</h2>
+            <p class="section-description">Comprehensive candidate profile with resume, skills, experience, interview history, and AI insights. Sticky action buttons and notes area.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame" style="flex-direction: column;">
+                    <div style="display: flex; height: 100%; gap: 0;">
+                        <div class="sidebar hide-on-mobile" style="width: 180px; flex-shrink: 0;">
+                            <div class="sidebar-logo" style="font-size: 0.6rem;">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item" href="#job-openings">💼 Job Openings</a>
+                            <a class="nav-item" href="#messaging">💬 Messages</a>
+                        </div>
+
+                        <div style="flex: 1; display: flex; flex-direction: column;">
+                            <div class="topbar" style="border-bottom: 1px solid var(--border); padding: 1rem;">
+                                <div style="display: flex; align-items: center; gap: 1rem; flex: 1;">
+                                    <div style="width: 48px; height: 48px; background: linear-gradient(135deg, var(--primary), var(--secondary)); border-radius: 8px;"></div>
+                                    <div>
+                                        <h3 style="font-weight: 700; margin: 0;">Raj Kumar</h3>
+                                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">Java Developer • 5 yrs experience</p>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button style="padding: 0.5rem 1rem; background: var(--primary); color: white; border: none; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 500;">Schedule Interview</button>
+                                    <button style="padding: 0.5rem 1rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 500;">More</button>
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr 300px; gap: 1px; background: var(--border);">
+                                <!-- Main Content -->
+                                <div style="grid-column: span 2; background: white; padding: 1.5rem; overflow-y: auto;">
+                                    <div style="margin-bottom: 2rem;">
+                                        <h4 style="font-weight: 600; margin-bottom: 1rem;">Resume Preview</h4>
+                                        <div class="chart-placeholder" style="height: 200px;">📄 Resume Preview</div>
+                                    </div>
+
+                                    <div style="margin-bottom: 2rem;">
+                                        <h4 style="font-weight: 600; margin-bottom: 1rem;">Experience</h4>
+                                        <div style="padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 0.25rem;">Senior Java Developer @ TCS</div>
+                                            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">2021 - Present • 3 yrs</div>
+                                            <div style="font-size: 0.9rem; line-height: 1.4;">Developed microservices using Spring Boot, handled API design and deployment on AWS infrastructure.</div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <h4 style="font-weight: 600; margin-bottom: 1rem;">Interview History</h4>
+                                        <div style="padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 0.75rem;">
+                                            <div style="font-weight: 600; color: var(--text); margin-bottom: 0.25rem;">Round 1 - Technical Assessment</div>
+                                            <div style="font-size: 0.85rem; color: var(--text-secondary);">May 15, 2026 • Score: 8.5/10</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Right Sidebar -->
+                                <div style="background: white; padding: 1.5rem; border-left: 1px solid var(--border); overflow-y: auto;">
+                                    <div style="margin-bottom: 1.5rem;">
+                                        <h4 style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.75rem;">AI Score</h4>
+                                        <div style="font-size: 2.5rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">8.7</div>
+                                        <div style="font-size: 0.85rem; color: var(--success); margin-top: 0.25rem;">↑ Top 15% match</div>
+                                    </div>
+
+                                    <div style="margin-bottom: 1.5rem;">
+                                        <h4 style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.75rem;">Skills</h4>
+                                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                            <div class="skill-tag">Java</div>
+                                            <div class="skill-tag">Spring Boot</div>
+                                            <div class="skill-tag">AWS</div>
+                                            <div class="skill-tag">Microservices</div>
+                                            <div class="skill-tag">SQL</div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <h4 style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.75rem;">AI Insights</h4>
+                                        <div class="suggestion-item">
+                                            <strong style="color: var(--text);">⚠️ Salary Expectation</strong><br>
+                                            Likely 18-22 LPA
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- JOB OPENINGS -->
+        <section class="section" id="job-openings">
+            <h2 class="section-title">5. JOB OPENINGS PAGE</h2>
+            <p class="section-description">Active positions with client info, recruiter assignment, candidate matches, and AI recommendations.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar hide-on-mobile">
+                        <div class="sidebar-logo">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item active" href="#job-openings">💼 Job Openings</a>
+                            <a class="nav-item" href="#messaging">💬 Messages</a>
+                        </div>
+                    <div class="main-content">
+                        <div class="topbar">
+                            <div class="search-bar">🔍 Search job openings...</div>
+                            <div class="icon-placeholder">🔽 Filter</div>
+                        </div>
+                        
+                        <div class="page-content">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                                <h3 style="font-size: 1.3rem;">Active Job Openings</h3>
+                                <button style="padding: 0.6rem 1.2rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">+ New Opening</button>
+                            </div>
+                            
+                            <div class="grid">
+                                <div class="card">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                                        <div>
+                                            <h4 style="font-weight: 700; margin-bottom: 0.25rem;">Java Developer</h4>
+                                            <p style="font-size: 0.85rem; color: var(--text-secondary);">TCS • Mumbai</p>
+                                        </div>
+                                        <span class="badge">Active</span>
+                                    </div>
+                                    <div style="border-top: 1px solid var(--border); padding-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.9rem;">
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Assigned To</div>
+                                            <div style="font-weight: 600;">Anil Kumar</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Open Positions</div>
+                                            <div style="font-weight: 600;">3</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Candidate Match</div>
+                                            <div style="font-weight: 600; color: var(--success);">85%</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">In Pipeline</div>
+                                            <div style="font-weight: 600;">12</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                                        <div>
+                                            <h4 style="font-weight: 700; margin-bottom: 0.25rem;">Python Backend Engineer</h4>
+                                            <p style="font-size: 0.85rem; color: var(--text-secondary);">Infosys • Bangalore</p>
+                                        </div>
+                                        <span class="badge">Active</span>
+                                    </div>
+                                    <div style="border-top: 1px solid var(--border); padding-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.9rem;">
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Assigned To</div>
+                                            <div style="font-weight: 600;">Priya Verma</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Open Positions</div>
+                                            <div style="font-weight: 600;">2</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Candidate Match</div>
+                                            <div style="font-weight: 600; color: var(--success);">72%</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">In Pipeline</div>
+                                            <div style="font-weight: 600;">8</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                                        <div>
+                                            <h4 style="font-weight: 700; margin-bottom: 0.25rem;">UI/UX Designer</h4>
+                                            <p style="font-size: 0.85rem; color: var(--text-secondary);">Thoughtworks • Pune</p>
+                                        </div>
+                                        <span class="badge warning">Urgent</span>
+                                    </div>
+                                    <div style="border-top: 1px solid var(--border); padding-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.9rem;">
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Assigned To</div>
+                                            <div style="font-weight: 600;">Rohit Singh</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Open Positions</div>
+                                            <div style="font-weight: 600;">1</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">Candidate Match</div>
+                                            <div style="font-weight: 600; color: var(--warning);">58%</div>
+                                        </div>
+                                        <div>
+                                            <div style="color: var(--text-secondary); font-size: 0.8rem;">In Pipeline</div>
+                                            <div style="font-weight: 600;">5</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- WHATSAPP SHARED INBOX -->
+        <section class="section" id="messaging">
+            <h2 class="section-title">6. WHATSAPP SHARED INBOX</h2>
+            <p class="section-description">Modern messaging interface with conversation list, active chat panel, and AI suggested replies. Central to recruiter workflow.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar hide-on-mobile">
+                        <div class="sidebar-logo">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item" href="#job-openings">💼 Jobs</a>
+                            <a class="nav-item active" href="#messaging">💬 Messages</a>
+                        </div>
+                    <div class="main-content" style="padding: 0;">
+                        <div class="messaging-layout">
+                            <div class="conversation-list">
+                                <div style="padding: 0.75rem 0; margin-bottom: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">RECENT</div>
+                                
+                                <div class="conversation-item active">
+                                    <div class="conversation-name">Raj Kumar</div>
+                                    <div class="conversation-preview">When can we schedule the interview?</div>
+                                </div>
+
+                                <div class="conversation-item">
+                                    <div class="conversation-name">Priya Singh</div>
+                                    <div class="conversation-preview">Interested in Java role at TCS</div>
+                                </div>
+
+                                <div class="conversation-item">
+                                    <div class="conversation-name">Arun Patel</div>
+                                    <div class="conversation-preview">Can you send the job description?</div>
+                                </div>
+
+                                <div class="conversation-item">
+                                    <div class="conversation-name">Neha Sharma</div>
+                                    <div class="conversation-preview">Thanks for the opportunity!</div>
+                                </div>
+                            </div>
+
+                            <div class="chat-panel">
+                                <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: var(--background);">
+                                    <h4 style="margin: 0; font-weight: 600;">Raj Kumar</h4>
+                                    <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">Online</p>
+                                </div>
+
+                                <div class="chat-messages">
+                                    <div class="message">
+                                        <div class="message-bubble">Hi! Are you interested in Java Developer role at TCS?</div>
+                                    </div>
+
+                                    <div class="message">
+                                        <div class="message-bubble">Yes! I'm very interested. What's the next step?</div>
+                                    </div>
+
+                                    <div class="message sent">
+                                        <div class="message-bubble">Great! When can you take a technical interview?</div>
+                                    </div>
+
+                                    <div class="message">
+                                        <div class="message-bubble">When can we schedule the interview?</div>
+                                    </div>
+                                </div>
+
+                                <div class="chat-input">
+                                    <input type="text" class="input-field" placeholder="Type a message...">
+                                    <button style="background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 6px; width: 40px; height: 40px; cursor: pointer; font-weight: 600; flex-shrink: 0;">➤</button>
+                                </div>
+                            </div>
+
+                            <div class="ai-suggestions hide-on-mobile">
+                                <div class="suggestion-title">🤖 AI Suggestions</div>
+                                <div class="suggestion-item">How does Tuesday at 2 PM sound?</div>
+                                <div class="suggestion-item">Schedule link: [calendar link]</div>
+                                <div class="suggestion-item">Let me check my calendar and get back to you</div>
+                                <div style="margin-top: 1.5rem;">
+                                    <div class="suggestion-title">Quick Templates</div>
+                                    <div class="suggestion-item">📋 Job Description</div>
+                                    <div class="suggestion-item">📅 Schedule Interview</div>
+                                    <div class="suggestion-item">🎯 Next Steps</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- INTERVIEW SCHEDULING -->
+        <section class="section" id="interviews">
+            <h2 class="section-title">7. INTERVIEW SCHEDULING PAGE</h2>
+            <p class="section-description">Calendar interface with interview slots, drag-and-drop scheduling, and Zoom/Meet integration.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar hide-on-mobile">
+                        <div class="sidebar-logo">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item active" href="#interviews">📅 Interviews</a>
+                            <a class="nav-item" href="#messaging">💬 Messages</a>
+                        </div>
+                    <div class="main-content">
+                        <div class="topbar">
+                            <h3 style="font-size: 1rem; margin: 0; flex: 1;">May 2026</h3>
+                            <div class="icon-placeholder" style="background: transparent; border: none;">◀</div>
+                            <div class="icon-placeholder" style="background: transparent; border: none;">▶</div>
+                        </div>
+                        
+                        <div class="page-content">
+                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+                                <div>
+                                    <h4 style="font-weight: 600; margin-bottom: 1rem;">Calendar View</h4>
+                                    <div class="calendar-grid">
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">MON</div>
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">TUE</div>
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">WED</div>
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">THU</div>
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">FRI</div>
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">SAT</div>
+                                        <div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.5rem;">SUN</div>
+                                        
+                                        <div class="calendar-day">21</div>
+                                        <div class="calendar-day">22</div>
+                                        <div class="calendar-day">23</div>
+                                        <div class="calendar-day">24</div>
+                                        <div class="calendar-day event">25</div>
+                                        <div class="calendar-day">26</div>
+                                        <div class="calendar-day">27</div>
+                                        
+                                        <div class="calendar-day">28</div>
+                                        <div class="calendar-day today">29</div>
+                                        <div class="calendar-day event">30</div>
+                                        <div class="calendar-day">31</div>
+                                        <div class="calendar-day" style="color: var(--border);">1</div>
+                                        <div class="calendar-day" style="color: var(--border);">2</div>
+                                        <div class="calendar-day" style="color: var(--border);">3</div>
+                                    </div>
+
+                                    <h4 style="font-weight: 600; margin-bottom: 1rem; margin-top: 2rem;">May 29 Schedule</h4>
+                                    <div class="schedule-slot">
+                                        <div class="slot-info">
+                                            <div class="slot-time">10:00 AM - 11:00 AM</div>
+                                            <div class="slot-candidate">Raj Kumar - Round 1</div>
+                                        </div>
+                                        <div class="slot-status">Scheduled</div>
+                                    </div>
+
+                                    <div class="schedule-slot">
+                                        <div class="slot-info">
+                                            <div class="slot-time">2:00 PM - 3:00 PM</div>
+                                            <div class="slot-candidate">Priya Singh - Final</div>
+                                        </div>
+                                        <div class="slot-status" style="background: var(--warning);">Pending</div>
+                                    </div>
+
+                                    <div class="schedule-slot">
+                                        <div class="slot-info">
+                                            <div class="slot-time">3:30 PM - 4:30 PM</div>
+                                            <div class="slot-candidate">Arun Patel - Round 1</div>
+                                        </div>
+                                        <div class="slot-status">Scheduled</div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 style="font-weight: 600; margin-bottom: 1rem;">Upcoming Interviews</h4>
+                                    <div class="card" style="margin-bottom: 1rem; cursor: default;">
+                                        <div style="font-weight: 600; margin-bottom: 0.5rem;">Raj Kumar</div>
+                                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">May 29 • 10:00 AM</div>
+                                        <button style="width: 100%; padding: 0.5rem; background: var(--primary); color: white; border: none; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 500;">Join Zoom</button>
+                                    </div>
+
+                                    <div class="card" style="margin-bottom: 1rem; cursor: default;">
+                                        <div style="font-weight: 600; margin-bottom: 0.5rem;">Priya Singh</div>
+                                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">May 29 • 2:00 PM</div>
+                                        <button style="width: 100%; padding: 0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 500;">Reschedule</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ANALYTICS -->
+        <section class="section" id="analytics">
+            <h2 class="section-title">8. ANALYTICS & INSIGHTS PAGE</h2>
+            <p class="section-description">Executive dashboard with recruiter performance, hiring funnel, source analysis, and placement metrics.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar hide-on-mobile">
+                        <div class="sidebar-logo">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item active" href="#analytics">📈 Analytics</a>
+                            <a class="nav-item" href="#messaging">💬 Messages</a>
+                        </div>
+                    <div class="main-content">
+                        <div class="topbar">
+                            <div class="search-bar">📊 Analytics Dashboard</div>
+                            <div class="icon-placeholder">📅 Date Range</div>
+                        </div>
+                        
+                        <div class="page-content">
+                            <h3 style="font-size: 1.3rem; margin-bottom: 1.5rem;">Analytics & Insights</h3>
+
+                            <div class="grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 2rem;">
+                                <div class="card">
+                                    <div class="card-title">Total Placements</div>
+                                    <div class="card-value">48</div>
+                                    <div class="card-meta">↑ 15% this month</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Conversion Rate</div>
+                                    <div class="card-value">32%</div>
+                                    <div class="card-meta negative">↓ 2% from last month</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Avg Time-to-Hire</div>
+                                    <div class="card-value">14</div>
+                                    <div class="card-meta">days</div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-title">Interview Success</div>
+                                    <div class="card-value">68%</div>
+                                    <div class="card-meta">↑ 8% improvement</div>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                                <div>
+                                    <h4 style="font-weight: 600; margin-bottom: 1rem;">Recruiter Performance</h4>
+                                    <div class="chart-placeholder">📊 Placements by Recruiter</div>
+                                </div>
+                                <div>
+                                    <h4 style="font-weight: 600; margin-bottom: 1rem;">Hiring Funnel</h4>
+                                    <div class="chart-placeholder">📊 Applied → Joined</div>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 1.5rem;">
+                                <h4 style="font-weight: 600; margin-bottom: 1rem;">Source-wise Conversion</h4>
+                                <div class="chart-placeholder">📊 Conversion by Source</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="section" id="settings">
+            <h2 class="section-title">9. SETTINGS PAGE</h2>
+            <p class="section-description">Team management, role configuration, integrations, and security settings.</p>
+            
+            <div class="wireframe">
+                <div class="wireframe-frame">
+                    <div class="sidebar hide-on-mobile">
+                        <div class="sidebar-logo">AIOS</div>
+                            <a class="nav-item" href="#dashboard">📊 Dashboard</a>
+                            <a class="nav-item" href="#pipeline">🎯 Pipeline</a>
+                            <a class="nav-item" href="#job-openings">💼 Jobs</a>
+                            <a class="nav-item active" href="#settings">⚙️ Settings</a>
+                        </div>
+                    <div class="main-content">
+                        <div class="topbar">
+                            <h3 style="font-size: 1rem; margin: 0;">Settings</h3>
+                        </div>
+                        
+                        <div class="page-content" style="display: grid; grid-template-columns: 200px 1fr; gap: 2rem;">
+                            <div>
+                                <div class="nav-item active" style="margin-bottom: 0.5rem;">👥 Team</div>
+                                <div class="nav-item" style="margin-bottom: 0.5rem;">🔑 API Keys</div>
+                                <div class="nav-item" style="margin-bottom: 0.5rem;">🤝 Integrations</div>
+                                <div class="nav-item" style="margin-bottom: 0.5rem;">🎨 Branding</div>
+                                <div class="nav-item" style="margin-bottom: 0.5rem;">🔐 Security</div>
+                            </div>
+
+                            <div>
+                                <h3 style="font-size: 1.1rem; margin-bottom: 1.5rem; font-weight: 700;">Team Management</h3>
+                                
+                                <div style="background: var(--background); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem;">
+                                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="font-weight: 600;">Anil Kumar</div>
+                                        <button style="padding: 0.35rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.8rem; cursor: pointer;">Edit</button>
+                                    </div>
+                                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="font-weight: 600;">Priya Verma</div>
+                                        <button style="padding: 0.35rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.8rem; cursor: pointer;">Edit</button>
+                                    </div>
+                                    <div style="padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="font-weight: 600;">Rohit Singh</div>
+                                        <button style="padding: 0.35rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.8rem; cursor: pointer;">Edit</button>
+                                    </div>
+                                </div>
+
+                                <button style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 2rem;">+ Add Team Member</button>
+
+                                <h4 style="font-weight: 600; margin-bottom: 1rem;">WhatsApp Integration</h4>
+                                <div class="card" style="cursor: default;">
+                                    <div style="font-weight: 600; margin-bottom: 0.75rem;">Connected Account</div>
+                                    <div style="font-size: 0.9rem; color: var(--success); margin-bottom: 1rem;">✓ Business Account: +91-9876543210</div>
+                                    <button style="width: 100%; padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 500;">Reconfigure</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- MOBILE WIREFRAMES -->
+        <section class="section" id="mobile">
+            <h2 class="section-title">10. MOBILE WIREFRAMES</h2>
+            <p class="section-description">Optimized mobile experiences for key workflows with swipe gestures and fast actions.</p>
+
+            <h3 style="font-size: 1.2rem; margin: 2rem 0 1.5rem 0; font-weight: 600;">Mobile Dashboard</h3>
+            <div class="mobile-grid">
+                <div class="mobile-frame">
+                    <div class="mobile-status-bar">
+                        <span>9:41</span>
+                        <span>📶</span>
+                    </div>
+                    <div class="mobile-content">
+                        <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 1.5rem;">Dashboard</div>
+                        <div class="card" style="margin-bottom: 1rem;">
+                            <div class="card-title">Total Candidates</div>
+                            <div class="card-value" style="font-size: 1.75rem;">1,240</div>
+                        </div>
+                        <div class="card" style="margin-bottom: 1rem;">
+                            <div class="card-title">Interviews Today</div>
+                            <div class="card-value" style="font-size: 1.75rem;">8</div>
+                        </div>
+                        <div class="card" style="margin-bottom: 1rem;">
+                            <div class="card-title">Pending Follow-ups</div>
+                            <div class="card-value" style="font-size: 1.75rem; color: var(--danger);">24</div>
+                        </div>
+                    </div>
+                    <div class="mobile-bottom-nav">
+                        <div class="nav-icon active">📊</div>
+                        <div class="nav-icon">🎯</div>
+                        <div class="nav-icon">💬</div>
+                        <div class="nav-icon">👤</div>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 2rem 0 1.5rem 0; font-weight: 600;">Mobile Pipeline (Kanban)</h3>
+            <div class="mobile-grid">
+                <div class="mobile-frame">
+                    <div class="mobile-status-bar">
+                        <span>9:41</span>
+                        <span>📶</span>
+                    </div>
+                    <div class="mobile-content">
+                        <div style="font-weight: 700; font-size: 1rem; margin-bottom: 0.75rem;">Java Developer</div>
+                        <div style="display: flex; gap: 0.5rem; overflow-x: auto; margin-bottom: 1rem; padding-bottom: 0.5rem;">
+                            <button style="padding: 0.4rem 0.8rem; background: var(--primary); color: white; border: none; border-radius: 4px; font-size: 0.8rem; white-space: nowrap;">Applied (12)</button>
+                            <button style="padding: 0.4rem 0.8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.8rem; white-space: nowrap;">Screening (8)</button>
+                        </div>
+                        <div class="candidate-card">
+                            <div class="candidate-name">Rajesh Patel</div>
+                            <div class="candidate-skills">
+                                <div class="skill-tag">Java</div>
+                                <div class="skill-tag">Spring</div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 0.75rem; font-size: 0.8rem;">
+                                <span>5 yrs</span>
+                                <span class="ai-score">8.2/10</span>
+                            </div>
+                        </div>
+                        <div class="candidate-card">
+                            <div class="candidate-name">Neha Sharma</div>
+                            <div class="candidate-skills">
+                                <div class="skill-tag">Java</div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 0.75rem; font-size: 0.8rem;">
+                                <span>4 yrs</span>
+                                <span class="ai-score">7.9/10</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mobile-bottom-nav">
+                        <div class="nav-icon">📊</div>
+                        <div class="nav-icon active">🎯</div>
+                        <div class="nav-icon">💬</div>
+                        <div class="nav-icon">👤</div>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 2rem 0 1.5rem 0; font-weight: 600;">Mobile WhatsApp Inbox</h3>
+            <div class="mobile-grid">
+                <div class="mobile-frame">
+                    <div class="mobile-status-bar">
+                        <span>9:41</span>
+                        <span>📶</span>
+                    </div>
+                    <div class="mobile-content" style="padding: 0; display: flex; flex-direction: column;">
+                        <div style="padding: 1rem; border-bottom: 1px solid var(--border);">
+                            <div style="font-weight: 700;">Raj Kumar</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">Online</div>
+                        </div>
+                        <div style="flex: 1; display: flex; flex-direction: column; padding: 1rem;">
+                            <div class="message">
+                                <div class="message-bubble">Are you interested?</div>
+                            </div>
+                            <div class="message sent" style="margin-top: auto;">
+                                <div class="message-bubble">Yes, definitely!</div>
+                            </div>
+                        </div>
+                        <div style="padding: 1rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem;">
+                            <input type="text" class="input-field" placeholder="Message..." style="margin: 0;">
+                            <button style="background: var(--primary); color: white; border: none; border-radius: 6px; width: 40px; height: 40px; cursor: pointer; flex-shrink: 0;">➤</button>
+                        </div>
+                    </div>
+                    <div class="mobile-bottom-nav">
+                        <div class="nav-icon">📊</div>
+                        <div class="nav-icon">🎯</div>
+                        <div class="nav-icon active">💬</div>
+                        <div class="nav-icon">👤</div>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 2rem 0 1.5rem 0; font-weight: 600;">Mobile Candidate Details</h3>
+            <div class="mobile-grid">
+                <div class="mobile-frame">
+                    <div class="mobile-status-bar">
+                        <span>9:41</span>
+                        <span>📶</span>
+                    </div>
+                    <div class="mobile-content">
+                        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, var(--primary), var(--secondary)); border-radius: 8px;"></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem;">Raj Kumar</div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">Java Dev • 5 yrs</div>
+                            </div>
+                        </div>
+
+                        <div class="tabs">
+                            <button class="tab active">Profile</button>
+                            <button class="tab">Experience</button>
+                            <button class="tab">Activity</button>
+                        </div>
+
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0.5rem;">AI Score</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">8.7</div>
+                        </div>
+
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem;">Skills</div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+                                <div class="skill-tag">Java</div>
+                                <div class="skill-tag">Spring</div>
+                                <div class="skill-tag">AWS</div>
+                                <div class="skill-tag">SQL</div>
+                            </div>
+                        </div>
+
+                        <button style="width: 100%; padding: 0.75rem; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">Schedule Interview</button>
+                    </div>
+                    <div class="mobile-bottom-nav">
+                        <div class="nav-icon">📊</div>
+                        <div class="nav-icon">🎯</div>
+                        <div class="nav-icon">💬</div>
+                        <div class="nav-icon active">👤</div>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 2rem 0 1.5rem 0; font-weight: 600;">Mobile Notifications</h3>
+            <div class="mobile-grid">
+                <div class="mobile-frame">
+                    <div class="mobile-status-bar">
+                        <span>9:41</span>
+                        <span>📶</span>
+                    </div>
+                    <div class="mobile-content">
+                        <div style="font-weight: 700; font-size: 1rem; margin-bottom: 1.5rem;">Notifications</div>
+                        <div class="card" style="margin-bottom: 0.75rem; border-left: 3px solid var(--danger);">
+                            <div class="card-title" style="color: var(--danger);">⚠️ Overdue Follow-up</div>
+                            <div style="font-size: 0.9rem;">Raj Kumar - No response in 7 days</div>
+                        </div>
+                        <div class="card" style="margin-bottom: 0.75rem; border-left: 3px solid var(--success);">
+                            <div class="card-title" style="color: var(--success);">✅ Interview Completed</div>
+                            <div style="font-size: 0.9rem;">Priya Singh qualified for next round</div>
+                        </div>
+                        <div class="card" style="margin-bottom: 0.75rem; border-left: 3px solid var(--primary);">
+                            <div class="card-title" style="color: var(--primary);">💬 New Message</div>
+                            <div style="font-size: 0.9rem;">Arun: When can we schedule?</div>
+                        </div>
+                    </div>
+                    <div class="mobile-bottom-nav">
+                        <div class="nav-icon">📊</div>
+                        <div class="nav-icon">🎯</div>
+                        <div class="nav-icon">💬</div>
+                        <div class="nav-icon active">👤</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FOOTER -->
+        <section class="section" style="border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 3rem;">
+            <div style="text-align: center; color: var(--text-secondary); font-size: 0.9rem;">
+                <p>AIOS Recruitment - Low-Fidelity Wireframes</p>
+                <p>Designed for modern recruitment agencies and staffing firms in India</p>
+                <p style="margin-top: 1rem; font-size: 0.85rem;">Version 1.0 • May 2026</p>
+            </div>
+        </section>
+    </div>
+</body>
+</html>
