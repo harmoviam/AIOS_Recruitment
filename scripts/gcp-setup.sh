@@ -7,8 +7,8 @@
 #   gcloud config set project aiosrecruitment
 #
 # Usage:
-#   ./scripts/gcp-setup.sh              # setup only
-#   AUTO_DEPLOY=1 ./scripts/gcp-setup.sh  # setup + build + deploy
+#   DB_PASSWORD='your-cloud-sql-app-user-password' ./scripts/gcp-setup.sh
+#   DB_PASSWORD='...' AUTO_DEPLOY=1 ./scripts/gcp-setup.sh  # setup + build + deploy
 
 set -euo pipefail
 
@@ -23,7 +23,9 @@ CLOUDSQL_CONNECTION="${DB_PROJECT_ID}:${REGION}:${CLOUDSQL_INSTANCE}"
 DB_SECRET="harmirecruit-db-url"
 JWT_SECRET="harmirecruit-jwt-secret"
 
-DB_URL='postgresql://app_user:Harmovia123@/harmoviajobs_courses_db?host=/cloudsql/harmoviajobs:us-central1:harmoviajobs-db-us1&schema=harmirecruit'
+DB_USER="${DB_USER:-app_user}"
+DB_PASSWORD="${DB_PASSWORD:?Set DB_PASSWORD to the Cloud SQL app_user password}"
+DB_URL="postgresql://${DB_USER}:${DB_PASSWORD}@/harmoviajobs_courses_db?host=/cloudsql/${CLOUDSQL_CONNECTION}&schema=harmirecruit"
 
 echo "=== HarmiRecruit GCP Setup (cross-project) ==="
 echo "App project:  ${APP_PROJECT_ID}"
@@ -132,7 +134,7 @@ echo "  CREATE SCHEMA IF NOT EXISTS harmirecruit;"
 echo "  GRANT ALL ON SCHEMA harmirecruit TO app_user;"
 echo "  ALTER DEFAULT PRIVILEGES IN SCHEMA harmirecruit GRANT ALL ON TABLES TO app_user;"
 echo ""
-echo "  DATABASE_URL='${DB_URL}' npm run db:init"
+echo "  DATABASE_URL='postgresql://${DB_USER}:****@/harmoviajobs_courses_db?host=/cloudsql/${CLOUDSQL_CONNECTION}&schema=harmirecruit' npm run db:init"
 echo ""
 
 DEPLOY="${AUTO_DEPLOY:-}"

@@ -39,7 +39,7 @@ Deploy AIOS Recruitment on **`aiosrecruitment`**, connecting cross-project to Cl
 ## Database connection
 
 ```bash
-DATABASE_URL=postgresql://app_user:Harmovia123@/harmoviajobs_courses_db?host=/cloudsql/harmoviajobs:us-central1:harmoviajobs-db-us1&schema=harmirecruit
+DATABASE_URL=postgresql://app_user:YOUR_PASSWORD@/harmoviajobs_courses_db?host=/cloudsql/harmoviajobs:us-central1:harmoviajobs-db-us1&schema=harmirecruit
 ```
 
 Schema is embedded in the URL (`&schema=harmirecruit`). Stored in Secret Manager (`aiosrecruitment`) as `harmirecruit-db-url`.
@@ -51,7 +51,7 @@ gcloud auth login
 gcloud config set project aiosrecruitment
 
 chmod +x scripts/gcp-setup.sh
-AUTO_DEPLOY=1 ./scripts/gcp-setup.sh   # setup + build + deploy
+DB_PASSWORD='your-cloud-sql-app-user-password' AUTO_DEPLOY=1 ./scripts/gcp-setup.sh
 ```
 
 The script:
@@ -65,7 +65,7 @@ The script:
 ```bash
 cloud-sql-proxy harmoviajobs:us-central1:harmoviajobs-db-us1 &
 
-DATABASE_URL="postgresql://app_user:Harmovia123@127.0.0.1:5432/harmoviajobs_courses_db?schema=harmirecruit" \
+DATABASE_URL="postgresql://app_user:YOUR_PASSWORD@127.0.0.1:5432/harmoviajobs_courses_db?schema=harmirecruit" \
 npm run db:init
 ```
 
