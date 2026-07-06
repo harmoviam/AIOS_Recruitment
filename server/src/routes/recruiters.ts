@@ -83,6 +83,8 @@ router.get('/my-workflow', async (req, res) => {
   ]);
 
   const totalCandidates = byStage.rows.reduce((s, r) => s + r.count, 0);
+  const selectedCount = byStage.rows.find((r) => r.stage === 'selected')?.count ?? 0;
+  const joinedCount = byStage.rows.find((r) => r.stage === 'joined')?.count ?? 0;
 
   res.json({
     kpis: {
@@ -91,6 +93,8 @@ router.get('/my-workflow', async (req, res) => {
       overdueFollowups: followUps.rows[0].overdue,
       interviewsToday: interviewsToday.rows[0].c,
       joiningsMtd: joiningsMtd.rows[0].c,
+      selected: selectedCount,
+      joined: joinedCount,
     },
     pipeline: byStage.rows,
     recentActivities: recentActivities.rows,

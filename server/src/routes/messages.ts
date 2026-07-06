@@ -7,6 +7,7 @@ import {
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
+import { sendWhatsAppText, whatsappMode } from '../services/whatsapp.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -85,12 +86,22 @@ router.post('/:candidateId', async (req, res) => {
     [candidateId, req.user!.name, content.trim()]
   );
 
+  // Deliver via WhatsApp Cloud API when configured (simulated otherwise)
+  const { rows: cand } = await pool.query('SELECT phone FROM candidates WHERE id = $1', [candidateId]);
+  const wa = await sendWhatsAppText(cand[0]?.phone ?? null, content.trim());
+  const waStatus = wa.simulated ? 'simulated' : wa.delivered ? 'sent' : 'failed';
+  if (wa.error) console.warn(`WhatsApp delivery failed for candidate ${candidateId}: ${wa.error}`);
+
   await pool.query(
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
-    ['message', `${req.user!.name} sent WhatsApp message`, req.user!.id, candidateId, tid(req)]
+    ['message', `${req.user!.name} sent WhatsApp message (${waStatus})`, req.user!.id, candidateId, tid(req)]
   );
 
-  res.status(201).json(rows[0]);
+  res.status(201).json({ ...rows[0], wa_status: waStatus, wa_error: wa.error });
+});
+
+router.get('/status/integration', async (_req, res) => {
+  res.json({ mode: whatsappMode() });
 });
 
 export default router;

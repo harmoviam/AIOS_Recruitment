@@ -1,11 +1,11 @@
 # Dependencies
 node_modules/
 server/node_modules/
-client/node_modules/
+client-v2/node_modules/
 
 # Build
 server/dist/
-client/dist/
+client-v2/dist/
 
 # Environment
 .env

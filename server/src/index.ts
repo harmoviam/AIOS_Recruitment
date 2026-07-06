@@ -20,6 +20,7 @@ import hiringManagerRoutes from './routes/hiringManagers.js';
 import recruiterRoutes from './routes/recruiters.js';
 import organizationRoutes from './routes/organization.js';
 import reportRoutes from './routes/reports.js';
+import whatsappWebhookRoutes from './routes/whatsappWebhook.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -45,6 +46,7 @@ app.use('/api/hiring-managers', hiringManagerRoutes);
 app.use('/api/recruiters', recruiterRoutes);
 app.use('/api/organization', organizationRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/whatsapp', whatsappWebhookRoutes); // unauthenticated — called by Meta's servers
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -52,16 +54,8 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
 
-app.get('/', (_req, res) => {
-  res.json({
-    name: 'AIOS Recruitment API',
-    health: '/api/health',
-    docs: 'Use the React app at http://localhost:5173 in development',
-  });
-});
-
 if (process.env.NODE_ENV === 'production') {
-  const clientDist = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../client/dist');
+  const clientDist = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../client-v2/dist');
   app.use(express.static(clientDist));
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api')) {
@@ -69,6 +63,14 @@ if (process.env.NODE_ENV === 'production') {
     }
     res.sendFile(path.join(clientDist, 'index.html'), (err) => {
       if (err) res.status(404).json({ error: 'Not found' });
+    });
+  });
+} else {
+  app.get('/', (_req, res) => {
+    res.json({
+      name: 'AIOS Recruitment API',
+      health: '/api/health',
+      docs: 'Use the React app at http://localhost:5174 in development',
     });
   });
 }

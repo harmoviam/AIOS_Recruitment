@@ -177,6 +177,7 @@ export async function initDb() {
     `);
 
     await migratePhase1Tables(client);
+    await migrateFollowUpEngine(client);
     await migrateMultiTenant(client);
     await ensureAllTenantsSeeded(client);
 
@@ -195,6 +196,22 @@ async function migratePhase1Tables(client: pg.PoolClient) {
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hm_notes TEXT`);
+}
+
+async function migrateFollowUpEngine(client: pg.PoolClient) {
+  // Candidate lifecycle fields used by the follow-up rules engine
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS joined_at TIMESTAMPTZ`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS offer_status TEXT`);
+  await client.query(`UPDATE candidates SET joined_at = updated_at WHERE stage = 'joined' AND joined_at IS NULL`);
+
+  // Rule metadata on follow-ups
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'manual'`);
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS outcome TEXT`);
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS interview_id INTEGER REFERENCES interviews(id) ON DELETE CASCADE`);
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS milestone_day INTEGER`);
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES follow_ups(id) ON DELETE SET NULL`);
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS escalated BOOLEAN NOT NULL DEFAULT FALSE`);
+  await client.query(`CREATE INDEX IF NOT EXISTS follow_ups_rule_idx ON follow_ups (tenant_id, candidate_id, category)`);
 }
 
 async function seedPhase1Extras(client: pg.PoolClient) {
@@ -403,6 +420,35 @@ async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
           ($1, 'branding', '{"companyName": "EarlyJobs", "primaryColor": "#EA580C"}')`,
         [ejId]
       );
+    }
+
+    const { rows: adminUser } = await client.query(
+      "SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@earlyjobs.com' LIMIT 1",
+      [ejId]
+    );
+    const ejAdminId = adminUser[0]?.id;
+    if (ejAdminId) {
+      const earlyJobs = [
+        ['Telecaller', 'VGM Consultants Limited', 'Noida'],
+        ['Telecaller- Mohali', 'VGM Consultants Limited', 'Mohali'],
+        ['Tele Sales Associate', 'VGM Consultants Limited', 'Mohali'],
+        ['Telemarketing Executive', 'VGM Consultants Limited', 'Mohali'],
+        ['Business Development Associate- Remote', 'VGM Consultants Limited', 'Remote'],
+        ['Virtual Relationship Manager', 'VGM Consultants Limited', 'Remote'],
+        ['Customer Care Executives for Voice process', 'VGM Consultants Limited', 'Mohali'],
+      ];
+      for (const [title, clientName, location] of earlyJobs) {
+        const exists = await client.query(
+          'SELECT id FROM jobs WHERE tenant_id = $1 AND title = $2 LIMIT 1',
+          [ejId, title]
+        );
+        if (exists.rows.length > 0) continue;
+        await client.query(
+          `INSERT INTO jobs (title, client, location, status, assigned_to, open_positions, description, tenant_id)
+           VALUES ($1, $2, $3, 'active', $4, 1, $5, $6)`,
+          [title, clientName, location, ejAdminId, `Open position: ${title}`, ejId]
+        );
+      }
     }
   }
 }

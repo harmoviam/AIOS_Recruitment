@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+client-v2/node_modules
+server/node_modules
+client-v2/dist
+server/dist
+.env
+.env.*
+!.env.example
+wireframes
+*.md
+docker-compose.yml
+.DS_Store

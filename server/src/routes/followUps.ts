@@ -7,6 +7,11 @@ import {
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
+import {
+  closeOpenFollowUps,
+  createNoResponseEscalation,
+  syncFollowUps,
+} from '../services/followUpEngine.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -31,14 +36,23 @@ function deriveStatus(dueAt: Date, status: string, completedAt: string | null): 
 }
 
 router.get('/', async (req, res) => {
-  const { status, assigned_to } = req.query;
+  const { status, assigned_to, category } = req.query;
+
+  // Lazily generate rule-based follow-ups (interview reminders, offer chase,
+  // onboarding milestones) so the center is always up to date.
+  await syncFollowUps(tid(req));
+
   const t = tenantClause(tid(req), 'f', 1);
   let sql = `
-    SELECT f.*, c.name AS candidate_name, j.title AS job_title, u.name AS assignee_name
+    SELECT f.*, c.name AS candidate_name, c.phone AS candidate_phone, c.email AS candidate_email,
+      c.stage AS candidate_stage, c.joined_at AS candidate_joined_at,
+      j.title AS job_title, u.name AS assignee_name,
+      i.scheduled_at AS interview_at, i.round_type AS interview_round
     FROM follow_ups f
     JOIN candidates c ON c.id = f.candidate_id AND c.tenant_id = f.tenant_id
     LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = f.tenant_id
     LEFT JOIN users u ON u.id = f.assigned_to
+    LEFT JOIN interviews i ON i.id = f.interview_id
     WHERE ${t.sql}
   `;
   const params: unknown[] = [t.param];
@@ -47,6 +61,11 @@ router.get('/', async (req, res) => {
   if (assigned_to) {
     sql += ` AND f.assigned_to = $${i++}`;
     params.push(Number(assigned_to));
+  }
+
+  if (category) {
+    sql += ` AND f.category = $${i++}`;
+    params.push(category);
   }
 
   if (req.user!.role === 'recruiter') {
@@ -77,11 +96,30 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/counts', async (req, res) => {
+  await syncFollowUps(tid(req));
+
   const t = tenantClause(tid(req), 'f', 1);
-  const { rows } = await pool.query(
-    `SELECT f.* FROM follow_ups f WHERE ${t.sql}`,
-    [t.param]
-  );
+  let sql = `
+    SELECT f.* FROM follow_ups f
+    JOIN candidates c ON c.id = f.candidate_id AND c.tenant_id = f.tenant_id
+    WHERE ${t.sql}
+  `;
+  const params: unknown[] = [t.param];
+  let i = t.nextIndex;
+
+  if (req.user!.role === 'recruiter') {
+    sql += ` AND c.recruiter_id = $${i++}`;
+    params.push(req.user!.id);
+  } else if (req.user!.role === 'hiring_manager') {
+    sql += ` AND c.recruiter_id IN (
+      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
+      AND (r.managed_by_id = $${i + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1}))
+    )`;
+    params.push(tid(req), req.user!.id);
+    i += 2;
+  }
+
+  const { rows } = await pool.query(sql, params);
   const counts = { today: 0, overdue: 0, upcoming: 0, completed: 0, missed: 0 };
   for (const r of rows) {
     const s = deriveStatus(r.due_at, r.status, r.completed_at);
@@ -100,8 +138,8 @@ router.post('/', async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, notes, ai_suggestion)
-     VALUES ($1, $2, $3, $4, $5, 'upcoming', $6, $7) RETURNING *`,
+    `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, notes, ai_suggestion, category)
+     VALUES ($1, $2, $3, $4, $5, 'upcoming', $6, $7, 'manual') RETURNING *`,
     [
       tid(req),
       candidate_id,
@@ -116,7 +154,15 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const { status, notes, due_at, completed } = req.body;
+  const { status, notes, due_at, completed, outcome, type } = req.body;
+
+  const { rows: existingRows } = await pool.query(
+    'SELECT * FROM follow_ups WHERE id = $1 AND tenant_id = $2',
+    [req.params.id, tid(req)]
+  );
+  const existing = existingRows[0];
+  if (!existing) return res.status(404).json({ error: 'Follow-up not found' });
+
   const updates: string[] = [];
   const params: unknown[] = [];
   let i = 1;
@@ -132,6 +178,14 @@ router.patch('/:id', async (req, res) => {
   if (due_at !== undefined) {
     updates.push(`due_at = $${i++}`);
     params.push(due_at);
+  }
+  if (type !== undefined) {
+    updates.push(`type = $${i++}`);
+    params.push(type);
+  }
+  if (outcome !== undefined) {
+    updates.push(`outcome = $${i++}`);
+    params.push(outcome);
   }
   if (completed) {
     updates.push(`status = $${i++}`);
@@ -150,7 +204,54 @@ router.patch('/:id', async (req, res) => {
     params
   );
   if (!rows[0]) return res.status(404).json({ error: 'Follow-up not found' });
-  res.json(rows[0]);
+  const updated = rows[0];
+
+  // ── Rule side-effects driven by the recorded outcome ──────────────
+  if (completed && outcome) {
+    // Rule C: candidate not picking calls the day before / day of interview
+    if (
+      outcome === 'no_answer' &&
+      ['interview_prep', 'interview_day', 'no_response'].includes(updated.category)
+    ) {
+      await createNoResponseEscalation(tid(req), updated);
+    }
+
+    // Rule B terminal answers: stop chasing, record why on the candidate
+    if (['not_interested', 'joined_elsewhere'].includes(outcome)) {
+      await pool.query(
+        'UPDATE candidates SET offer_status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3',
+        [outcome, updated.candidate_id, tid(req)]
+      );
+      await closeOpenFollowUps(
+        tid(req),
+        updated.candidate_id,
+        ['offer_followup', 'onboarding', 'no_response'],
+        'auto_closed'
+      );
+    }
+
+    // Rule D terminal answer: joined candidate left the company
+    if (outcome === 'left_company') {
+      await pool.query(
+        "UPDATE candidates SET offer_status = 'left_company', updated_at = NOW() WHERE id = $1 AND tenant_id = $2",
+        [updated.candidate_id, tid(req)]
+      );
+      await closeOpenFollowUps(tid(req), updated.candidate_id, ['onboarding'], 'auto_closed');
+    }
+
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      [
+        'follow_up',
+        `Follow-up (${updated.category}) completed — outcome: ${outcome}`,
+        req.user!.id,
+        updated.candidate_id,
+        tid(req),
+      ]
+    );
+  }
+
+  res.json(updated);
 });
 
 router.delete('/:id', async (req, res) => {

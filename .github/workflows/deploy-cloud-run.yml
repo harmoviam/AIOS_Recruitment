@@ -1,0 +1,113 @@
+name: Deploy HarmiRecruit (Cloud Run)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'cloudbuild.yaml'
+      - 'server/**'
+      - 'client-v2/**'
+      - '.github/workflows/deploy-cloud-run.yml'
+  workflow_dispatch:
+
+env:
+  REGION: us-central1
+  SERVICE_NAME: harmirecruit
+  # Cross-project: DB lives in harmoviajobs
+  DB_PROJECT_ID: harmoviajobs
+  CLOUDSQL_INSTANCE: harmoviajobs-db-us1
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set environment variables
+        id: env
+        env:
+          GCP_PROJECT_ID_SECRET: ${{ secrets.GCP_PROJECT_ID }}
+          GAR_REPO_SECRET: ${{ secrets.GAR_REPO }}
+          DB_PROJECT_ID_SECRET: ${{ secrets.DB_PROJECT_ID }}
+        run: |
+          PROJECT_ID="${GCP_PROJECT_ID_SECRET:-aiosrecruitment}"
+          DB_PROJECT="${DB_PROJECT_ID_SECRET:-harmoviajobs}"
+          GAR_REPO="${GAR_REPO_SECRET:-platform-repo}"
+          IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}/harmirecruit"
+          CLOUDSQL="${DB_PROJECT}:${{ env.REGION }}:${{ env.CLOUDSQL_INSTANCE }}"
+          echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
+          echo "DB_PROJECT_ID=${DB_PROJECT}" >> $GITHUB_ENV
+          echo "GAR_REPO=${GAR_REPO}" >> $GITHUB_ENV
+          echo "IMAGE=${IMAGE}" >> $GITHUB_ENV
+          echo "CLOUDSQL_CONNECTION=${CLOUDSQL}" >> $GITHUB_ENV
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker pull ${IMAGE}:latest || true
+          docker build \
+            --cache-from ${IMAGE}:latest \
+            -t ${IMAGE}:latest \
+            -t ${IMAGE}:${{ github.sha }} \
+            -f Dockerfile \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push ${IMAGE}:latest
+          docker push ${IMAGE}:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          SA_EMAIL="cloud-run-harmirecruit-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${IMAGE}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --project ${PROJECT_ID} \
+            --service-account "${SA_EMAIL}" \
+            --add-cloudsql-instances "${CLOUDSQL_CONNECTION}" \
+            --set-env-vars "NODE_ENV=production" \
+            --update-secrets "DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest" \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 120 \
+            --concurrency 80 \
+            --min-instances 0 \
+            --max-instances 10 \
+            --allow-unauthenticated \
+            --port 8080 \
+            --execution-environment gen2 \
+            --platform managed
+
+      - name: Deployment summary
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${PROJECT_ID} \
+            --format='value(status.url)')
+          echo "## HarmiRecruit deployed" >> $GITHUB_STEP_SUMMARY
+          echo "**App project:** ${PROJECT_ID}" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cloud SQL (cross-project):** ${CLOUDSQL_CONNECTION}" >> $GITHUB_STEP_SUMMARY
+          echo "**Schema:** harmirecruit" >> $GITHUB_STEP_SUMMARY

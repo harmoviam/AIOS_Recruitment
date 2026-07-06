@@ -29,6 +29,8 @@ router.get('/overview', async (req, res) => {
         (SELECT COUNT(*)::int FROM users WHERE tenant_id = $1 AND role = 'recruiter') AS recruiters,
         (SELECT COUNT(*)::int FROM candidates WHERE tenant_id = $1) AS candidates,
         (SELECT COUNT(*)::int FROM jobs WHERE tenant_id = $1 AND status = 'active') AS active_jobs,
+        (SELECT COUNT(*)::int FROM candidates WHERE tenant_id = $1 AND stage = 'selected') AS selected,
+        (SELECT COUNT(*)::int FROM candidates WHERE tenant_id = $1 AND stage = 'joined') AS joined,
         (SELECT COUNT(*)::int FROM candidates WHERE tenant_id = $1 AND stage = 'joined'
           AND updated_at >= DATE_TRUNC('month', NOW())) AS joinings_mtd`,
       [tenantId]

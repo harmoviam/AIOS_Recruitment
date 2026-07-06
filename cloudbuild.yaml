@@ -1,0 +1,43 @@
+# Cloud Build — AIOS Recruitment (HarmiRecruit)
+# Usage: gcloud builds submit --config=cloudbuild.yaml --project=harmoviajobs
+
+substitutions:
+  _IMAGE_TAG: 'latest'
+  _REGION: 'us-central1'
+  _GAR_REPO: 'platform-repo'
+  _SERVICE_NAME: 'harmirecruit'
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    env:
+      - 'DOCKER_BUILDKIT=1'
+    args:
+      - 'build'
+      - '--cache-from'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:latest'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:latest'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:$BUILD_ID'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}'
+
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:latest'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:$BUILD_ID'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1200s'

@@ -109,16 +109,24 @@ router.get('/export', async (req, res) => {
 });
 
 router.post('/import/validate', async (req, res) => {
-  const { rows: rowData } = req.body as { rows: Record<string, string>[] };
+  const { rows: rowData, default_job_id } = req.body as {
+    rows: Record<string, string>[];
+    default_job_id?: number;
+  };
   if (!Array.isArray(rowData) || rowData.length === 0) {
     return res.status(400).json({ error: 'rows array required' });
   }
 
   const tenantId = tid(req);
-  const { rows: existing } = await pool.query(
-    'SELECT email, phone FROM candidates WHERE tenant_id = $1',
-    [tenantId]
-  );
+  const defaultJobId = default_job_id ? Number(default_job_id) : null;
+  if (defaultJobId && !(await assertJobInTenant(defaultJobId, tenantId))) {
+    return res.status(400).json({ error: 'Invalid default job for this workspace' });
+  }
+
+  const [{ rows: existing }, { rows: jobs }] = await Promise.all([
+    pool.query('SELECT email, phone FROM candidates WHERE tenant_id = $1', [tenantId]),
+    pool.query('SELECT id, title FROM jobs WHERE tenant_id = $1', [tenantId]),
+  ]);
   const emails = new Set(existing.map((r) => r.email?.toLowerCase()).filter(Boolean));
   const phones = new Set(existing.map((r) => r.phone?.replace(/\s/g, '')).filter(Boolean));
 
@@ -133,32 +141,44 @@ router.post('/import/validate', async (req, res) => {
 
   rowData.forEach((row, idx) => {
     const rowNum = idx + 2;
-    const name = row.name || row.full_name || '';
-    const phone = row.phone || row.mobile || '';
-    const email = row.email || row.email_id || '';
+    const parsed = parseImportRow(row);
 
-    if (!name.trim()) {
-      issues.push({ row: rowNum, name, phone, issue: 'Missing name', severity: 'error' });
+    if (!parsed.name) {
+      issues.push({ row: rowNum, name: parsed.name, phone: parsed.phone, issue: 'Missing candidate name', severity: 'error' });
       return;
     }
-    if (!phone.trim() && !email.trim()) {
-      issues.push({ row: rowNum, name, phone, issue: 'Missing phone and email', severity: 'error' });
+    if (!parsed.phone) {
+      issues.push({ row: rowNum, name: parsed.name, phone: parsed.phone, issue: 'Missing candidate phone', severity: 'error' });
       return;
     }
-    const normPhone = phone.replace(/\s/g, '');
-    if (email && emails.has(email.toLowerCase())) {
-      issues.push({ row: rowNum, name, phone, issue: 'Duplicate email in database', severity: 'duplicate' });
+    const jobId = resolveJobId(jobs, parsed.job_title, defaultJobId);
+    if (!jobId) {
+      issues.push({
+        row: rowNum,
+        name: parsed.name,
+        phone: parsed.phone,
+        issue: parsed.job_title ? `Unknown job: ${parsed.job_title}` : 'Missing job title (or set default job)',
+        severity: 'error',
+      });
+      return;
+    }
+    const normPhone = parsed.phone.replace(/\s/g, '');
+    if (parsed.email && emails.has(parsed.email.toLowerCase())) {
+      issues.push({ row: rowNum, name: parsed.name, phone: parsed.phone, issue: 'Duplicate email in database', severity: 'duplicate' });
       return;
     }
     if (normPhone && phones.has(normPhone)) {
-      issues.push({ row: rowNum, name, phone, issue: 'Duplicate phone in database', severity: 'duplicate' });
+      issues.push({ row: rowNum, name: parsed.name, phone: parsed.phone, issue: 'Duplicate phone in database', severity: 'duplicate' });
       return;
     }
-    if (phone && !/^\+?[\d\s-]{10,}$/.test(phone)) {
-      issues.push({ row: rowNum, name, phone, issue: 'Invalid phone format', severity: 'warning' });
+    if (!/^\+?[\d\s-]{10,}$/.test(parsed.phone)) {
+      issues.push({ row: rowNum, name: parsed.name, phone: parsed.phone, issue: 'Invalid phone format', severity: 'warning' });
+    }
+    if (parsed.experience_years < 0) {
+      issues.push({ row: rowNum, name: parsed.name, phone: parsed.phone, issue: 'Invalid experience years', severity: 'warning' });
     }
     valid++;
-    if (email) emails.add(email.toLowerCase());
+    if (parsed.email) emails.add(parsed.email.toLowerCase());
     if (normPhone) phones.add(normPhone);
   });
 
@@ -166,44 +186,80 @@ router.post('/import/validate', async (req, res) => {
 });
 
 router.post('/import', async (req, res) => {
-  const { rows: rowData, skip_errors } = req.body as { rows: Record<string, string>[]; skip_errors?: boolean };
+  const { rows: rowData, skip_errors, default_job_id } = req.body as {
+    rows: Record<string, string>[];
+    skip_errors?: boolean;
+    default_job_id?: number;
+  };
   if (!Array.isArray(rowData)) return res.status(400).json({ error: 'rows array required' });
 
   const tenantId = tid(req);
   const recruiterId = req.user!.id;
+  const defaultJobId = default_job_id ? Number(default_job_id) : null;
+  if (defaultJobId && !(await assertJobInTenant(defaultJobId, tenantId))) {
+    return res.status(400).json({ error: 'Invalid default job for this workspace' });
+  }
+
+  const { rows: jobs } = await pool.query('SELECT id, title FROM jobs WHERE tenant_id = $1', [tenantId]);
+
   let imported = 0;
   let skipped = 0;
 
   for (const row of rowData) {
-    const name = (row.name || row.full_name || '').trim();
-    const phone = row.phone || row.mobile || null;
-    const email = row.email || row.email_id || null;
-    if (!name) {
+    const parsed = parseImportRow(row);
+    if (!parsed.name || !parsed.phone) {
       skipped++;
       continue;
     }
-    if (!phone && !email) {
+
+    const jobId = resolveJobId(jobs, parsed.job_title, defaultJobId);
+    if (!jobId) {
       if (skip_errors) {
         skipped++;
         continue;
       }
-      return res.status(400).json({ error: `Row missing contact info: ${name}` });
+      return res.status(400).json({ error: `Row missing job: ${parsed.name}` });
     }
 
     const dup = await pool.query(
       'SELECT id FROM candidates WHERE tenant_id = $1 AND (email = $2 OR phone = $3) LIMIT 1',
-      [tenantId, email, phone]
+      [tenantId, parsed.email || null, parsed.phone]
     );
     if (dup.rows[0]) {
       skipped++;
       continue;
     }
 
-    await pool.query(
-      `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, recruiter_id, tenant_id, source)
-       VALUES ($1, $2, $3, '[]'::jsonb, 0, 5, 'applied', $4, $5, 'import')`,
-      [name, email, phone, recruiterId, tenantId]
+    const ai_score = computeAiScore(parsed.skills, parsed.experience_years);
+    const createdAt = parsed.applied_at || new Date().toISOString();
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, job_id, recruiter_id, notes, salary_expectation, tenant_id, source, created_at, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, 'import', $13, $13) RETURNING id`,
+      [
+        parsed.name,
+        parsed.email || null,
+        parsed.phone,
+        JSON.stringify(parsed.skills),
+        parsed.experience_years,
+        ai_score,
+        parsed.stage,
+        jobId,
+        recruiterId,
+        parsed.notes || null,
+        parsed.salary_expectation || null,
+        tenantId,
+        createdAt,
+      ]
     );
+
+    if (parsed.interview_at) {
+      await pool.query(
+        `INSERT INTO interviews (candidate_id, scheduled_at, duration_minutes, round_type, status)
+         VALUES ($1, $2, 60, 'Screening', 'pending')`,
+        [inserted[0].id, parsed.interview_at]
+      );
+    }
+
     imported++;
   }
 
@@ -227,6 +283,12 @@ router.patch('/bulk', async (req, res) => {
   if (stage) {
     updates.push(`stage = $${i++}`);
     params.push(stage);
+    if (stage === 'joined') {
+      updates.push('joined_at = COALESCE(joined_at, NOW())');
+      updates.push('offer_status = NULL');
+    } else if (stage === 'selected') {
+      updates.push('offer_status = NULL');
+    }
   }
   if (recruiter_id !== undefined) {
     updates.push(`recruiter_id = $${i++}`);
@@ -375,6 +437,13 @@ router.patch('/:id', async (req, res) => {
     if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Invalid stage' });
     updates.push(`stage = $${i++}`);
     params.push(stage);
+    // Follow-up engine lifecycle hooks
+    if (stage === 'joined') {
+      updates.push('joined_at = COALESCE(joined_at, NOW())');
+      updates.push('offer_status = NULL');
+    } else if (stage === 'selected') {
+      updates.push('offer_status = NULL');
+    }
   }
   if (notes !== undefined) {
     updates.push(`notes = $${i++}`);
@@ -436,6 +505,115 @@ router.delete('/:id', async (req, res) => {
   if (!rowCount) return res.status(404).json({ error: 'Candidate not found' });
   res.status(204).send();
 });
+
+function parseImportRow(row: Record<string, string>) {
+  const name = (
+    row.candidateName ||
+    row.candidatename ||
+    row.name ||
+    row.full_name ||
+    ''
+  ).trim();
+  const phone = (
+    row.candidatePhone ||
+    row.candidatephone ||
+    row.phone ||
+    row.mobile ||
+    ''
+  ).trim();
+  const email = (
+    row.candidateEmail ||
+    row.candidateemail ||
+    row.email ||
+    row.email_id ||
+    ''
+  ).trim();
+  const job_title = (row.jobTitle || row.job_title || row.job || row.position || '').trim();
+  const companyName = (row.companyName || row.companyname || '').trim();
+  const location = (row.location || '').trim();
+  const currentStatus = (row.currentStatus || row.currentstatus || '').trim();
+  const sourcedBy = (row.sourcedBy || row.sourcedby || '').trim();
+  const sourcedByPhone = (row.sourcedByPhone || row.sourcedbyphone || '').trim();
+  const lvl1Name = (row.lvl1managerName || row.lvl1manager || '').trim();
+  const lvl1Phone = (row.lvl1managerPhone || '').trim();
+  const lvl2Name = (row.lvl2managerName || row.lvl2manager || '').trim();
+  const lvl2Phone = (row.lvl2managerPhone || '').trim();
+  const appliedOn = (row.appliedOn || row.appliedon || '').trim();
+  const interviewDate = (row.interviewDate || row.interviewdate || '').trim();
+
+  const expRaw = (row.experience_years || row.experience || row.exp || '0').trim();
+  const experience_years = parseFloat(expRaw) || 0;
+  const skillsRaw = (row.skills || row.skill || '').trim();
+  const skills = skillsRaw
+    ? skillsRaw.split(/[,;|]/).map((s) => s.trim()).filter(Boolean)
+    : [];
+  const salary_expectation = (row.salary_expectation || row.salary || row.expected_salary || '').trim();
+
+  const noteLines: string[] = [];
+  if (companyName) noteLines.push(`Company: ${companyName}`);
+  if (location) noteLines.push(`Location: ${location}`);
+  if (currentStatus) noteLines.push(`Status: ${currentStatus}`);
+  if (sourcedBy) {
+    noteLines.push(`Sourced by: ${sourcedBy}${sourcedByPhone ? ` (${sourcedByPhone})` : ''}`);
+  }
+  if (lvl1Name) {
+    noteLines.push(`L1 Manager: ${lvl1Name}${lvl1Phone ? ` (${lvl1Phone})` : ''}`);
+  }
+  if (lvl2Name) {
+    noteLines.push(`L2 Manager: ${lvl2Name}${lvl2Phone ? ` (${lvl2Phone})` : ''}`);
+  }
+  if (appliedOn) noteLines.push(`Applied on: ${appliedOn}`);
+  const explicitNotes = (row.notes || row.note || '').trim();
+  const notes = noteLines.length ? noteLines.join('\n') : explicitNotes;
+
+  return {
+    name,
+    phone,
+    email,
+    job_title,
+    experience_years,
+    skills,
+    notes,
+    salary_expectation,
+    stage: mapImportStatusToStage(currentStatus),
+    interview_at: parseImportDate(interviewDate),
+    applied_at: parseImportDate(appliedOn),
+  };
+}
+
+function mapImportStatusToStage(status: string): string {
+  const s = status.toLowerCase();
+  if (s.includes('interview')) return 'interview';
+  if (s.includes('screen')) return 'screening';
+  if (s.includes('select')) return 'selected';
+  if (s.includes('reject')) return 'rejected';
+  if (s.includes('join')) return 'joined';
+  return 'applied';
+}
+
+function parseImportDate(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function resolveJobId(
+  jobs: { id: number; title: string }[],
+  jobTitle: string,
+  defaultJobId: number | null
+): number | null {
+  if (jobTitle) {
+    const lower = jobTitle.toLowerCase();
+    const exact = jobs.find((j) => j.title.toLowerCase() === lower);
+    if (exact) return exact.id;
+    const partial = jobs.find(
+      (j) =>
+        j.title.toLowerCase().includes(lower) || lower.includes(j.title.toLowerCase())
+    );
+    if (partial) return partial.id;
+  }
+  return defaultJobId;
+}
 
 function computeAiScore(skills: string[], years: number): number {
   const base = Math.min(10, 5 + years * 0.4 + skills.length * 0.3);

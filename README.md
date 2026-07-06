@@ -43,8 +43,8 @@ npm run db:init
 npm run dev
 ```
 
-- **Frontend:** http://localhost:5173
-- **API:** http://localhost:3001
+- **Frontend:** http://localhost:5174
+- **API:** http://localhost:3010
 
 ### Demo login
 
@@ -77,7 +77,7 @@ Each workspace has isolated candidates, jobs, settings, and users. API requests 
 ## Project structure
 
 ```
-├── client/          React app
+├── client-v2/       React app
 ├── server/          Express API
 ├── wireframes/      Original design mockups (reference)
 └── docker-compose.yml
@@ -90,4 +90,8 @@ npm run build
 NODE_ENV=production npm start
 ```
 
-Serves the built React app from Express on port 3001.
+Serves the built React app from Express on port 3010.
+
+## Cloud deployment (GCP)
+
+Deploys to **Cloud Run** on the shared `harmoviajobs` GCP project, reusing the existing Cloud SQL instance with schema `harmirecruit`. See [DEPLOYMENT.md](./DEPLOYMENT.md) for setup, cost breakdown, and CI/CD.
