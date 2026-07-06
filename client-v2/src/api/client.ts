@@ -105,7 +105,7 @@ export const api = {
   updateCandidate: (id: number, data: Partial<import('../types').Candidate>) =>
     request<import('../types').Candidate>(`/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteCandidate: (id: number) => request<void>(`/candidates/${id}`, { method: 'DELETE' }),
-  bulkUpdateCandidates: (ids: number[], data: { stage?: string; recruiter_id?: number }) =>
+  bulkUpdateCandidates: (ids: number[], data: { stage?: string; offer_status?: string; recruiter_id?: number }) =>
     request<{ updated: number }>('/candidates/bulk', { method: 'PATCH', body: JSON.stringify({ ids, ...data }) }),
   exportCandidates: (params?: Record<string, string>) => {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -154,6 +154,8 @@ export const api = {
     request<{ suggestions: string[] }>(`/messages/${candidateId}/suggestions`),
 
   getActivities: () => request<import('../types').Activity[]>('/activities'),
+  getNotifications: () =>
+    request<{ count: number; items: import('../types').NotificationItem[] }>('/notifications'),
   getAnalytics: () => request<Record<string, unknown>>('/analytics'),
 
   getFollowUps: (params?: Record<string, string>) => {

@@ -10,21 +10,51 @@ router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
 
+/** Match candidate list scoping — recruiters/HMs only see their own team's counts. */
+function candidateScopeSql(req: Request, paramStart: number) {
+  const role = req.user!.role;
+  if (role === 'recruiter') {
+    return {
+      sql: ` AND c.recruiter_id = $${paramStart}`,
+      params: [req.user!.id] as unknown[],
+      nextIndex: paramStart + 1,
+    };
+  }
+  if (role === 'hiring_manager') {
+    return {
+      sql: ` AND c.recruiter_id IN (
+        SELECT r.id FROM users r WHERE r.tenant_id = $${paramStart} AND r.role = 'recruiter'
+        AND (r.managed_by_id = $${paramStart + 1}
+          OR r.company_id = (SELECT company_id FROM users WHERE id = $${paramStart + 1}))
+      )`,
+      params: [tid(req), req.user!.id] as unknown[],
+      nextIndex: paramStart + 2,
+    };
+  }
+  return { sql: '', params: [] as unknown[], nextIndex: paramStart };
+}
+
 router.get('/', async (req, res) => {
   const t = tenantClause(tid(req), 'j', 1);
+  const scope = candidateScopeSql(req, t.nextIndex);
+  const params = [t.param, ...scope.params];
+
   const { rows } = await pool.query(
     `SELECT j.*, u.name AS assigned_name,
-      (SELECT COUNT(*)::int FROM candidates c WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id) AS pipeline_count,
-      (SELECT ROUND(AVG(c.ai_score)::numeric, 1) FROM candidates c WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id) AS avg_ai_score
+      (SELECT COUNT(*)::int FROM candidates c
+         WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id${scope.sql}) AS pipeline_count,
+      (SELECT ROUND(AVG(c.ai_score)::numeric, 1) FROM candidates c
+         WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id${scope.sql}) AS avg_ai_score
     FROM jobs j
     LEFT JOIN users u ON j.assigned_to = u.id AND u.tenant_id = j.tenant_id
     WHERE ${t.sql}
     ORDER BY j.created_at DESC`,
-    [t.param]
+    params
   );
 
   const jobs = rows.map((j) => ({
     ...j,
+    pipeline_count: Number(j.pipeline_count) || 0,
     match_percent: j.avg_ai_score ? Math.min(99, Math.round(Number(j.avg_ai_score) * 10)) : 0,
   }));
   res.json(jobs);

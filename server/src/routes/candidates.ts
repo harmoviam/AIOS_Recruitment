@@ -8,6 +8,8 @@ import {
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
+import { promoteToInterviewStage } from '../services/candidateStage.js';
+import { closeOpenFollowUps, onCandidateJoined } from '../services/followUpEngine.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -15,13 +17,19 @@ router.use(tenantMiddleware);
 router.use(requireTenant);
 
 const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
+const OFFER_STATUSES = ['screening_rejected', 'offer_rejected', 'not_interested', 'joined_elsewhere', 'left_company'];
 const tid = (req: Request) => req.tenant!.id;
 
 router.get('/', async (req, res) => {
-  const { job_id, stage, search } = req.query;
+  const { job_id, stage, search, recruiter_id, scope, hot } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
-    SELECT c.*, j.title AS job_title, u.name AS recruiter_name
+    SELECT c.*, j.title AS job_title, u.name AS recruiter_name,
+      COALESCE(
+        (SELECT MIN(iv.scheduled_at) FROM interviews iv
+         WHERE iv.candidate_id = c.id AND iv.scheduled_at >= NOW() AND iv.status <> 'cancelled'),
+        (SELECT MAX(iv.scheduled_at) FROM interviews iv WHERE iv.candidate_id = c.id)
+      ) AS interview_date
     FROM candidates c
     LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
     LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
@@ -43,17 +51,41 @@ router.get('/', async (req, res) => {
     params.push(`%${search}%`);
     i++;
   }
+  if (hot === 'true') {
+    sql += ' AND c.is_hot = TRUE';
+  }
 
   if (req.user!.role === 'recruiter') {
     sql += ` AND c.recruiter_id = $${i++}`;
     params.push(req.user!.id);
   } else if (req.user!.role === 'hiring_manager') {
-    sql += ` AND c.recruiter_id IN (
+    // HMs manage their team's candidates and can also own candidates themselves.
+    // scope=my   -> only candidates the HM personally owns (recruiter_id = HM)
+    // scope=team -> only the team's candidates (managed recruiters)
+    // (default)  -> HM's own candidates + all managed recruiters' candidates
+    const teamClause = `c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
       AND (r.managed_by_id = $${i + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1}))
     )`;
-    params.push(tid(req), req.user!.id);
-    i += 2;
+    if (scope === 'my') {
+      sql += ` AND c.recruiter_id = $${i}`;
+      params.push(req.user!.id);
+      i += 1;
+    } else if (scope === 'team') {
+      sql += ` AND (${teamClause})`;
+      params.push(tid(req), req.user!.id);
+      i += 2;
+    } else {
+      sql += ` AND (c.recruiter_id = $${i + 2} OR ${teamClause})`;
+      params.push(tid(req), req.user!.id, req.user!.id);
+      i += 3;
+    }
+  }
+
+  // Filter down to a specific recruiter (used by HM/admin recruiter dropdown).
+  if (recruiter_id) {
+    sql += ` AND c.recruiter_id = $${i++}`;
+    params.push(Number(recruiter_id));
   }
 
   sql += ' ORDER BY c.updated_at DESC';
@@ -63,7 +95,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/export', async (req, res) => {
-  const { job_id, stage, search, ids } = req.query;
+  const { job_id, stage, search, ids, recruiter_id, scope } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.name, c.email, c.phone, c.stage, j.title AS job_title, u.name AS recruiter_name, c.ai_score, c.updated_at
@@ -93,7 +125,37 @@ router.get('/export', async (req, res) => {
   if (search) {
     sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
     params.push(`%${search}%`);
+    i++;
   }
+
+  if (req.user!.role === 'recruiter') {
+    sql += ` AND c.recruiter_id = $${i++}`;
+    params.push(req.user!.id);
+  } else if (req.user!.role === 'hiring_manager') {
+    const teamClause = `c.recruiter_id IN (
+      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
+      AND (r.managed_by_id = $${i + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1}))
+    )`;
+    if (scope === 'my') {
+      sql += ` AND c.recruiter_id = $${i}`;
+      params.push(req.user!.id);
+      i += 1;
+    } else if (scope === 'team') {
+      sql += ` AND (${teamClause})`;
+      params.push(tid(req), req.user!.id);
+      i += 2;
+    } else {
+      sql += ` AND (c.recruiter_id = $${i + 2} OR ${teamClause})`;
+      params.push(tid(req), req.user!.id, req.user!.id);
+      i += 3;
+    }
+  }
+
+  if (recruiter_id) {
+    sql += ` AND c.recruiter_id = $${i++}`;
+    params.push(Number(recruiter_id));
+  }
+
   sql += ' ORDER BY c.updated_at DESC';
 
   const { rows } = await pool.query(sql, params);
@@ -258,6 +320,7 @@ router.post('/import', async (req, res) => {
          VALUES ($1, $2, 60, 'Screening', 'pending')`,
         [inserted[0].id, parsed.interview_at]
       );
+      await promoteToInterviewStage(inserted[0].id, tenantId);
     }
 
     imported++;
@@ -267,14 +330,17 @@ router.post('/import', async (req, res) => {
 });
 
 router.patch('/bulk', async (req, res) => {
-  const { ids, stage, recruiter_id } = req.body;
+  const { ids, stage, recruiter_id, offer_status } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array required' });
   }
-  if (!stage && recruiter_id === undefined) {
-    return res.status(400).json({ error: 'stage or recruiter_id required' });
+  if (!stage && recruiter_id === undefined && offer_status === undefined) {
+    return res.status(400).json({ error: 'stage, offer_status or recruiter_id required' });
   }
   if (stage && !STAGES.includes(stage)) return res.status(400).json({ error: 'Invalid stage' });
+  if (offer_status && !OFFER_STATUSES.includes(offer_status)) {
+    return res.status(400).json({ error: 'Invalid offer_status' });
+  }
 
   const updates: string[] = ['updated_at = NOW()'];
   const params: unknown[] = [];
@@ -286,9 +352,13 @@ router.patch('/bulk', async (req, res) => {
     if (stage === 'joined') {
       updates.push('joined_at = COALESCE(joined_at, NOW())');
       updates.push('offer_status = NULL');
-    } else if (stage === 'selected') {
+    } else if (stage === 'selected' || stage === 'screening') {
       updates.push('offer_status = NULL');
     }
+  }
+  if (offer_status !== undefined) {
+    updates.push(`offer_status = $${i++}`);
+    params.push(offer_status);
   }
   if (recruiter_id !== undefined) {
     updates.push(`recruiter_id = $${i++}`);
@@ -301,12 +371,27 @@ router.patch('/bulk', async (req, res) => {
     params
   );
 
-  if (stage) {
-    for (const id of ids) {
+  for (const id of ids) {
+    if (stage) {
       await pool.query(
         'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
         ['pipeline', `Bulk update to ${stage}`, req.user!.id, id, tid(req)]
       );
+      if (stage === 'joined') {
+        await onCandidateJoined(tid(req), id);
+      }
+    }
+    if (offer_status) {
+      await pool.query(
+        'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+        ['pipeline', `Offer outcome: ${offer_status.replace(/_/g, ' ')}`, req.user!.id, id, tid(req)]
+      );
+      if (['offer_rejected', 'not_interested', 'joined_elsewhere'].includes(offer_status)) {
+        await closeOpenFollowUps(tid(req), id, ['offer_followup', 'no_response'], 'auto_closed');
+      }
+      if (offer_status === 'left_company') {
+        await closeOpenFollowUps(tid(req), id, ['onboarding'], 'auto_closed');
+      }
     }
   }
 
@@ -321,23 +406,38 @@ router.get('/:id/timeline', async (req, res) => {
 
   const [activities, messages, interviews, followUps] = await Promise.all([
     pool.query(
-      `SELECT id, type, description, created_at, 'activity' AS source FROM activities
-       WHERE candidate_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`,
+      `SELECT a.id, a.type, a.description, a.created_at, 'activity' AS source, u.name AS actor_name
+       FROM activities a
+       LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.candidate_id = $1 AND a.tenant_id = $2
+       ORDER BY a.created_at DESC`,
       [candidateId, tid(req)]
     ),
     pool.query(
-      `SELECT id, sender, content, sent_at AS created_at, 'message' AS source FROM messages
-       WHERE candidate_id = $1 ORDER BY sent_at DESC`,
+      `SELECT m.id, m.sender, m.content, m.sent_at AS created_at, 'message' AS source,
+              CASE WHEN m.is_outgoing THEN m.sender END AS actor_name,
+              m.is_outgoing
+       FROM messages m
+       WHERE m.candidate_id = $1
+       ORDER BY m.sent_at DESC`,
       [candidateId]
     ),
     pool.query(
-      `SELECT id, round_type AS description, scheduled_at AS created_at, status, 'interview' AS source FROM interviews
-       WHERE candidate_id = $1 ORDER BY scheduled_at DESC`,
+      `SELECT i.id, i.round_type AS description, i.scheduled_at AS created_at, i.status, 'interview' AS source,
+              u.name AS actor_name
+       FROM interviews i
+       LEFT JOIN users u ON u.id = i.created_by
+       WHERE i.candidate_id = $1
+       ORDER BY i.scheduled_at DESC`,
       [candidateId]
     ),
     pool.query(
-      `SELECT id, type AS description, due_at AS created_at, status, 'follow_up' AS source FROM follow_ups
-       WHERE candidate_id = $1 AND tenant_id = $2 ORDER BY due_at DESC`,
+      `SELECT f.id, f.type AS description, f.due_at AS created_at, f.status, 'follow_up' AS source,
+              u.name AS actor_name
+       FROM follow_ups f
+       LEFT JOIN users u ON u.id = f.assigned_to
+       WHERE f.candidate_id = $1 AND f.tenant_id = $2
+       ORDER BY f.due_at DESC`,
       [candidateId, tid(req)]
     ),
   ]);
@@ -421,7 +521,7 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const { stage, notes, skills, experience_years, salary_expectation, recruiter_id, job_id } = req.body;
+  const { stage, notes, skills, experience_years, salary_expectation, recruiter_id, job_id, offer_status, is_hot, expected_joining_at } = req.body;
 
   const { rows: existing } = await pool.query(
     'SELECT id, name FROM candidates WHERE id = $1 AND tenant_id = $2',
@@ -441,9 +541,16 @@ router.patch('/:id', async (req, res) => {
     if (stage === 'joined') {
       updates.push('joined_at = COALESCE(joined_at, NOW())');
       updates.push('offer_status = NULL');
-    } else if (stage === 'selected') {
+    } else if (stage === 'selected' || stage === 'screening') {
       updates.push('offer_status = NULL');
     }
+  }
+  if (offer_status !== undefined) {
+    if (offer_status !== null && !OFFER_STATUSES.includes(offer_status)) {
+      return res.status(400).json({ error: 'Invalid offer_status' });
+    }
+    updates.push(`offer_status = $${i++}`);
+    params.push(offer_status);
   }
   if (notes !== undefined) {
     updates.push(`notes = $${i++}`);
@@ -467,12 +574,23 @@ router.patch('/:id', async (req, res) => {
     updates.push(`recruiter_id = $${i++}`);
     params.push(recruiter_id);
   }
+  if (is_hot !== undefined) {
+    updates.push(`is_hot = $${i++}`);
+    params.push(Boolean(is_hot));
+  }
   if (job_id !== undefined) {
     if (job_id && !(await assertJobInTenant(Number(job_id), tid(req)))) {
       return res.status(400).json({ error: 'Invalid job for this workspace' });
     }
     updates.push(`job_id = $${i++}`);
     params.push(job_id);
+  }
+  if (expected_joining_at !== undefined) {
+    if (expected_joining_at !== null && Number.isNaN(Date.parse(expected_joining_at))) {
+      return res.status(400).json({ error: 'Invalid expected_joining_at' });
+    }
+    updates.push(`expected_joining_at = $${i++}`);
+    params.push(expected_joining_at);
   }
 
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
@@ -492,6 +610,55 @@ router.patch('/:id', async (req, res) => {
       'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
       ['pipeline', `${rows[0].name} moved to ${stage}`, req.user!.id, rows[0].id, tid(req)]
     );
+    if (stage === 'joined') {
+      await onCandidateJoined(tid(req), rows[0].id);
+    }
+  }
+  if (expected_joining_at !== undefined) {
+    // Drop pending joining-date milestones so the follow-up engine regenerates
+    // them from the new date on the next sync.
+    await pool.query(
+      `DELETE FROM follow_ups
+       WHERE tenant_id = $1 AND candidate_id = $2 AND category = 'offer_followup'
+         AND milestone_day IS NOT NULL AND completed_at IS NULL AND status NOT IN ('completed', 'missed')`,
+      [tid(req), rows[0].id]
+    );
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      [
+        'pipeline',
+        expected_joining_at
+          ? `${rows[0].name} — expected joining date set to ${new Date(expected_joining_at).toLocaleDateString()}`
+          : `${rows[0].name} — expected joining date cleared`,
+        req.user!.id,
+        rows[0].id,
+        tid(req),
+      ]
+    );
+  }
+  if (is_hot !== undefined) {
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      [
+        'hot_candidate',
+        is_hot ? `${rows[0].name} marked as hot candidate 🔥` : `${rows[0].name} unmarked as hot candidate`,
+        req.user!.id,
+        rows[0].id,
+        tid(req),
+      ]
+    );
+  }
+  if (offer_status) {
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      ['pipeline', `${rows[0].name} — offer outcome: ${offer_status.replace(/_/g, ' ')}`, req.user!.id, rows[0].id, tid(req)]
+    );
+    if (['offer_rejected', 'not_interested', 'joined_elsewhere'].includes(offer_status)) {
+      await closeOpenFollowUps(tid(req), rows[0].id, ['offer_followup', 'no_response'], 'auto_closed');
+    }
+    if (offer_status === 'left_company') {
+      await closeOpenFollowUps(tid(req), rows[0].id, ['onboarding'], 'auto_closed');
+    }
   }
 
   res.json(rows[0]);

@@ -184,8 +184,59 @@ export async function initDb() {
     const { rows: candRows } = await client.query('SELECT COUNT(*)::int AS c FROM candidates');
     if (candRows[0].c === 0) await seedDb(client);
     else await seedPhase1Extras(client);
+
+    await ensureTodayInterviews(client);
   } finally {
     client.release();
+  }
+}
+
+/** Keep demo dashboards useful — ensure each tenant has interviews on the current date. */
+async function ensureTodayInterviews(client: pg.PoolClient) {
+  const { rows: tenants } = await client.query(
+    "SELECT id FROM tenants WHERE status IN ('active', 'trial')"
+  );
+
+  const slots = [
+    { h: 10, m: 0, round: 'Technical', status: 'confirmed' },
+    { h: 14, m: 0, round: 'HR Round', status: 'pending' },
+    { h: 16, m: 30, round: 'Final', status: 'confirmed' },
+  ];
+
+  for (const { id: tenantId } of tenants) {
+    const { rows: todayCount } = await client.query(
+      `SELECT COUNT(*)::int AS c FROM interviews i
+       JOIN candidates c ON c.id = i.candidate_id
+       WHERE c.tenant_id = $1 AND i.scheduled_at::date = CURRENT_DATE`,
+      [tenantId]
+    );
+    if (todayCount[0].c > 0) continue;
+
+    const { rows: cands } = await client.query(
+      `SELECT DISTINCT ON (c.recruiter_id) c.id
+       FROM candidates c
+       WHERE c.tenant_id = $1
+         AND c.recruiter_id IS NOT NULL
+         AND c.stage IN ('interview', 'screening', 'selected')
+       ORDER BY c.recruiter_id, c.updated_at DESC
+       LIMIT $2`,
+      [tenantId, slots.length]
+    );
+    if (cands.length === 0) continue;
+
+    for (let i = 0; i < cands.length; i++) {
+      const slot = slots[i];
+      await client.query(
+        `INSERT INTO interviews (candidate_id, scheduled_at, round_type, status, meeting_link)
+         VALUES ($1, CURRENT_DATE + make_interval(hours => $2, mins => $3), $4, $5, $6)`,
+        [cands[i].id, slot.h, slot.m, slot.round, slot.status, 'https://zoom.us/j/demo']
+      );
+      await client.query(
+        `UPDATE candidates SET stage = 'interview', updated_at = NOW()
+         WHERE id = $1 AND stage IN ('applied', 'screening')`,
+        [cands[i].id]
+      );
+    }
   }
 }
 
@@ -196,11 +247,13 @@ async function migratePhase1Tables(client: pg.PoolClient) {
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hm_notes TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS is_hot BOOLEAN NOT NULL DEFAULT FALSE`);
 }
 
 async function migrateFollowUpEngine(client: pg.PoolClient) {
   // Candidate lifecycle fields used by the follow-up rules engine
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS joined_at TIMESTAMPTZ`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS expected_joining_at TIMESTAMPTZ`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS offer_status TEXT`);
   await client.query(`UPDATE candidates SET joined_at = updated_at WHERE stage = 'joined' AND joined_at IS NULL`);
 
@@ -212,6 +265,106 @@ async function migrateFollowUpEngine(client: pg.PoolClient) {
   await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES follow_ups(id) ON DELETE SET NULL`);
   await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS escalated BOOLEAN NOT NULL DEFAULT FALSE`);
   await client.query(`CREATE INDEX IF NOT EXISTS follow_ups_rule_idx ON follow_ups (tenant_id, candidate_id, category)`);
+
+  await client.query(`ALTER TABLE interviews ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await client.query(`
+    UPDATE interviews i
+    SET created_by = a.user_id
+    FROM activities a
+    WHERE i.created_by IS NULL
+      AND a.candidate_id = i.candidate_id
+      AND a.type = 'interview'
+      AND a.user_id IS NOT NULL
+      AND a.created_at BETWEEN i.created_at - INTERVAL '30 seconds' AND i.created_at + INTERVAL '30 seconds'
+  `);
+
+  // Remove duplicate rule-generated rows (e.g. parallel sync on page load).
+  await client.query(`
+    DELETE FROM follow_ups a
+    USING follow_ups b
+    WHERE a.id > b.id
+      AND a.tenant_id = b.tenant_id
+      AND a.interview_id IS NOT NULL
+      AND a.interview_id = b.interview_id
+      AND a.category = b.category
+  `);
+  await client.query(`
+    DELETE FROM follow_ups a
+    USING follow_ups b
+    WHERE a.id > b.id
+      AND a.tenant_id = b.tenant_id
+      AND a.category = 'onboarding'
+      AND b.category = 'onboarding'
+      AND a.candidate_id = b.candidate_id
+      AND a.milestone_day = b.milestone_day
+  `);
+  await client.query(`
+    DELETE FROM follow_ups a
+    USING follow_ups b
+    WHERE a.id > b.id
+      AND a.tenant_id = b.tenant_id
+      AND a.category = 'offer_followup'
+      AND b.category = 'offer_followup'
+      AND a.candidate_id = b.candidate_id
+      AND a.milestone_day IS NULL
+      AND b.milestone_day IS NULL
+      AND a.completed_at IS NULL
+      AND b.completed_at IS NULL
+      AND a.status NOT IN ('completed', 'missed')
+      AND b.status NOT IN ('completed', 'missed')
+  `);
+  await client.query(`
+    DELETE FROM follow_ups a
+    USING follow_ups b
+    WHERE a.id > b.id
+      AND a.tenant_id = b.tenant_id
+      AND a.category = 'offer_followup'
+      AND b.category = 'offer_followup'
+      AND a.candidate_id = b.candidate_id
+      AND a.milestone_day IS NOT NULL
+      AND a.milestone_day = b.milestone_day
+  `);
+
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS follow_ups_interview_rule_uidx
+      ON follow_ups (tenant_id, interview_id, category)
+      WHERE interview_id IS NOT NULL
+  `);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS follow_ups_onboarding_uidx
+      ON follow_ups (tenant_id, candidate_id, milestone_day)
+      WHERE category = 'onboarding' AND milestone_day IS NOT NULL
+  `);
+  // Offer follow-ups come in two shapes: milestone reminders keyed to the
+  // expected joining date (milestone_day -7 / -1 / 0) and a generic chase used
+  // until a joining date is known (milestone_day IS NULL). The old single-open
+  // index would block the milestone plan, so scope it to chase rows only.
+  await client.query(`DROP INDEX IF EXISTS follow_ups_offer_open_uidx`);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS follow_ups_offer_milestone_uidx
+      ON follow_ups (tenant_id, candidate_id, milestone_day)
+      WHERE category = 'offer_followup' AND milestone_day IS NOT NULL
+  `);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS follow_ups_offer_chase_uidx
+      ON follow_ups (tenant_id, candidate_id)
+      WHERE category = 'offer_followup'
+        AND milestone_day IS NULL
+        AND completed_at IS NULL
+        AND status NOT IN ('completed', 'missed')
+  `);
+
+  // Candidates with active interviews belong on the Interview Scheduled pipeline column.
+  await client.query(`
+    UPDATE candidates c
+    SET stage = 'interview', updated_at = NOW()
+    WHERE c.stage IN ('applied', 'screening')
+      AND EXISTS (
+        SELECT 1 FROM interviews i
+        WHERE i.candidate_id = c.id
+          AND i.status IN ('pending', 'confirmed')
+      )
+  `);
 }
 
 async function seedPhase1Extras(client: pg.PoolClient) {
@@ -332,7 +485,36 @@ async function migrateMultiTenant(client: pg.PoolClient) {
     }
   }
 
+  await dedupeJobsByTitle(client);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS jobs_tenant_title_idx
+    ON jobs (tenant_id, title)
+  `);
   await ensureDemoUsers(client, defaultId);
+}
+
+/** Merge duplicate job rows (same tenant + title) created by concurrent initDb runs. */
+async function dedupeJobsByTitle(client: pg.PoolClient) {
+  await client.query(`
+    WITH ranked AS (
+      SELECT id, MIN(id) OVER (PARTITION BY tenant_id, title) AS keep_id
+      FROM jobs
+    )
+    UPDATE candidates c
+    SET job_id = r.keep_id
+    FROM ranked r
+    WHERE c.job_id = r.id AND r.id != r.keep_id
+  `);
+  await client.query(`
+    DELETE FROM jobs j
+    USING (
+      SELECT tenant_id, title, MIN(id) AS keep_id
+      FROM jobs
+      GROUP BY tenant_id, title
+      HAVING COUNT(*) > 1
+    ) d
+    WHERE j.tenant_id = d.tenant_id AND j.title = d.title AND j.id != d.keep_id
+  `);
 }
 
 async function ensureAllTenantsSeeded(client: pg.PoolClient) {
@@ -383,18 +565,12 @@ async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
   if (ej[0]) {
     const ejId = ej[0].id;
     await client.query(
-      `UPDATE users SET email = 'nidhi@earlyjobs.in', name = 'Nidhi'
-       WHERE email = 'recruiter@earlyjobs.com' AND tenant_id = $1`,
-      [ejId]
-    );
-    await client.query(
       `UPDATE users SET email = 'moumita@earlyjobs.in', name = 'Moumita'
        WHERE email = 'ravi@earlyjobs.com' AND tenant_id = $1`,
       [ejId]
     );
     const ejUsers = [
       ['admin@earlyjobs.com', 'EarlyJobs Admin', 'admin'],
-      ['nidhi@earlyjobs.in', 'Nidhi', 'recruiter'],
       ['moumita@earlyjobs.in', 'Moumita', 'recruiter'],
     ];
     for (const [email, name, role] of ejUsers) {
@@ -427,6 +603,7 @@ async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
       [ejId]
     );
     const ejAdminId = adminUser[0]?.id;
+
     if (ejAdminId) {
       const earlyJobs = [
         ['Telecaller', 'VGM Consultants Limited', 'Noida'],
@@ -438,14 +615,10 @@ async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
         ['Customer Care Executives for Voice process', 'VGM Consultants Limited', 'Mohali'],
       ];
       for (const [title, clientName, location] of earlyJobs) {
-        const exists = await client.query(
-          'SELECT id FROM jobs WHERE tenant_id = $1 AND title = $2 LIMIT 1',
-          [ejId, title]
-        );
-        if (exists.rows.length > 0) continue;
         await client.query(
           `INSERT INTO jobs (title, client, location, status, assigned_to, open_positions, description, tenant_id)
-           VALUES ($1, $2, $3, 'active', $4, 1, $5, $6)`,
+           VALUES ($1, $2, $3, 'active', $4, 1, $5, $6)
+           ON CONFLICT (tenant_id, title) DO NOTHING`,
           [title, clientName, location, ejAdminId, `Open position: ${title}`, ejId]
         );
       }
@@ -505,7 +678,7 @@ async function seedDb(client: pg.PoolClient) {
   const candidates = [
     ['Rajesh Patel', 'rajesh@email.com', '+91 98765 43210', ['Java', 'Spring', 'AWS'], 5, 8.2, 'applied', j1, u1, '18-22 LPA'],
     ['Neha Sharma', 'neha@email.com', '+91 98765 43211', ['Java', 'Hibernate'], 4, 7.9, 'applied', j1, u1, '15-18 LPA'],
-    ['Arun Kumar', 'arun@email.com', '+91 98765 43212', ['Java', 'React'], 6, 8.5, 'screening', j1, u1, '20-24 LPA'],
+    ['Arun Kumar', 'arun@email.com', '+91 98765 43212', ['Java', 'React'], 6, 8.5, 'interview', j1, u1, '20-24 LPA'],
     ['Priya Singh', 'priya.s@email.com', '+91 98765 43213', ['SQL', 'Java'], 5, 8.7, 'interview', j1, u2, '16-20 LPA'],
     ['Vikram Desai', 'vikram@email.com', '+91 98765 43214', ['Kafka', 'Microservices'], 7, 9.1, 'selected', j1, u1, '25-30 LPA'],
     ['Priya Mehta', 'priya.m@email.com', '+91 98765 43215', ['Java'], 4, 8.0, 'joined', j1, u2, '14-16 LPA'],

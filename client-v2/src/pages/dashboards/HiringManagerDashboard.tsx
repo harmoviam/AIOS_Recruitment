@@ -5,15 +5,17 @@ import { api } from '../../api/client';
 import TopBar from '../../components/ui/TopBar';
 import KpiCard from '../../components/ui/KpiCard';
 import { useRefetchOnFocus } from '../../utils/useRefetchOnFocus';
-import type { HmDashboard, TeamPerformance } from '../../types';
+import type { Candidate, HmDashboard, TeamPerformance } from '../../types';
 
 export default function HiringManagerDashboard() {
   const [data, setData] = useState<HmDashboard | null>(null);
   const [team, setTeam] = useState<TeamPerformance | null>(null);
+  const [hotCandidates, setHotCandidates] = useState<Candidate[]>([]);
 
   const load = () => {
     api.getHmDashboard().then(setData);
     api.getTeamPerformance().then(setTeam);
+    api.getCandidates({ hot: 'true' }).then(setHotCandidates).catch(() => setHotCandidates([]));
   };
 
   useEffect(() => {
@@ -90,6 +92,23 @@ export default function HiringManagerDashboard() {
                   <div><span className="perf-value">{team!.team.pendingFollowups}</span><span className="perf-label">Open Follow-ups</span></div>
                 </div>
               </>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header-row">
+              <h3 className="card-heading">🔥 Hot Candidates</h3>
+              <Link to="/candidates?filter=hot" className="link-button">View all</Link>
+            </div>
+            {hotCandidates.length === 0 ? (
+              <p className="text-muted">No hot candidates flagged by your team yet.</p>
+            ) : (
+              hotCandidates.slice(0, 5).map((c) => (
+                <div key={c.id} className="suggestion-item">
+                  <Link to={`/candidates/${c.id}`}><strong>{c.name}</strong></Link>
+                  <span className="text-muted"> · {c.stage}{c.job_title ? ` · ${c.job_title}` : ''}{c.recruiter_name ? ` · ${c.recruiter_name}` : ''}</span>
+                </div>
+              ))
             )}
           </div>
 

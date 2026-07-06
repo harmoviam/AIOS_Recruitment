@@ -74,10 +74,8 @@ export async function tenantMiddleware(req: Request, res: Response, next: NextFu
   const tenant = await loadTenantById(req.user.tenant_id);
   if (!tenant) return res.status(404).json({ error: 'Workspace not found' });
 
-  if (headerSlug && headerSlug !== tenant.slug) {
-    return res.status(403).json({ error: 'Access denied to this workspace' });
-  }
-
+  // Regular users are always scoped to JWT tenant_id — a stale X-Tenant-Slug from
+  // localStorage must not block API access after switching org login URLs.
   req.tenant = tenant;
   next();
 }

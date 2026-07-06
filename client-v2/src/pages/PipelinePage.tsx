@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
@@ -17,26 +17,11 @@ import { useRefetchOnFocus } from '../utils/useRefetchOnFocus';
 import type { Candidate, Job, StageId } from '../types';
 import { STAGES } from '../types';
 
-function CandidateCard({ candidate }: { candidate: Candidate }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: candidate.id,
-    data: { candidate, stage: candidate.stage },
-  });
-
+function CandidateCardContent({ candidate }: { candidate: Candidate }) {
   const skills = Array.isArray(candidate.skills) ? candidate.skills : [];
 
   return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-      }}
-      className="candidate-card"
-      {...attributes}
-      {...listeners}
-    >
+    <>
       <Link to={`/candidates/${candidate.id}`} onClick={(e) => e.stopPropagation()} className="candidate-name">
         {candidate.name}
       </Link>
@@ -51,6 +36,29 @@ function CandidateCard({ candidate }: { candidate: Candidate }) {
         <span>{candidate.experience_years} yrs</span>
         <span className="ai-score">{candidate.ai_score}</span>
       </div>
+    </>
+  );
+}
+
+function CandidateCard({ candidate }: { candidate: Candidate }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: candidate.id,
+    data: { candidate, stage: candidate.stage },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+      }}
+      className="candidate-card"
+      {...attributes}
+      {...listeners}
+    >
+      <CandidateCardContent candidate={candidate} />
     </div>
   );
 }
@@ -80,17 +88,28 @@ export default function PipelinePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState(searchParams.get('job_id') || '');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [active, setActive] = useState<Candidate | null>(null);
   const [saveError, setSaveError] = useState('');
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const load = () => {
+  const load = useCallback(() => {
     const params: Record<string, string> = {};
     if (jobId) params.job_id = jobId;
     if (search) params.search = search;
-    api.getCandidates(params).then(setCandidates);
-  };
+    setLoading(true);
+    setLoadError('');
+    api
+      .getCandidates(params)
+      .then((rows) => setCandidates(Array.isArray(rows) ? rows : []))
+      .catch((err) => {
+        setCandidates([]);
+        setLoadError(err instanceof Error ? err.message : 'Failed to load candidates');
+      })
+      .finally(() => setLoading(false));
+  }, [jobId, search]);
 
   useEffect(() => {
     api.getJobs().then(setJobs);
@@ -98,42 +117,44 @@ export default function PipelinePage() {
 
   useEffect(() => {
     load();
-  }, [jobId, search]);
+  }, [load]);
 
   useRefetchOnFocus(() => {
     if (!active) load();
   });
+
+  const stageFromOver = (over: DragEndEvent['over'], roster: Candidate[]): StageId | null => {
+    if (!over) return null;
+    if (over.data.current?.stage) return over.data.current.stage as StageId;
+    if (typeof over.id === 'string' && STAGES.some((s) => s.id === over.id)) return over.id as StageId;
+    const overCandidate = roster.find((c) => c.id === over.id);
+    return overCandidate ? (overCandidate.stage as StageId) : null;
+  };
 
   const onDragEnd = async (event: DragEndEvent) => {
     setActive(null);
     const { active: dragged, over } = event;
     if (!over) return;
 
-    const candidate = candidates.find((c) => c.id === dragged.id);
+    const candidateId = dragged.id as Candidate['id'];
+    const candidate = candidates.find((c) => c.id === candidateId);
     if (!candidate) return;
 
-  let newStage = candidate.stage;
-  if (over.data.current?.stage) {
-    newStage = over.data.current.stage as string;
-  } else if (typeof over.id === 'string' && STAGES.some((s) => s.id === over.id)) {
-    newStage = over.id;
-  } else {
-    const overCandidate = candidates.find((c) => c.id === over.id);
-    if (overCandidate) newStage = overCandidate.stage;
-  }
+    const previousStage = candidate.stage as StageId;
+    const newStage = stageFromOver(over, candidates) ?? previousStage;
+    if (newStage === previousStage) return;
 
-    if (newStage === candidate.stage) return;
-
-    const previousStage = candidate.stage;
     setSaveError('');
-    setCandidates((prev) => prev.map((c) => (c.id === candidate.id ? { ...c, stage: newStage } : c)));
+    setCandidates((prev) => prev.map((c) => (c.id === candidateId ? { ...c, stage: newStage } : c)));
     try {
-      await api.updateCandidate(candidate.id, { stage: newStage as StageId });
+      await api.updateCandidate(candidateId, { stage: newStage });
     } catch (err) {
-      setCandidates((prev) => prev.map((c) => (c.id === candidate.id ? { ...c, stage: previousStage } : c)));
+      setCandidates((prev) => prev.map((c) => (c.id === candidateId ? { ...c, stage: previousStage } : c)));
       setSaveError(err instanceof Error ? err.message : 'Failed to update candidate stage');
     }
   };
+
+  const onDragCancel = () => setActive(null);
 
   const visibleStages = STAGES.filter((s) => s.id !== 'rejected');
 
@@ -157,13 +178,30 @@ export default function PipelinePage() {
       </div>
       <div className="page-content">
         <h1 className="section-title">Candidate Pipeline</h1>
-        <p className="section-description">Drag candidates between stages. Click a card for full profile.</p>
+        <p className="section-description">
+          Drag candidates between stages. Click a card for full profile.
+          {!loading && candidates.length > 0 && (
+            <span className="text-muted"> · {candidates.length} candidate{candidates.length === 1 ? '' : 's'}</span>
+          )}
+        </p>
+        {loadError && (
+          <p role="alert" style={{ color: 'var(--danger, #dc2626)', marginBottom: '0.75rem' }}>
+            Could not load candidates: {loadError}
+          </p>
+        )}
         {saveError && (
           <p role="alert" style={{ color: 'var(--danger, #dc2626)', marginBottom: '0.75rem' }}>
             Could not save stage change: {saveError}
           </p>
         )}
 
+        {loading ? (
+          <p className="text-muted">Loading pipeline…</p>
+        ) : candidates.length === 0 && !loadError ? (
+          <p className="empty-inline">
+            No candidates match your filters yet. Try clearing the job filter or add candidates from the Candidates page.
+          </p>
+        ) : (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -172,6 +210,7 @@ export default function PipelinePage() {
             if (c) setActive(c);
           }}
           onDragEnd={onDragEnd}
+          onDragCancel={onDragCancel}
         >
           <div className="kanban">
             {visibleStages.map((stage) => (
@@ -184,12 +223,13 @@ export default function PipelinePage() {
           </div>
           <DragOverlay>
             {active ? (
-              <div className="candidate-card" style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
-                <div className="candidate-name">{active.name}</div>
+              <div className="candidate-card" style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.15)', cursor: 'grabbing' }}>
+                <CandidateCardContent candidate={active} />
               </div>
             ) : null}
           </DragOverlay>
         </DndContext>
+        )}
       </div>
     </>
   );

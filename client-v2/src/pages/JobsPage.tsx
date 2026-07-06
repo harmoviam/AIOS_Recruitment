@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { useRefetchOnFocus } from '../utils/useRefetchOnFocus';
 import type { Job } from '../types';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
@@ -25,10 +26,23 @@ export default function JobsPage() {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({ title: '', client: '', location: '', open_positions: 1, description: '' });
 
-  const load = () => api.getJobs().then(setJobs);
+  const load = useCallback(
+    () =>
+      api.getJobs().then((rows) =>
+        setJobs(
+          rows.map((j) => ({
+            ...j,
+            pipeline_count: Number(j.pipeline_count) || 0,
+            match_percent: Number(j.match_percent) || 0,
+          }))
+        )
+      ),
+    []
+  );
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
+  useRefetchOnFocus(load);
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();

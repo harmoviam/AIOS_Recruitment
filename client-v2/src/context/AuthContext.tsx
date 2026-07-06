@@ -24,7 +24,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     api.me()
-      .then(setUser)
+      .then((u) => {
+        if (u.tenant_slug) localStorage.setItem('aios_tenant_slug', u.tenant_slug);
+        setUser(u);
+      })
       .catch(() => localStorage.removeItem('token'))
       .finally(() => setLoading(false));
   }, []);
@@ -32,7 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string, workspace?: string) => {
     const { token, user } = await api.login(email, password, workspace);
     localStorage.setItem('token', token);
-    if (workspace) localStorage.setItem('aios_tenant_slug', workspace);
+    const slug = user.tenant_slug || workspace;
+    if (slug) localStorage.setItem('aios_tenant_slug', slug);
     setUser(user);
   };
 
@@ -45,7 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     const { token, user } = await api.register(email, password, name, orgName, workspace);
     localStorage.setItem('token', token);
-    if (workspace) localStorage.setItem('aios_tenant_slug', workspace);
+    const slug = user.tenant_slug || workspace;
+    if (slug) localStorage.setItem('aios_tenant_slug', slug);
     setUser(user);
   };
 

@@ -117,6 +117,7 @@ export const MOCK_IMPORT_ROWS: ImportRow[] = [
 export const STAGE_COLORS: Record<string, string> = {
   applied: '#2563EB',
   screening: '#D97706',
+  screening_rejected: '#9A3412',
   interview: '#4F46E5',
   selected: '#0D9488',
   rejected: '#6B7280',
@@ -124,5 +125,9 @@ export const STAGE_COLORS: Record<string, string> = {
   new: '#2563EB',
   left_company: '#DC2626',
   not_interested: '#6B7280',
+  offer_rejected: '#DC2626',
   joined_elsewhere: '#B45309',
+  doing_well: '#16A34A',
+  issue_flagged: '#EA580C',
+  no_answer: '#CA8A04',
 };

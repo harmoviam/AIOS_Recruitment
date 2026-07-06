@@ -113,7 +113,7 @@ const DEMO_EMAILS: Record<string, string> = {
 const DEMO_HINTS: Record<string, string> = {
   platform: 'super@aios.com / password123',
   'staffpro-agency': 'admin@aios.com / password123 — Organization Admin',
-  earlyjobs: 'admin@earlyjobs.com / password123 — Organization Admin (recruiters: nidhi@earlyjobs.in, moumita@earlyjobs.in)',
+  earlyjobs: 'admin@earlyjobs.com / password123 — Org Admin · HM: Nidhi@earlyjobs.in · Recruiters: moumita@earlyjobs.in',
   talentbridge: 'admin@talentbridge.com / password123 — Organization Admin',
 };
 

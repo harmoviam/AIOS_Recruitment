@@ -5,7 +5,7 @@ import { useTenant } from '../context/TenantContext';
 import PlanBadge from './ui/PlanBadge';
 import { ROLE_LABELS } from '../types';
 
-type NavItem = { to: string; label: string; end?: boolean; badge?: number; platformOnly?: boolean; orgOnly?: boolean; feature?: string; recruiterLabel?: string; hmLabel?: string; adminOnly?: boolean; hmHidden?: boolean; recruiterOnly?: boolean };
+type NavItem = { to: string; label: string; end?: boolean; badge?: number; platformOnly?: boolean; orgOnly?: boolean; feature?: string; recruiterLabel?: string; hmLabel?: string; adminOnly?: boolean; hmHidden?: boolean; recruiterOnly?: boolean; hmOnly?: boolean };
 type NavSection = { title?: string; orgOnly?: boolean; items: NavItem[] };
 
 const navSections: NavSection[] = [
@@ -16,9 +16,9 @@ const navSections: NavSection[] = [
     title: 'Candidates',
     orgOnly: true,
     items: [
-      { to: '/candidates', label: 'All Candidates', recruiterLabel: 'My Candidates', hmLabel: 'Team Candidates', orgOnly: true },
-      { to: '/candidates?filter=new', label: 'New Candidates', recruiterOnly: true, orgOnly: true },
-      { to: '/follow-ups', label: 'Follow-ups', badge: 5, orgOnly: true },
+      { to: '/candidates', label: 'All Candidates', recruiterLabel: 'My Candidates', hmHidden: true, orgOnly: true },
+      { to: '/candidates?scope=my', label: 'My Candidates', hmOnly: true, orgOnly: true },
+      { to: '/candidates?scope=team', label: 'My Team Candidates', hmOnly: true, orgOnly: true },
       { to: '/pipeline', label: 'Pipeline (Kanban)', orgOnly: true },
     ],
   },
@@ -160,6 +160,19 @@ export default function Layout() {
     return item.label;
   };
 
+  // Items whose `to` carries a query string (e.g. /candidates?scope=my) must match
+  // the current query too — otherwise all of them light up on the shared pathname.
+  const isItemActive = (item: NavItem, routerActive: boolean) => {
+    const qIndex = item.to.indexOf('?');
+    if (qIndex === -1) return routerActive;
+    if (location.pathname !== item.to.slice(0, qIndex)) return false;
+    const current = new URLSearchParams(location.search);
+    for (const [key, value] of new URLSearchParams(item.to.slice(qIndex + 1))) {
+      if (current.get(key) !== value) return false;
+    }
+    return true;
+  };
+
   const renderNav = (opts: { collapsed?: boolean } = {}) =>
     navSections.map((section, si) => {
       if (isPlatformAdmin && section.orgOnly) return null;
@@ -171,6 +184,8 @@ export default function Layout() {
         if (item.to === '/recruiters' && !canManageRecruiters) return false;
         if (item.adminOnly && !isOrgAdmin) return false;
         if (item.recruiterOnly && !isRecruiter) return false;
+        if (item.hmOnly && !isHm) return false;
+        if (item.hmHidden && isHm) return false;
         if (item.feature && !can(item.feature)) return false;
         return true;
       });
@@ -191,7 +206,7 @@ export default function Layout() {
               key={item.to + item.label}
               to={item.to}
               end={item.end}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              className={({ isActive }) => `nav-item${isItemActive(item, isActive) ? ' active' : ''}`}
               title={navLabel(item)}
             >
               <Icon name={iconFor(item.to)} size={19} />

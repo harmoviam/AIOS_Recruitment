@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import Tabs from '../components/ui/Tabs';
 import type { Candidate, Interview, Message, TimelineEvent } from '../types';
@@ -13,8 +13,26 @@ const DETAIL_TABS = [
   { id: 'ai', label: 'AI Insights' },
 ];
 
+const TIMELINE_SOURCE_LABELS: Record<TimelineEvent['source'], string> = {
+  activity: 'Activity',
+  message: 'Message',
+  interview: 'Interview',
+  follow_up: 'Follow-up',
+};
+
+function timelineSummary(ev: TimelineEvent) {
+  return ev.description || ev.content || ev.type || '—';
+}
+
+function timelineActor(ev: TimelineEvent) {
+  if (ev.actor_name) return ev.actor_name;
+  if (ev.source === 'message' && ev.is_outgoing === false) return ev.sender || 'Candidate';
+  return null;
+}
+
 export default function CandidateDetailPage() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const [tab, setTab] = useState('profile');
   const [candidate, setCandidate] = useState<Candidate | null>(null);
@@ -45,6 +63,11 @@ export default function CandidateDetailPage() {
     await api.updateCandidate(candidate.id, { notes });
   };
 
+  const toggleHot = async () => {
+    const updated = await api.updateCandidate(candidate.id, { is_hot: !candidate.is_hot });
+    setCandidate(updated);
+  };
+
   return (
     <>
       <div className="topbar">
@@ -52,10 +75,18 @@ export default function CandidateDetailPage() {
           ← Back
         </button>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className={`button-pill ${candidate.is_hot ? 'button-primary' : 'button-secondary'}`}
+            onClick={toggleHot}
+            title={candidate.is_hot ? 'Remove hot candidate flag' : 'Mark when you are confident this candidate will attend and join'}
+          >
+            {candidate.is_hot ? '🔥 Hot Candidate' : '🔥 Mark as Hot'}
+          </button>
           <Link to={`/interviews?candidate=${candidate.id}`} className="button-pill button-primary">
             Schedule Interview
           </Link>
-          <Link to={`/messages?candidate=${candidate.id}`} className="button-pill button-secondary">
+          <Link to={`/messages?candidate=${candidate.id}&from=${encodeURIComponent(location.pathname)}`} className="button-pill button-secondary">
             WhatsApp
           </Link>
         </div>
@@ -63,7 +94,10 @@ export default function CandidateDetailPage() {
       <div className="page-content candidate-detail">
         <div className="detail-header">
           <div>
-            <h1 className="section-title">{candidate.name}</h1>
+            <h1 className="section-title">
+              {candidate.name}
+              {candidate.is_hot && <span className="hot-flame" title="Hot candidate">🔥</span>}
+            </h1>
             <p className="section-description">
               {candidate.job_title || 'Unassigned'} • {candidate.experience_years} yrs experience
             </p>
@@ -109,16 +143,27 @@ export default function CandidateDetailPage() {
             {timeline.length === 0 ? (
               <p className="text-muted">No activity yet.</p>
             ) : (
-              timeline.map((ev) => (
-                <div key={`${ev.source}-${ev.id}`} className="schedule-slot">
-                  <div className="slot-info">
-                    <div className="slot-time">{new Date(ev.created_at).toLocaleString()}</div>
-                    <div className="slot-candidate">
-                      <span className="text-muted">{ev.source}</span> · {ev.description || ev.content || ev.type}
+              timeline.map((ev) => {
+                const actor = timelineActor(ev);
+                return (
+                  <div key={`${ev.source}-${ev.id}`} className="schedule-slot timeline-event">
+                    <div className="slot-info">
+                      <div className="slot-time">{new Date(ev.created_at).toLocaleString()}</div>
+                      <div className="slot-candidate">
+                        <span className="text-muted">{TIMELINE_SOURCE_LABELS[ev.source]}</span>
+                        {' · '}
+                        {timelineSummary(ev)}
+                      </div>
+                      {actor && (
+                        <div className="timeline-actor">
+                          {ev.source === 'message' && ev.is_outgoing === false ? 'From' : 'By'} {actor}
+                        </div>
+                      )}
                     </div>
+                    {ev.status && <span className="slot-status">{ev.status}</span>}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

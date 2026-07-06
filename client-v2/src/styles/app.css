@@ -166,6 +166,26 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 
 .notification-btn { position: relative; }
 
+.notification-wrap { position: relative; }
+
+.notification-dropdown {
+    left: auto;
+    right: 0;
+    min-width: 320px;
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.notification-item { align-items: flex-start; }
+.notification-icon { font-size: 1rem; line-height: 1.3; flex-shrink: 0; }
+.notification-item .org-option-text span { font-size: 0.8rem; }
+.notification-empty { padding: 1rem; margin: 0; font-size: 0.85rem; color: var(--text-secondary); }
+
+.pipeline-total { font-size: 0.8rem; color: var(--text-secondary); }
+.pipeline-total strong { color: var(--text); font-size: 0.9rem; }
+
+.hot-flame { margin-left: 0.3rem; }
+
 .notification-badge {
     position: absolute;
     top: -4px;
@@ -968,6 +988,8 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     min-width: 290px;
     width: 290px;
     flex-shrink: 0;
+    max-height: calc(100dvh - 220px);
+    overflow-y: auto;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -1226,6 +1248,147 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 .follow-up-notes { font-size: 0.88rem; color: var(--text); margin: 0.5rem 0; }
 .follow-up-done-tag { margin-top: 0.75rem; color: var(--success); font-weight: 700; font-size: 0.85rem; }
 
+/* ── Follow-up flow cards (Pre-Interview / Post-Selected / Post-Joining) ── */
+
+.fu-flow-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.fu-flow-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-strong);
+    background: var(--background);
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.fu-flow-card:hover { border-color: var(--primary); }
+.fu-flow-card.active {
+    border-color: var(--primary);
+    background: var(--primary-softer);
+    box-shadow: 0 0 0 1px var(--primary);
+}
+
+.fu-flow-head { display: flex; align-items: center; gap: 0.45rem; width: 100%; }
+.fu-flow-icon { font-size: 1.05rem; }
+.fu-flow-label { font-weight: 700; font-size: 0.92rem; }
+
+.fu-flow-due {
+    margin-left: auto;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: color-mix(in srgb, var(--danger) 12%, white);
+    color: var(--danger);
+    white-space: nowrap;
+}
+
+.fu-flow-tagline { font-size: 0.76rem; color: var(--text-secondary); }
+
+.fu-flow-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+
+.fu-flow-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.fu-flow-arrow { color: var(--border-strong); font-weight: 400; }
+
+/* ── Per-candidate journey strip on follow-up cards ── */
+
+.fu-journey {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.9rem;
+    margin: 0.45rem 0 0.2rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+
+.fu-step {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.fu-step + .fu-step::before {
+    content: '';
+    position: absolute;
+    left: -0.75rem;
+    width: 0.6rem;
+    height: 1px;
+    background: var(--border-strong);
+}
+
+.fu-step-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.95rem;
+    height: 0.95rem;
+    border-radius: 50%;
+    font-size: 0.58rem;
+    font-weight: 800;
+    border: 1.5px solid var(--border-strong);
+    background: var(--background);
+    color: transparent;
+}
+
+.fu-step.done { color: var(--success); }
+.fu-step.done .fu-step-dot { border-color: var(--success); background: var(--success); color: #fff; }
+.fu-step.missed { color: var(--danger); }
+.fu-step.missed .fu-step-dot { border-color: var(--danger); background: var(--danger); color: #fff; }
+.fu-step.current { color: var(--primary); font-weight: 800; }
+.fu-step.current .fu-step-dot {
+    border-color: var(--primary);
+    background: var(--primary-softer);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+/* ── Post-Selected: set / edit expected joining date ── */
+
+.fu-joining-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0 0.2rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius);
+    border: 1px dashed color-mix(in srgb, var(--warning) 55%, var(--border-strong));
+    background: color-mix(in srgb, var(--warning) 7%, white);
+    font-size: 0.82rem;
+    color: var(--text);
+}
+
+.fu-joining-chip { cursor: pointer; font: inherit; font-size: 0.72rem; font-weight: 700; }
+.fu-joining-chip:hover { border-color: var(--primary); color: var(--primary); }
+
 /* ── Modal ──────────────────────────────────────────────────────── */
 
 .modal-overlay {
@@ -1290,6 +1453,8 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 .slot-info { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
 .slot-time { font-weight: 700; font-variant-numeric: tabular-nums; }
 .slot-candidate { font-size: 0.88rem; color: var(--text-secondary); }
+.timeline-event + .timeline-event { margin-top: 0.65rem; }
+.timeline-actor { font-size: 0.82rem; font-weight: 600; color: var(--primary); }
 .slot-status {
     font-size: 0.78rem;
     background: color-mix(in srgb, var(--success) 11%, white);
@@ -2648,6 +2813,8 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     .fu-category-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.35rem; scrollbar-width: none; }
     .fu-category-chips::-webkit-scrollbar { display: none; }
     .fu-outcome-grid { grid-template-columns: 1fr; }
+    .fu-flow-cards { grid-template-columns: 1fr; gap: 0.5rem; }
+    .fu-flow-card { padding: 0.7rem 0.85rem; }
 
     .drop-zone { padding: 2rem 1rem; }
 

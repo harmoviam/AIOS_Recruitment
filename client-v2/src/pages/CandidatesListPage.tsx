@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -6,24 +6,48 @@ import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
 import StatusBadge from '../components/ui/StatusBadge';
 import SideDrawer from '../components/ui/SideDrawer';
-import type { Candidate, Job } from '../types';
+import Tabs from '../components/ui/Tabs';
+import type { Candidate, Job, RecruiterStat } from '../types';
+
+type HmScope = 'my' | 'team';
 
 export default function CandidatesListPage() {
   const { user } = useAuth();
   const isRecruiter = user?.role === 'recruiter';
   const isHm = user?.role === 'hiring_manager';
-  const listTitle = isRecruiter ? 'My Candidates' : isHm ? 'Team Candidates' : 'All Candidates';
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [teamRecruiters, setTeamRecruiters] = useState<RecruiterStat[]>([]);
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [jobFilter, setJobFilter] = useState('');
+  const [recruiterFilter, setRecruiterFilter] = useState('');
+  const [hmScope, setHmScope] = useState<HmScope>('team');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<Candidate | null>(null);
   const [bulkStage, setBulkStage] = useState('');
   const filterParam = searchParams.get('filter');
+  const scopeParam = searchParams.get('scope');
+
+  // Sidebar links navigate to /candidates?scope=my|team — keep the HM tabs in sync.
+  useEffect(() => {
+    if (!isHm) return;
+    if (scopeParam === 'my' || scopeParam === 'team') {
+      setHmScope(scopeParam);
+      if (scopeParam === 'my') setRecruiterFilter('');
+    }
+  }, [scopeParam, isHm]);
+
+  const baseTitle = isRecruiter
+    ? 'My Candidates'
+    : isHm
+      ? hmScope === 'my'
+        ? 'My Candidates'
+        : 'My Team Candidates'
+      : 'All Candidates';
+  const listTitle = filterParam === 'hot' ? `🔥 Hot Candidates` : baseTitle;
 
   const loadCandidates = () => {
     const params: Record<string, string> = {};
@@ -33,16 +57,26 @@ export default function CandidatesListPage() {
     if (filterParam === 'new') params.stage = 'applied';
     if (filterParam === 'joined') params.stage = 'joined';
     if (filterParam === 'selected') params.stage = 'selected';
+    if (filterParam === 'hot') params.hot = 'true';
+    if (isHm) {
+      params.scope = hmScope;
+      if (hmScope === 'team' && recruiterFilter) params.recruiter_id = recruiterFilter;
+    }
     api.getCandidates(params).then(setCandidates);
   };
 
   useEffect(() => {
     api.getJobs().then(setJobs);
-  }, []);
+    if (isHm) {
+      api.getRecruiterStats().then(setTeamRecruiters).catch(() => setTeamRecruiters([]));
+    }
+  }, [isHm]);
 
   useEffect(() => {
+    setSelected(new Set());
     loadCandidates();
-  }, [search, jobFilter, stageFilter, filterParam]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, jobFilter, stageFilter, filterParam, hmScope, recruiterFilter]);
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -58,16 +92,37 @@ export default function CandidatesListPage() {
     else setSelected(new Set(candidates.map((c) => c.id)));
   };
 
+  const selectedCandidates = useMemo(
+    () => candidates.filter((c) => selected.has(c.id)),
+    [candidates, selected]
+  );
+  const allSelectedInOfferStage = selectedCandidates.length > 0 && selectedCandidates.every((c) => c.stage === 'selected');
+  const allSelectedInScreening = selectedCandidates.length > 0 && selectedCandidates.every((c) => c.stage === 'screening');
+  const allSelectedJoined = selectedCandidates.length > 0 && selectedCandidates.every((c) => c.stage === 'joined');
+
+  const bulkOfferStatuses = new Set(['screening_rejected', 'offer_rejected', 'left_company']);
+
   const bulkUpdateStage = async () => {
     if (!bulkStage || selected.size === 0) return;
-    await api.bulkUpdateCandidates([...selected], { stage: bulkStage });
+    if (bulkOfferStatuses.has(bulkStage)) {
+      await api.bulkUpdateCandidates([...selected], { offer_status: bulkStage });
+    } else {
+      await api.bulkUpdateCandidates([...selected], { stage: bulkStage });
+    }
     setSelected(new Set());
     setBulkStage('');
     loadCandidates();
   };
 
+  const scopeParams = (): Record<string, string> => {
+    if (!isHm) return {};
+    const p: Record<string, string> = { scope: hmScope };
+    if (hmScope === 'team' && recruiterFilter) p.recruiter_id = recruiterFilter;
+    return p;
+  };
+
   const bulkExport = () => {
-    const params: Record<string, string> = { ids: [...selected].join(',') };
+    const params: Record<string, string> = { ids: [...selected].join(','), ...scopeParams() };
     api.exportCandidates(params);
   };
 
@@ -86,7 +141,9 @@ export default function CandidatesListPage() {
             isRecruiter
               ? 'Your personal candidate pipeline — follow-ups, stages, and tracking.'
               : isHm
-                ? 'Candidates managed by recruiters on your team.'
+                ? hmScope === 'my'
+                  ? 'Candidates you personally own — full control over stages and follow-ups.'
+                  : 'Candidates managed by recruiters on your team. You can override any recruiter action.'
                 : 'Search, filter, and bulk-manage your candidate registry.'
           }
           actions={
@@ -96,6 +153,25 @@ export default function CandidatesListPage() {
             </>
           }
         />
+
+        {isHm && (
+          <Tabs
+            tabs={[
+              { id: 'my', label: 'My Candidates' },
+              { id: 'team', label: 'My Team Candidates' },
+            ]}
+            active={hmScope}
+            onChange={(id) => {
+              setHmScope(id as HmScope);
+              if (id === 'my') setRecruiterFilter('');
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.set('scope', id);
+                return next;
+              }, { replace: true });
+            }}
+          />
+        )}
 
         <div className="filter-bar sticky">
           <select className="input-field filter-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
@@ -112,6 +188,18 @@ export default function CandidatesListPage() {
               <option key={j.id} value={j.id}>{j.title}</option>
             ))}
           </select>
+          {isHm && hmScope === 'team' && (
+            <select
+              className="input-field filter-select"
+              value={recruiterFilter}
+              onChange={(e) => setRecruiterFilter(e.target.value)}
+            >
+              <option value="">All recruiters</option>
+              {teamRecruiters.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="table-wrap card flush">
@@ -123,6 +211,8 @@ export default function CandidatesListPage() {
                 <th>Phone</th>
                 <th>Job</th>
                 <th>Status</th>
+                <th>Interview Date</th>
+                <th>Joining Date</th>
                 <th>Recruiter</th>
                 <th>Updated</th>
               </tr>
@@ -143,10 +233,13 @@ export default function CandidatesListPage() {
                     <Link to={`/candidates/${c.id}`} onClick={(e) => e.stopPropagation()} className="candidate-link">
                       {c.name}
                     </Link>
+                    {c.is_hot && <span className="hot-flame" title="Hot candidate">🔥</span>}
                   </td>
                   <td>{c.phone || '—'}</td>
                   <td>{c.job_title || '—'}</td>
                   <td><StatusBadge status={c.offer_status || c.stage} /></td>
+                  <td>{c.interview_date ? new Date(c.interview_date).toLocaleDateString() : '—'}</td>
+                  <td>{c.joined_at ? new Date(c.joined_at).toLocaleDateString() : '—'}</td>
                   <td>{c.recruiter_name || '—'}</td>
                   <td className="text-muted">{new Date(c.updated_at).toLocaleDateString()}</td>
                 </tr>
@@ -158,7 +251,7 @@ export default function CandidatesListPage() {
 
         <div className="table-footer">
           <span className="text-muted">Showing {candidates.length} candidates</span>
-          <button type="button" className="button-pill button-secondary btn-sm" onClick={() => api.exportCandidates()}>Export CSV</button>
+          <button type="button" className="button-pill button-secondary btn-sm" onClick={() => api.exportCandidates(scopeParams())}>Export CSV</button>
         </div>
 
         {selected.size > 0 && (
@@ -167,10 +260,13 @@ export default function CandidatesListPage() {
             <select className="input-field btn-sm" value={bulkStage} onChange={(e) => setBulkStage(e.target.value)}>
               <option value="">Change status…</option>
               <option value="screening">Screening</option>
+              {allSelectedInScreening && <option value="screening_rejected">Screening Rejected</option>}
               <option value="interview">Interview</option>
               <option value="selected">Selected</option>
+              {allSelectedInOfferStage && <option value="offer_rejected">Offer Rejected</option>}
               <option value="rejected">Rejected</option>
               <option value="joined">Joined</option>
+              {allSelectedJoined && <option value="left_company">Left</option>}
             </select>
             <button type="button" className="button-pill button-secondary btn-sm" onClick={bulkUpdateStage} disabled={!bulkStage}>
               Apply
@@ -194,10 +290,13 @@ export default function CandidatesListPage() {
       >
         {preview && (
           <>
-            <p className="text-muted">{preview.job_title} · {preview.experience_years} yrs · Score {preview.ai_score}</p>
+            <p className="text-muted">
+              {preview.job_title} · {preview.experience_years} yrs · Score {preview.ai_score}
+              {preview.is_hot && <span className="hot-flame" title="Hot candidate">🔥 Hot</span>}
+            </p>
             <StatusBadge status={preview.offer_status || preview.stage} />
             <div className="drawer-actions">
-              <Link to={`/messages?candidate=${preview.id}`} className="button-pill button-secondary btn-sm">WhatsApp</Link>
+              <Link to={`/messages?candidate=${preview.id}&from=${encodeURIComponent('/candidates')}`} className="button-pill button-secondary btn-sm">WhatsApp</Link>
               <Link to="/follow-ups" className="button-pill button-secondary btn-sm">Follow-up</Link>
               <Link to={`/interviews?candidate=${preview.id}`} className="button-pill button-primary btn-sm">Schedule</Link>
             </div>

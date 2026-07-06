@@ -35,7 +35,11 @@ export interface Candidate {
   experience_years: number;
   ai_score: number;
   stage: string;
+  is_hot?: boolean;
   offer_status?: string | null;
+  interview_date?: string | null;
+  joined_at?: string | null;
+  expected_joining_at?: string | null;
   job_id?: number;
   job_title?: string;
   recruiter_id?: number;
@@ -92,6 +96,15 @@ export interface Conversation {
   unread_hint?: number;
 }
 
+export interface NotificationItem {
+  id: string;
+  kind: 'follow_up_overdue' | 'follow_up_today' | 'interview_today' | 'hot_candidate';
+  title: string;
+  detail: string;
+  link: string;
+  at: string;
+}
+
 export interface Activity {
   id: number;
   type: string;
@@ -122,9 +135,54 @@ export const FOLLOW_UP_CATEGORIES: { id: FollowUpCategory; label: string; hint: 
   { id: 'interview_prep', label: 'Interview: day before', hint: 'Confirm attendance a day ahead' },
   { id: 'interview_day', label: 'Interview: same day', hint: 'Final confirmation on interview day' },
   { id: 'no_response', label: 'Not picking calls', hint: 'Escalations when candidate is unreachable' },
-  { id: 'offer_followup', label: 'Selected → joining', hint: 'Chase until joined / declined' },
-  { id: 'onboarding', label: 'Post-joining check-ins', hint: 'Day 7 / 30 / 45 / 80 / 91' },
+  { id: 'offer_followup', label: 'Selected → joining', hint: '1 week before, 1 day before & joining day' },
+  { id: 'onboarding', label: 'Post-joining check-ins', hint: 'Day 7 / 15 / 30 / 45 / 80 / 91' },
   { id: 'manual', label: 'Manual', hint: 'Created by recruiters' },
+];
+
+/** The three follow-up flows the Follow-up Center is organised around. */
+export type FollowUpFlow = 'pre_interview' | 'post_selected' | 'post_joining' | 'manual';
+
+export const FOLLOW_UP_FLOWS: {
+  id: FollowUpFlow;
+  label: string;
+  icon: string;
+  tagline: string;
+  steps: string[];
+  categories: FollowUpCategory[];
+}[] = [
+  {
+    id: 'pre_interview',
+    label: 'Pre-Interview',
+    icon: '🎯',
+    tagline: 'Screening cleared → interview scheduled',
+    steps: ['1 day before', 'Interview day'],
+    categories: ['interview_prep', 'interview_day', 'no_response'],
+  },
+  {
+    id: 'post_selected',
+    label: 'Post-Selected',
+    icon: '🤝',
+    tagline: 'Offer made → joining confirmed',
+    steps: ['1 week before', '1 day before', 'Joining day'],
+    categories: ['offer_followup'],
+  },
+  {
+    id: 'post_joining',
+    label: 'Post-Joining',
+    icon: '🏁',
+    tagline: 'Joined → retention check-ins',
+    steps: ['Day 7', 'Day 15', 'Day 30', 'Day 45', 'Day 80', 'Day 91'],
+    categories: ['onboarding'],
+  },
+  {
+    id: 'manual',
+    label: 'Manual',
+    icon: '✍️',
+    tagline: 'Created by recruiters',
+    steps: [],
+    categories: ['manual'],
+  },
 ];
 
 export interface FollowUp {
@@ -134,6 +192,8 @@ export interface FollowUp {
   candidate_phone?: string;
   candidate_email?: string;
   candidate_stage?: string;
+  candidate_joined_at?: string | null;
+  candidate_expected_joining_at?: string | null;
   job_title?: string;
   due_at: string;
   type: string;
@@ -204,6 +264,8 @@ export interface TimelineEvent {
   description?: string;
   content?: string;
   sender?: string;
+  actor_name?: string | null;
+  is_outgoing?: boolean;
   status?: string;
   created_at: string;
 }

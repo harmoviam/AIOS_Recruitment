@@ -7,6 +7,7 @@ import {
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
+import { promoteToInterviewStage } from '../services/candidateStage.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -26,6 +27,18 @@ router.get('/', async (req, res) => {
   `;
   const params: unknown[] = [t.param];
   let idx = t.nextIndex;
+
+  if (req.user!.role === 'recruiter') {
+    sql += ` AND c.recruiter_id = $${idx++}`;
+    params.push(req.user!.id);
+  } else if (req.user!.role === 'hiring_manager') {
+    sql += ` AND c.recruiter_id IN (
+      SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
+      AND (r.managed_by_id = $${idx + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1}))
+    )`;
+    params.push(tid(req), req.user!.id);
+    idx += 2;
+  }
 
   if (candidate_id) {
     sql += ` AND i.candidate_id = $${idx++}`;
@@ -53,8 +66,8 @@ router.post('/', async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    `INSERT INTO interviews (candidate_id, scheduled_at, duration_minutes, round_type, status, meeting_link, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    `INSERT INTO interviews (candidate_id, scheduled_at, duration_minutes, round_type, status, meeting_link, notes, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
     [
       candidate_id,
       scheduled_at,
@@ -63,6 +76,7 @@ router.post('/', async (req, res) => {
       status || 'pending',
       meeting_link || null,
       notes || null,
+      req.user!.id,
     ]
   );
 
@@ -70,6 +84,8 @@ router.post('/', async (req, res) => {
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
     ['interview', `Interview scheduled for candidate #${candidate_id}`, req.user!.id, candidate_id, tid(req)]
   );
+
+  await promoteToInterviewStage(Number(candidate_id), tid(req));
 
   res.status(201).json(rows[0]);
 });

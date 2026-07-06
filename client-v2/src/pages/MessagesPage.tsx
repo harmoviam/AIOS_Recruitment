@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Candidate, Conversation, Message } from '../types';
 import { STAGES } from '../types';
@@ -22,9 +22,20 @@ function stageLabel(stage: string) {
   return STAGES.find((s) => s.id === stage)?.label ?? stage;
 }
 
+function backLabelFrom(path: string) {
+  if (path.startsWith('/candidates/')) return 'Candidate profile';
+  if (path === '/candidates') return 'Candidates';
+  if (path === '/follow-ups') return 'Follow-ups';
+  if (path === '/pipeline') return 'Pipeline';
+  return 'previous page';
+}
+
 export default function MessagesPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialCandidate = searchParams.get('candidate');
+  const returnTo = searchParams.get('from');
+  const hasDeepLink = Boolean(initialCandidate);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(
     initialCandidate ? Number(initialCandidate) : null
@@ -120,9 +131,24 @@ export default function MessagesPage() {
     pickerSearch.trim() ? c.name.toLowerCase().includes(pickerSearch.toLowerCase()) : true
   );
 
+  const goBack = () => {
+    if (returnTo) {
+      navigate(returnTo);
+    } else if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/candidates');
+    }
+  };
+
   return (
     <>
       <div className="topbar">
+        {hasDeepLink && (
+          <button type="button" className="button-pill button-secondary" onClick={goBack}>
+            ← Back{returnTo ? ` to ${backLabelFrom(returnTo)}` : ''}
+          </button>
+        )}
         <div className="search-bar">
           WhatsApp Shared Inbox
           {totalUnread > 0 && <span className="inbox-unread-total">{totalUnread} new</span>}

@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { api } from '../../api/client';
 import TopBar from '../../components/ui/TopBar';
 import KpiCard from '../../components/ui/KpiCard';
 import { useRefetchOnFocus } from '../../utils/useRefetchOnFocus';
 import type { Candidate, FollowUp, Interview, RecruiterWorkflow } from '../../types';
+
+function localDateParam(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 export default function RecruiterDashboard() {
   const [workflow, setWorkflow] = useState<RecruiterWorkflow | null>(null);
@@ -14,17 +21,17 @@ export default function RecruiterDashboard() {
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
 
   const load = () => {
+    const today = localDateParam();
     Promise.all([
       api.getMyWorkflow(),
       api.getCandidates(),
-      api.getInterviews(),
+      api.getInterviews({ date: today }),
       api.getFollowUps(),
     ]).then(([wf, cands, ivs, fus]) => {
       setWorkflow(wf);
       setCandidates(cands);
       setFollowUps(fus.filter((f) => f.status !== 'completed').slice(0, 5));
-      const today = new Date().toDateString();
-      setInterviews(ivs.filter((i) => new Date(i.scheduled_at).toDateString() === today).slice(0, 4));
+      setInterviews(ivs.slice(0, 4));
     });
   };
 
@@ -34,8 +41,9 @@ export default function RecruiterDashboard() {
   useRefetchOnFocus(load);
 
   const kpis = workflow?.kpis;
-  const hotCandidates = candidates.filter((c) => c.ai_score >= 8).slice(0, 4);
+  const hotCandidates = candidates.filter((c) => c.is_hot).slice(0, 4);
   const funnelData = workflow?.pipeline ?? [];
+  const pipelineTotal = funnelData.reduce((sum, s) => sum + s.count, 0);
 
   return (
     <>
@@ -54,13 +62,18 @@ export default function RecruiterDashboard() {
 
         <div className="dashboard-grid">
           <div className="card">
-            <h3 className="card-heading">My Pipeline</h3>
+            <div className="card-header-row">
+              <h3 className="card-heading">My Pipeline</h3>
+              <span className="pipeline-total">Total: <strong>{pipelineTotal}</strong> candidates</span>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={funnelData}>
+              <BarChart data={funnelData} margin={{ top: 16 }}>
                 <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="count" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="var(--primary)" radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey="count" position="top" style={{ fontSize: 11, fill: 'var(--text-secondary)', fontWeight: 600 }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -85,13 +98,20 @@ export default function RecruiterDashboard() {
 
         <div className="dashboard-grid">
           <div className="card">
-            <h3 className="card-heading">Hot Candidates</h3>
-            {hotCandidates.map((c) => (
-              <div key={c.id} className="suggestion-item">
-                <Link to={`/candidates/${c.id}`}><strong>{c.name}</strong></Link>
-                <span className="text-muted"> · Score {c.ai_score} · {c.stage}</span>
-              </div>
-            ))}
+            <div className="card-header-row">
+              <h3 className="card-heading">🔥 Hot Candidates</h3>
+              <Link to="/candidates?filter=hot" className="link-button">View all</Link>
+            </div>
+            {hotCandidates.length === 0 ? (
+              <p className="text-muted">No hot candidates yet. Mark a candidate as hot from their profile when you&apos;re confident they&apos;ll show up and join.</p>
+            ) : (
+              hotCandidates.map((c) => (
+                <div key={c.id} className="suggestion-item">
+                  <Link to={`/candidates/${c.id}`}><strong>{c.name}</strong></Link>
+                  <span className="text-muted"> · Score {c.ai_score} · {c.stage}</span>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="card">
@@ -102,9 +122,12 @@ export default function RecruiterDashboard() {
           </div>
 
           <div className="card">
-            <h3 className="card-heading">Today&apos;s Interviews</h3>
+            <div className="card-header-row">
+              <h3 className="card-heading">Today&apos;s Interviews</h3>
+              <Link to="/interviews" className="link-button">View all</Link>
+            </div>
             {interviews.length === 0 ? (
-              <p className="text-muted">No interviews today.</p>
+              <p className="text-muted">No interviews today. <Link to="/interviews">Schedule one</Link></p>
             ) : (
               interviews.map((iv) => (
                 <div key={iv.id} className="schedule-slot">

@@ -11,24 +11,46 @@ import { pool } from '../dbConfig.js';
  * Rules implemented:
  *  A. interview_prep / interview_day — candidates with a scheduled interview
  *     get a reminder follow-up the day before and on the interview day.
- *  B. offer_followup — candidates in stage "selected" are chased every
- *     OFFER_CADENCE_DAYS until the recruiter records "not interested" /
- *     "joined elsewhere", or the candidate moves to "joined".
+ *  B. offer_followup — selected candidates with an expected joining date get
+ *     milestone reminders 1 week before, 1 day before and on the joining day
+ *     (milestone_day -7 / -1 / 0). Until a joining date is set they are
+ *     chased every OFFER_CADENCE_DAYS to pin one down. Chasing stops when the
+ *     recruiter records "not interested" / "joined elsewhere", or the
+ *     candidate moves to "joined".
  *  C. no_response — when an interview reminder is completed with outcome
  *     "no_answer" (candidate not picking calls on prep/interview day), an
  *     escalated retry follow-up is created (see followUps route PATCH).
  *  D. onboarding — joined candidates get check-in follow-ups on days
- *     7, 30, 45, 80 and 91 after their joining date; recruiters record the
- *     outcome of each.
+ *     7, 15, 30, 45, 80 and 91 after their joining date; recruiters record
+ *     the outcome of each.
  */
 
-export const ONBOARDING_MILESTONES = [7, 30, 45, 80, 91];
+export const ONBOARDING_MILESTONES = [7, 15, 30, 45, 80, 91];
+/** Days relative to the expected joining date: 1 week before, 1 day before, joining day. */
+export const JOINING_MILESTONES = [-7, -1, 0];
 export const OFFER_CADENCE_DAYS = 3;
 
-export const CLOSING_OUTCOMES = ['not_interested', 'joined_elsewhere', 'left_company'];
+const JOINING_MILESTONE_SUGGESTIONS: Record<number, string> = {
+  [-7]: '1 week to joining — confirm the candidate is on track: notice period served, documents ready, no counter-offer risk.',
+  [-1]: 'Joining tomorrow — final confirmation call; share reporting time, location / meeting link and first-day checklist.',
+  [0]: 'Joining day — confirm the candidate has reported. Once confirmed, move them to Joined; if unreachable, escalate immediately.',
+};
+
+export const CLOSING_OUTCOMES = ['not_interested', 'joined_elsewhere', 'offer_rejected', 'left_company'];
+
+/** Close pre-join follow-ups and schedule post-joining milestones when a candidate joins. */
+export async function onCandidateJoined(tenantId: number, candidateId: number): Promise<void> {
+  await closeOpenFollowUps(
+    tenantId,
+    candidateId,
+    ['offer_followup', 'interview_prep', 'interview_day', 'no_response'],
+    'auto_closed'
+  );
+  await syncOnboardingMilestones(tenantId);
+}
 
 export async function syncFollowUps(tenantId: number): Promise<void> {
-  // Fail-safe: a sync problem must never take the Follow-up Center down.
+  await cleanupStaleFollowUpsForJoined(tenantId);
   const results = await Promise.allSettled([
     syncInterviewReminders(tenantId),
     syncOfferFollowUps(tenantId),
@@ -36,6 +58,26 @@ export async function syncFollowUps(tenantId: number): Promise<void> {
   ]);
   for (const r of results) {
     if (r.status === 'rejected') console.error('Follow-up sync rule failed:', r.reason);
+  }
+}
+
+/** Close pre-join follow-ups left open after a candidate was moved to Joined. */
+async function cleanupStaleFollowUpsForJoined(tenantId: number): Promise<void> {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT c.id FROM candidates c
+     JOIN follow_ups f ON f.candidate_id = c.id AND f.tenant_id = c.tenant_id
+     WHERE c.tenant_id = $1 AND c.stage = 'joined'
+       AND f.category = ANY($2)
+       AND f.completed_at IS NULL AND f.status NOT IN ('completed', 'missed')`,
+    [tenantId, ['offer_followup', 'interview_prep', 'interview_day', 'no_response']]
+  );
+  for (const { id } of rows) {
+    await closeOpenFollowUps(
+      tenantId,
+      id,
+      ['offer_followup', 'interview_prep', 'interview_day', 'no_response'],
+      'auto_closed'
+    );
   }
 }
 
@@ -78,39 +120,69 @@ async function syncInterviewReminders(tenantId: number): Promise<void> {
   }
 }
 
-/** Rule B: chase selected-but-not-joined candidates until they answer definitively. */
+/**
+ * Rule B: selected-but-not-joined candidates.
+ * With an expected joining date → milestone reminders at -7 / -1 / 0 days.
+ * Without one → periodic chase (every OFFER_CADENCE_DAYS) to pin the date down.
+ */
 async function syncOfferFollowUps(tenantId: number): Promise<void> {
   const { rows: candidates } = await pool.query(
-    `SELECT c.id, c.recruiter_id,
+    `SELECT c.id, c.recruiter_id, c.expected_joining_at,
        (SELECT MAX(f.completed_at) FROM follow_ups f
          WHERE f.tenant_id = c.tenant_id AND f.candidate_id = c.id AND f.category = 'offer_followup') AS last_done
      FROM candidates c
      WHERE c.tenant_id = $1
        AND c.stage = 'selected'
-       AND COALESCE(c.offer_status, '') NOT IN ('not_interested', 'joined_elsewhere')
-       AND NOT EXISTS (
-         SELECT 1 FROM follow_ups f
-         WHERE f.tenant_id = c.tenant_id AND f.candidate_id = c.id
-           AND f.category = 'offer_followup'
-           AND f.completed_at IS NULL AND f.status NOT IN ('completed', 'missed')
-       )`,
+       AND COALESCE(c.offer_status, '') NOT IN ('not_interested', 'joined_elsewhere', 'offer_rejected')`,
     [tenantId]
   );
 
   for (const c of candidates) {
-    const base = c.last_done
-      ? new Date(new Date(c.last_done).getTime() + OFFER_CADENCE_DAYS * 24 * 3600 * 1000)
-      : new Date();
-    await pool.query(
-      `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, ai_suggestion)
-       VALUES ($1, $2, $3, $4, 'call', 'upcoming', 'offer_followup',
-         'Selected — confirm joining date. Keep following up until the candidate confirms, declines, or reports joining elsewhere.')`,
-      [tenantId, c.id, c.recruiter_id, clampToNow(base).toISOString()]
-    );
+    if (c.expected_joining_at) {
+      const joining = new Date(c.expected_joining_at);
+      for (const day of JOINING_MILESTONES) {
+        const due = new Date(joining.getTime() + day * 24 * 3600 * 1000);
+        due.setHours(10, 0, 0, 0);
+        // Milestones more than 2 days past would only add noise.
+        if (due.getTime() < Date.now() - 2 * 24 * 3600 * 1000) continue;
+        await pool.query(
+          `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, milestone_day, ai_suggestion)
+           VALUES ($1, $2, $3, $4::timestamptz, 'call', 'upcoming', 'offer_followup', $5::int, $6)
+           ON CONFLICT DO NOTHING`,
+          [
+            tenantId,
+            c.id,
+            c.recruiter_id,
+            clampToNow(due).toISOString(),
+            day,
+            JOINING_MILESTONE_SUGGESTIONS[day],
+          ]
+        );
+      }
+      // The milestone plan replaces the generic "confirm joining date" chase.
+      await pool.query(
+        `UPDATE follow_ups
+         SET status = 'completed', completed_at = NOW(), outcome = 'auto_closed'
+         WHERE tenant_id = $1 AND candidate_id = $2 AND category = 'offer_followup'
+           AND milestone_day IS NULL AND completed_at IS NULL AND status NOT IN ('completed', 'missed')`,
+        [tenantId, c.id]
+      );
+    } else {
+      const base = c.last_done
+        ? new Date(new Date(c.last_done).getTime() + OFFER_CADENCE_DAYS * 24 * 3600 * 1000)
+        : new Date();
+      await pool.query(
+        `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, ai_suggestion)
+         VALUES ($1, $2, $3, $4, 'call', 'upcoming', 'offer_followup',
+           'Selected — pin down the expected joining date. Once it is set, reminders for 1 week before, 1 day before and the joining day are scheduled automatically.')
+         ON CONFLICT DO NOTHING`,
+        [tenantId, c.id, c.recruiter_id, clampToNow(base).toISOString()]
+      );
+    }
   }
 }
 
-/** Rule D: post-joining check-ins on days 7 / 30 / 45 / 80 / 91. */
+/** Rule D: post-joining check-ins on days 7 / 15 / 30 / 45 / 80 / 91. */
 async function syncOnboardingMilestones(tenantId: number): Promise<void> {
   const { rows: joined } = await pool.query(
     `SELECT c.id, c.recruiter_id, c.joined_at
@@ -127,12 +199,8 @@ async function syncOnboardingMilestones(tenantId: number): Promise<void> {
       due.setHours(10, 0, 0, 0);
       await pool.query(
         `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, milestone_day, ai_suggestion)
-         SELECT $1, $2, $3, $4::timestamptz, 'call', 'upcoming', 'onboarding', $5::int, $6
-         WHERE NOT EXISTS (
-           SELECT 1 FROM follow_ups f
-           WHERE f.tenant_id = $1 AND f.candidate_id = $2
-             AND f.category = 'onboarding' AND f.milestone_day = $5::int
-         )`,
+         VALUES ($1, $2, $3, $4::timestamptz, 'call', 'upcoming', 'onboarding', $5::int, $6)
+         ON CONFLICT DO NOTHING`,
         [
           tenantId,
           c.id,
@@ -199,11 +267,8 @@ interface RuleFollowUp {
 async function insertRuleFollowUp(tenantId: number, fu: RuleFollowUp): Promise<void> {
   await pool.query(
     `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, interview_id, ai_suggestion)
-     SELECT $1, $2, $3, $4, $5, 'upcoming', $6, $7, $8
-     WHERE NOT EXISTS (
-       SELECT 1 FROM follow_ups f
-       WHERE f.tenant_id = $1 AND f.interview_id = $7 AND f.category = $6
-     )`,
+     VALUES ($1, $2, $3, $4, $5, 'upcoming', $6, $7, $8)
+     ON CONFLICT DO NOTHING`,
     [tenantId, fu.candidateId, fu.assignedTo, fu.dueAt.toISOString(), fu.type, fu.category, fu.interviewId, fu.aiSuggestion]
   );
 }

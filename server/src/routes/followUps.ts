@@ -46,6 +46,7 @@ router.get('/', async (req, res) => {
   let sql = `
     SELECT f.*, c.name AS candidate_name, c.phone AS candidate_phone, c.email AS candidate_email,
       c.stage AS candidate_stage, c.joined_at AS candidate_joined_at,
+      c.expected_joining_at AS candidate_expected_joining_at,
       j.title AS job_title, u.name AS assignee_name,
       i.scheduled_at AS interview_at, i.round_type AS interview_round
     FROM follow_ups f
@@ -80,7 +81,7 @@ router.get('/', async (req, res) => {
     i += 2;
   }
 
-  sql += ' ORDER BY f.due_at ASC';
+  sql += ' ORDER BY f.due_at DESC';
 
   const { rows } = await pool.query(sql, params);
   const mapped = rows.map((r) => ({
@@ -96,8 +97,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/counts', async (req, res) => {
-  await syncFollowUps(tid(req));
-
+  // Sync runs on GET / — avoid parallel sync here (caused duplicate rule rows).
   const t = tenantClause(tid(req), 'f', 1);
   let sql = `
     SELECT f.* FROM follow_ups f
@@ -217,7 +217,7 @@ router.patch('/:id', async (req, res) => {
     }
 
     // Rule B terminal answers: stop chasing, record why on the candidate
-    if (['not_interested', 'joined_elsewhere'].includes(outcome)) {
+    if (['not_interested', 'joined_elsewhere', 'offer_rejected'].includes(outcome)) {
       await pool.query(
         'UPDATE candidates SET offer_status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3',
         [outcome, updated.candidate_id, tid(req)]
@@ -227,6 +227,17 @@ router.patch('/:id', async (req, res) => {
         updated.candidate_id,
         ['offer_followup', 'onboarding', 'no_response'],
         'auto_closed'
+      );
+    }
+
+    // Rule D check-in statuses: keep the candidate's post-joining status current
+    if (
+      updated.category === 'onboarding' &&
+      ['doing_well', 'issue_flagged', 'no_answer'].includes(outcome)
+    ) {
+      await pool.query(
+        'UPDATE candidates SET offer_status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3',
+        [outcome, updated.candidate_id, tid(req)]
       );
     }
 

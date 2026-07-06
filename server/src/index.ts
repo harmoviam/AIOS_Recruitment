@@ -21,6 +21,7 @@ import recruiterRoutes from './routes/recruiters.js';
 import organizationRoutes from './routes/organization.js';
 import reportRoutes from './routes/reports.js';
 import whatsappWebhookRoutes from './routes/whatsappWebhook.js';
+import notificationRoutes from './routes/notifications.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -47,6 +48,7 @@ app.use('/api/recruiters', recruiterRoutes);
 app.use('/api/organization', organizationRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/whatsapp', whatsappWebhookRoutes); // unauthenticated — called by Meta's servers
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
