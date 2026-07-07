@@ -85,12 +85,80 @@ gcloud run deploy harmirecruit \
 
 Workflow: `.github/workflows/deploy-cloud-run.yml`
 
+Authentication uses **Workload Identity Federation** (OIDC) — no long-lived service account JSON key is stored in GitHub.
+
+| Setting | Value |
+|---------|-------|
+| GCP project | `aiosrecruitment` (number: `449927939885`) |
+| GitHub repo | `harmoviam/AIOS_Recruitment` |
+| Deploy service account | `github-actions-deploy@aiosrecruitment.iam.gserviceaccount.com` |
+| Runtime service account | `cloud-run-harmirecruit-sa@aiosrecruitment.iam.gserviceaccount.com` |
+| Workload Identity Pool | `github-pool` |
+| OIDC Provider | `github-provider` |
+| Provider path | `projects/449927939885/locations/global/workloadIdentityPools/github-pool/providers/github-provider` |
+
+### Optional GitHub secrets
+
 | Secret | Value |
 |--------|-------|
-| `GCP_PROJECT_ID` | `aiosrecruitment` |
+| `GCP_PROJECT_ID` | `aiosrecruitment` (defaults to this if unset) |
 | `DB_PROJECT_ID` | `harmoviajobs` (optional) |
-| `GCP_SA_KEY` | Service account JSON for `aiosrecruitment` |
 | `GAR_REPO` | `platform-repo` (optional) |
+
+### One-time WIF setup (GCP)
+
+Run once per project. Requires `gcloud` authenticated to `aiosrecruitment`.
+
+```bash
+PROJECT_ID=aiosrecruitment
+PROJECT_NUMBER=449927939885
+REPO=harmoviam/AIOS_Recruitment
+DEPLOY_SA=github-actions-deploy
+RUNTIME_SA=cloud-run-harmirecruit-sa
+
+gcloud iam service-accounts create $DEPLOY_SA \
+  --display-name="GitHub Actions deploy" \
+  --project=$PROJECT_ID
+
+DEPLOY_SA_EMAIL="${DEPLOY_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+for ROLE in roles/run.admin roles/artifactregistry.writer roles/iam.serviceAccountUser; do
+  gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:${DEPLOY_SA_EMAIL}" \
+    --role="$ROLE"
+done
+
+gcloud iam service-accounts add-iam-policy-binding \
+  "${RUNTIME_SA}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --member="serviceAccount:${DEPLOY_SA_EMAIL}" \
+  --role="roles/iam.serviceAccountUser" \
+  --project=$PROJECT_ID
+
+gcloud iam workload-identity-pools create github-pool \
+  --location=global \
+  --display-name="GitHub Actions" \
+  --project=$PROJECT_ID
+
+gcloud iam workload-identity-pools providers create-oidc github-provider \
+  --location=global \
+  --workload-identity-pool=github-pool \
+  --display-name="GitHub OIDC" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
+  --attribute-condition="assertion.repository=='${REPO}'" \
+  --project=$PROJECT_ID
+
+gcloud iam service-accounts add-iam-policy-binding $DEPLOY_SA_EMAIL \
+  --project=$PROJECT_ID \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-pool/attribute.repository/${REPO}"
+```
+
+### Manual workflow trigger
+
+```bash
+gh workflow run deploy-cloud-run.yml --ref main
+```
 
 ## Demo logins (after db:init)
 
