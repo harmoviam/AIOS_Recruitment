@@ -2,16 +2,50 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import Tabs from '../components/ui/Tabs';
+import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, riskBadgeClass, screeningRiskLevel } from '../types';
 import type { Candidate, Interview, Message, TimelineEvent } from '../types';
 
 const DETAIL_TABS = [
   { id: 'profile', label: 'Profile' },
+  { id: 'screening', label: 'Screening' },
   { id: 'timeline', label: 'Timeline' },
   { id: 'communication', label: 'Communication' },
   { id: 'interviews', label: 'Interviews' },
   { id: 'notes', label: 'Notes' },
   { id: 'ai', label: 'AI Insights' },
 ];
+
+const SCORE_FIELDS = [...SCREENING_QUESTIONS, ...RED_FLAG_SIGNALS].map((q) => q.id);
+
+function ScorePicker({
+  value,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="score-picker" role="radiogroup" aria-label={`${label} score`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          role="radio"
+          aria-checked={value === n}
+          className={`score-dot${value === n ? ' active' : ''}`}
+          onClick={() => onChange(value === n ? null : n)}
+          disabled={disabled}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const TIMELINE_SOURCE_LABELS: Record<TimelineEvent['source'], string> = {
   activity: 'Activity',
@@ -41,6 +75,8 @@ export default function CandidateDetailPage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  const [scores, setScores] = useState<Record<string, number | null>>({});
+  const [screeningStatus, setScreeningStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
     if (!id) return;
@@ -48,6 +84,9 @@ export default function CandidateDetailPage() {
     api.getCandidate(cid).then((c) => {
       setCandidate(c);
       setNotes(c.notes || '');
+      setScores(
+        Object.fromEntries(SCORE_FIELDS.map((f) => [f, (c.screening?.[f] as number | null) ?? null]))
+      );
     });
     api.getInterviews({ candidate_id: String(cid) }).then(setInterviews);
     api.getMessages(cid).then(setMessages);
@@ -66,6 +105,30 @@ export default function CandidateDetailPage() {
   const toggleHot = async () => {
     const updated = await api.updateCandidate(candidate.id, { is_hot: !candidate.is_hot });
     setCandidate(updated);
+  };
+
+  // Live totals mirror the server calculation so recruiters see the risk level as they score.
+  const totalScore = SCREENING_QUESTIONS.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
+  const totalRedFlags = RED_FLAG_SIGNALS.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
+  // A signal scored 3 or below counts as a red flag (unscored signals don't count).
+  const redFlagCount = RED_FLAG_SIGNALS.filter((q) => {
+    const s = scores[q.id];
+    return s != null && s <= 3;
+  }).length;
+  // 5+ red flags: stop — reduce interview time, pre-screening questions are blocked.
+  const screeningBlocked = redFlagCount >= 5;
+  const riskLevel = screeningRiskLevel(totalScore);
+
+  const setScore = (field: string, value: number | null) => {
+    setScores((prev) => ({ ...prev, [field]: value }));
+    setScreeningStatus('idle');
+  };
+
+  const saveScreening = async () => {
+    setScreeningStatus('saving');
+    const updated = await api.saveScreening(candidate.id, scores);
+    setCandidate(updated);
+    setScreeningStatus('saved');
   };
 
   return (
@@ -134,6 +197,101 @@ export default function CandidateDetailPage() {
                   <> · Outcome: <strong>{candidate.offer_status.replace(/_/g, ' ')}</strong></>
                 )}
               </p>
+              {candidate.screening && (
+                <p style={{ marginTop: '0.5rem' }}>
+                  <span className={riskBadgeClass(candidate.screening.risk_level)}>
+                    {candidate.screening.risk_level}
+                  </span>
+                  <span className="text-muted" style={{ marginLeft: '0.5rem' }}>
+                    Screening {candidate.screening.total_score}/25 · Red flags {candidate.screening.total_red_flags}/35
+                  </span>
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'screening' && (
+          <div className="screening-form">
+            <div className="card" style={{ marginBottom: '1rem' }}>
+              <div className="screening-section-head">
+                <div>
+                  <div className="card-title">Red Flag Signals — First 3 Minutes</div>
+                  <p className="text-muted">
+                    Score the candidate's response on each signal: 1 (strong red flag) to 5 (no concern).
+                    A score of 3 or below counts as a red flag.
+                  </p>
+                </div>
+                <div className="screening-total">
+                  Total Red Flags <strong>{totalRedFlags}</strong>/35
+                </div>
+              </div>
+              {RED_FLAG_SIGNALS.map((q) => (
+                <div key={q.id} className="screening-row">
+                  <div className="screening-row-info">
+                    <div className="screening-row-label">{q.label}</div>
+                    <div className="screening-row-hint">{q.hint}</div>
+                  </div>
+                  <ScorePicker value={scores[q.id] ?? null} onChange={(v) => setScore(q.id, v)} label={q.label} />
+                </div>
+              ))}
+              {screeningBlocked && (
+                <div className="alert-banner danger" style={{ marginTop: '0.75rem' }}>
+                  🛑 <strong>Quick Recruiter Tip:</strong> {redFlagCount} red flags scored 3 or below —
+                  reduce interview time and move on. Pre-screening questions are blocked.
+                </div>
+              )}
+            </div>
+
+            <div className={`card${screeningBlocked ? ' screening-card-blocked' : ''}`} style={{ marginBottom: '1rem' }}>
+              <div className="screening-section-head">
+                <div>
+                  <div className="card-title">Pre-Screening Questions</div>
+                  <p className="text-muted">
+                    {screeningBlocked
+                      ? 'Blocked — 5+ red flags in the first 3 minutes.'
+                      : 'Score each answer 1 (weak) to 5 (strong).'}
+                  </p>
+                </div>
+                <div className="screening-total">
+                  Total Score <strong>{totalScore}</strong>/25
+                </div>
+              </div>
+              {SCREENING_QUESTIONS.map((q) => (
+                <div key={q.id} className="screening-row">
+                  <div className="screening-row-info">
+                    <div className="screening-row-label">{q.label}</div>
+                    <div className="screening-row-hint">{q.hint}</div>
+                  </div>
+                  <ScorePicker
+                    value={scores[q.id] ?? null}
+                    onChange={(v) => setScore(q.id, v)}
+                    label={q.label}
+                    disabled={screeningBlocked}
+                  />
+                </div>
+              ))}
+              <div className="screening-risk-line">
+                Risk Level: <span className={riskBadgeClass(riskLevel)}>{riskLevel}</span>
+                <span className="text-muted"> — auto-calculated: ≥20 High Join Probability · ≥15 Moderate Risk · below 15 High Ghosting Risk</span>
+              </div>
+            </div>
+
+            <div className="screening-actions">
+              <button
+                type="button"
+                className="button-pill button-primary"
+                onClick={saveScreening}
+                disabled={screeningStatus === 'saving'}
+              >
+                {screeningStatus === 'saving' ? 'Saving…' : 'Save Screening'}
+              </button>
+              {screeningStatus === 'saved' && <span className="text-muted">Saved ✓</span>}
+              {candidate.screening?.updated_at && screeningStatus !== 'saved' && (
+                <span className="text-muted">
+                  Last saved {new Date(candidate.screening.updated_at).toLocaleString()}
+                </span>
+              )}
             </div>
           </div>
         )}

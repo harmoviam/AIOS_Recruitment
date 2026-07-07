@@ -81,6 +81,7 @@ export async function initDb() {
         assigned_to INTEGER REFERENCES users(id),
         open_positions INTEGER DEFAULT 1,
         description TEXT,
+        tenure_days INTEGER,
         tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
@@ -177,6 +178,7 @@ export async function initDb() {
     `);
 
     await migratePhase1Tables(client);
+    await migrateScreening(client);
     await migrateFollowUpEngine(client);
     await migrateMultiTenant(client);
     await ensureAllTenantsSeeded(client);
@@ -245,9 +247,16 @@ async function migratePhase1Tables(client: pg.PoolClient) {
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Asia/Kolkata'`);
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL`);
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS wa_signature TEXT`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hm_notes TEXT`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS is_hot BOOLEAN NOT NULL DEFAULT FALSE`);
+}
+
+async function migrateScreening(client: pg.PoolClient) {
+  // Pre-screening scorecard filled by recruiters during the first call:
+  // question scores, red-flag signal scores, computed totals and risk level.
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS screening JSONB`);
 }
 
 async function migrateFollowUpEngine(client: pg.PoolClient) {
@@ -256,6 +265,9 @@ async function migrateFollowUpEngine(client: pg.PoolClient) {
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS expected_joining_at TIMESTAMPTZ`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS offer_status TEXT`);
   await client.query(`UPDATE candidates SET joined_at = updated_at WHERE stage = 'joined' AND joined_at IS NULL`);
+
+  // Placement tenure drives the post-joining check-in schedule
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tenure_days INTEGER`);
 
   // Rule metadata on follow-ups
   await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'manual'`);

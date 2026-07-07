@@ -20,12 +20,24 @@ import { pool } from '../dbConfig.js';
  *  C. no_response — when an interview reminder is completed with outcome
  *     "no_answer" (candidate not picking calls on prep/interview day), an
  *     escalated retry follow-up is created (see followUps route PATCH).
- *  D. onboarding — joined candidates get check-in follow-ups on days
- *     7, 15, 30, 45, 80 and 91 after their joining date; recruiters record
- *     the outcome of each.
+ *  D. onboarding — joined candidates get check-in follow-ups after their
+ *     joining date; recruiters record the outcome of each. The schedule is
+ *     derived from the job's tenure (30/45/60/90 days): every base check-in
+ *     day within the tenure, plus a final confirmation the day after the
+ *     tenure ends (e.g. 90 → 91, 60 → 61). Jobs without a tenure use the
+ *     full 90-day plan. These check-ins are fixed — they cannot be
+ *     rescheduled (see followUps route PATCH).
  */
 
-export const ONBOARDING_MILESTONES = [7, 15, 30, 45, 80, 91];
+const BASE_ONBOARDING_CHECKINS = [7, 15, 30, 45, 61, 80];
+export const DEFAULT_TENURE_DAYS = 90;
+
+/** Check-in days for a job tenure: base days inside the tenure + tenure end + 1. */
+export function onboardingMilestonesForTenure(tenureDays: number | null | undefined): number[] {
+  const tenure = tenureDays || DEFAULT_TENURE_DAYS;
+  return [...BASE_ONBOARDING_CHECKINS.filter((d) => d < tenure), tenure + 1];
+}
+
 /** Days relative to the expected joining date: 1 week before, 1 day before, joining day. */
 export const JOINING_MILESTONES = [-7, -1, 0];
 export const OFFER_CADENCE_DAYS = 3;
@@ -182,11 +194,12 @@ async function syncOfferFollowUps(tenantId: number): Promise<void> {
   }
 }
 
-/** Rule D: post-joining check-ins on days 7 / 15 / 30 / 45 / 80 / 91. */
+/** Rule D: post-joining check-ins, scheduled from the job's tenure (see onboardingMilestonesForTenure). */
 async function syncOnboardingMilestones(tenantId: number): Promise<void> {
   const { rows: joined } = await pool.query(
-    `SELECT c.id, c.recruiter_id, c.joined_at
+    `SELECT c.id, c.recruiter_id, c.joined_at, j.tenure_days
      FROM candidates c
+     LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = c.tenant_id
      WHERE c.tenant_id = $1 AND c.stage = 'joined' AND c.joined_at IS NOT NULL
        AND COALESCE(c.offer_status, '') NOT IN ('not_interested', 'joined_elsewhere', 'left_company')`,
     [tenantId]
@@ -194,7 +207,7 @@ async function syncOnboardingMilestones(tenantId: number): Promise<void> {
 
   for (const c of joined) {
     const joinedAt = new Date(c.joined_at);
-    for (const day of ONBOARDING_MILESTONES) {
+    for (const day of onboardingMilestonesForTenure(c.tenure_days)) {
       const due = new Date(joinedAt.getTime() + day * 24 * 3600 * 1000);
       due.setHours(10, 0, 0, 0);
       await pool.query(

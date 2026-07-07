@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 
 router.get('/users/list', async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, email, name, role, created_at FROM users WHERE tenant_id = $1 ORDER BY name',
+    'SELECT id, email, name, role, wa_signature, created_at FROM users WHERE tenant_id = $1 ORDER BY name',
     [tid(req)]
   );
   res.json(rows);
@@ -47,7 +47,7 @@ router.post('/users/list', async (req, res) => {
 });
 
 router.patch('/users/list/:id', async (req, res) => {
-  const { name, role, password } = req.body;
+  const { name, role, password, wa_signature } = req.body;
   const updates: string[] = [];
   const params: unknown[] = [];
   let i = 1;
@@ -64,6 +64,11 @@ router.patch('/users/list/:id', async (req, res) => {
     updates.push(`password_hash = $${i++}`);
     params.push(bcrypt.hashSync(password, 10));
   }
+  if (wa_signature !== undefined) {
+    // Empty string clears the custom signature → falls back to the user's name
+    updates.push(`wa_signature = $${i++}`);
+    params.push(wa_signature?.trim() || null);
+  }
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
 
   const idParam = i;
@@ -71,7 +76,7 @@ router.patch('/users/list/:id', async (req, res) => {
   params.push(req.params.id, tid(req));
 
   const { rows } = await pool.query(
-    `UPDATE users SET ${updates.join(', ')} WHERE id = $${idParam} AND tenant_id = $${tenantParam} RETURNING id, email, name, role`,
+    `UPDATE users SET ${updates.join(', ')} WHERE id = $${idParam} AND tenant_id = $${tenantParam} RETURNING id, email, name, role, wa_signature`,
     params
   );
   if (!rows[0]) return res.status(404).json({ error: 'User not found' });

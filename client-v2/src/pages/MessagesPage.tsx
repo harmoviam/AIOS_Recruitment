@@ -42,7 +42,8 @@ export default function MessagesPage() {
   );
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [draft, setDraft] = useState('');
+  // Deep links (e.g. Follow-up Center templates) can prefill the composer.
+  const [draft, setDraft] = useState(searchParams.get('draft') ?? '');
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
   const [sending, setSending] = useState(false);
@@ -230,12 +231,18 @@ export default function MessagesPage() {
                   <div ref={messagesEndRef} />
                 </div>
                 <div className="chat-input">
-                  <input
+                  <textarea
                     className="input-field"
                     placeholder="Type a message…"
+                    rows={draft.includes('\n') ? 6 : 1}
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && send(draft)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        send(draft);
+                      }
+                    }}
                   />
                   <button type="button" className="button-pill button-primary" onClick={() => send(draft)} disabled={sending} aria-label="Send">
                     ➤

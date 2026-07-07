@@ -22,8 +22,62 @@ export interface User {
   email: string;
   name: string;
   role: UserRole | string;
+  wa_signature?: string | null;
   tenant_id?: number;
   tenant_slug?: string;
+}
+
+export type ScreeningRiskLevel = 'High Join Probability' | 'Moderate Risk' | 'High Ghosting Risk';
+
+/** Pre-screening scorecard captured by recruiters on the first call. */
+export interface ScreeningAssessment {
+  commitment_language?: number | null;
+  future_clarity?: number | null;
+  opportunity_competition?: number | null;
+  motivation_strength?: number | null;
+  stability_indicators?: number | null;
+  low_energy?: number | null;
+  vague_motivation?: number | null;
+  uncertain_joining_timeline?: number | null;
+  avoids_current_status?: number | null;
+  salary_focus_early?: number | null;
+  weak_communication?: number | null;
+  non_committed_language?: number | null;
+  total_score: number;
+  total_red_flags: number;
+  risk_level: ScreeningRiskLevel | string;
+  updated_by?: number;
+  updated_at?: string;
+}
+
+export const SCREENING_QUESTIONS: { id: keyof ScreeningAssessment & string; label: string; hint: string }[] = [
+  { id: 'commitment_language', label: 'Commitment Language', hint: 'Says "I will", "Yes I can", "I\'m available" — not "maybe", "try", "let\'s see".' },
+  { id: 'future_clarity', label: 'Future Clarity', hint: 'Clear about career direction, notice period and joining timeline.' },
+  { id: 'opportunity_competition', label: 'Opportunity Competition', hint: 'Low competing-offer risk — not juggling multiple interviews/offers.' },
+  { id: 'motivation_strength', label: 'Motivation Strength', hint: 'Gives specific, genuine reasons for wanting this role.' },
+  { id: 'stability_indicators', label: 'Stability Indicators', hint: 'Work history and current situation suggest they will stay.' },
+];
+
+export const RED_FLAG_SIGNALS: { id: keyof ScreeningAssessment & string; label: string; hint: string }[] = [
+  { id: 'low_energy', label: 'Low Energy', hint: 'Very short answers, no curiosity about the role, sounds distracted.' },
+  { id: 'vague_motivation', label: 'Vague Motivation', hint: 'Ask "Why this role?" — red flags: "just looking for a job", "someone told me to apply", "trying my luck".' },
+  { id: 'uncertain_joining_timeline', label: 'Uncertain Joining Timeline', hint: 'Ask "How soon can you join?" — red flags: "maybe next month", "let\'s see", "depends".' },
+  { id: 'avoids_current_status', label: 'Avoids Current Status', hint: 'Ask "Currently working or interviewing?" — hesitation, changing answers, avoiding clarity.' },
+  { id: 'salary_focus_early', label: 'Salary Focus Early', hint: 'Asks "what is the salary?" in the first minute, before understanding the role.' },
+  { id: 'weak_communication', label: 'Weak Communication', hint: 'One-word answers, long pauses, asks no questions.' },
+  { id: 'non_committed_language', label: 'Non-Committed Language', hint: 'Uses "maybe", "try", "let\'s see", "hopefully" instead of "I will", "yes I can".' },
+];
+
+export function screeningRiskLevel(totalScore: number): ScreeningRiskLevel {
+  if (totalScore >= 20) return 'High Join Probability';
+  if (totalScore >= 15) return 'Moderate Risk';
+  return 'High Ghosting Risk';
+}
+
+export function riskBadgeClass(riskLevel: string): string {
+  if (riskLevel === 'High Join Probability') return 'risk-badge risk-join';
+  if (riskLevel === 'Moderate Risk') return 'risk-badge risk-moderate';
+  return 'risk-badge risk-ghosting';
 }
 
 export interface Candidate {
@@ -35,6 +89,7 @@ export interface Candidate {
   experience_years: number;
   ai_score: number;
   stage: string;
+  screening?: ScreeningAssessment | null;
   is_hot?: boolean;
   offer_status?: string | null;
   interview_date?: string | null;
@@ -60,6 +115,7 @@ export interface Job {
   assigned_name?: string;
   open_positions: number;
   description?: string;
+  tenure_days?: number | null;
   pipeline_count?: number;
   match_percent?: number;
 }
@@ -136,7 +192,7 @@ export const FOLLOW_UP_CATEGORIES: { id: FollowUpCategory; label: string; hint: 
   { id: 'interview_day', label: 'Interview: same day', hint: 'Final confirmation on interview day' },
   { id: 'no_response', label: 'Not picking calls', hint: 'Escalations when candidate is unreachable' },
   { id: 'offer_followup', label: 'Selected → joining', hint: '1 week before, 1 day before & joining day' },
-  { id: 'onboarding', label: 'Post-joining check-ins', hint: 'Day 7 / 15 / 30 / 45 / 80 / 91' },
+  { id: 'onboarding', label: 'Post-joining check-ins', hint: 'Day 7 / 15 / 30 / 45 / 61 / 80 / 91 — trimmed to the job tenure' },
   { id: 'manual', label: 'Manual', hint: 'Created by recruiters' },
 ];
 
@@ -172,7 +228,7 @@ export const FOLLOW_UP_FLOWS: {
     label: 'Post-Joining',
     icon: '🏁',
     tagline: 'Joined → retention check-ins',
-    steps: ['Day 7', 'Day 15', 'Day 30', 'Day 45', 'Day 80', 'Day 91'],
+    steps: ['Day 7', 'Day 15', 'Day 30', 'Day 45', 'Day 61', 'Day 80', 'Day 91'],
     categories: ['onboarding'],
   },
   {
@@ -207,6 +263,7 @@ export interface FollowUp {
   escalated?: boolean;
   notes?: string;
   ai_suggestion?: string;
+  message_template?: string | null;
   assignee_name?: string;
   completed_at?: string;
 }

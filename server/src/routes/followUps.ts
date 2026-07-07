@@ -12,6 +12,7 @@ import {
   createNoResponseEscalation,
   syncFollowUps,
 } from '../services/followUpEngine.js';
+import { followUpMessageTemplate } from '../services/messageTemplates.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -87,6 +88,7 @@ router.get('/', async (req, res) => {
   const mapped = rows.map((r) => ({
     ...r,
     status: deriveStatus(r.due_at, r.status, r.completed_at),
+    message_template: followUpMessageTemplate(r),
   }));
 
   if (status) {
@@ -162,6 +164,11 @@ router.patch('/:id', async (req, res) => {
   );
   const existing = existingRows[0];
   if (!existing) return res.status(404).json({ error: 'Follow-up not found' });
+
+  // Post-joining check-ins follow the fixed Day-N schedule — nobody may reschedule them.
+  if (due_at !== undefined && existing.category === 'onboarding') {
+    return res.status(400).json({ error: 'Post-joining check-ins cannot be rescheduled' });
+  }
 
   const updates: string[] = [];
   const params: unknown[] = [];

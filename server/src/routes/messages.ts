@@ -7,7 +7,8 @@ import {
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
-import { sendWhatsAppText, whatsappMode } from '../services/whatsapp.js';
+import { sendWhatsAppText, whatsappMode, withSenderSignature } from '../services/whatsapp.js';
+import { interviewScheduledMessage } from '../services/messageTemplates.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -49,6 +50,23 @@ router.get('/:candidateId/suggestions', async (req, res) => {
     'Would a call tomorrow at 2 PM work for you?',
     'I have shared the job description. Please review and confirm your interest.',
   ];
+
+  // Step 1 reinforcement: candidate has an upcoming interview → the full
+  // confirmation message (reply CONFIRMED) is always the first suggestion.
+  const { rows: upcoming } = await pool.query(
+    `SELECT i.scheduled_at, c.name, j.title
+     FROM interviews i
+     JOIN candidates c ON c.id = i.candidate_id
+     LEFT JOIN jobs j ON j.id = c.job_id
+     WHERE i.candidate_id = $1 AND i.status IN ('pending', 'confirmed') AND i.scheduled_at > NOW()
+     ORDER BY i.scheduled_at ASC LIMIT 1`,
+    [req.params.candidateId]
+  );
+  if (upcoming[0]) {
+    suggestions.unshift(
+      interviewScheduledMessage(upcoming[0].name, upcoming[0].title, new Date(upcoming[0].scheduled_at))
+    );
+  }
   if (lastIncoming.toLowerCase().includes('interview')) {
     suggestions.unshift('Great! I can schedule the interview this week. Which day works best?');
   }
@@ -86,9 +104,20 @@ router.post('/:candidateId', async (req, res) => {
     [candidateId, req.user!.name, content.trim()]
   );
 
-  // Deliver via WhatsApp Cloud API when configured (simulated otherwise)
-  const { rows: cand } = await pool.query('SELECT phone FROM candidates WHERE id = $1', [candidateId]);
-  const wa = await sendWhatsAppText(cand[0]?.phone ?? null, content.trim());
+  // Deliver via WhatsApp Cloud API when configured (simulated otherwise).
+  // All messages leave from the shared business number, so the wire text is
+  // prefixed with the recruiter's signature; the DB keeps the raw content.
+  const [{ rows: userRows }, { rows: brandRows }, { rows: cand }] = await Promise.all([
+    pool.query('SELECT wa_signature FROM users WHERE id = $1', [req.user!.id]),
+    pool.query(`SELECT value FROM settings WHERE tenant_id = $1 AND key = 'branding'`, [tid(req)]),
+    pool.query('SELECT phone FROM candidates WHERE id = $1', [candidateId]),
+  ]);
+  const signature = userRows[0]?.wa_signature || req.user!.name;
+  const companyName = brandRows[0]?.value?.companyName;
+  const wa = await sendWhatsAppText(
+    cand[0]?.phone ?? null,
+    withSenderSignature(content.trim(), signature, companyName)
+  );
   const waStatus = wa.simulated ? 'simulated' : wa.delivered ? 'sent' : 'failed';
   if (wa.error) console.warn(`WhatsApp delivery failed for candidate ${candidateId}: ${wa.error}`);
 

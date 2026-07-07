@@ -17,11 +17,45 @@ router.use(tenantMiddleware);
 router.use(requireTenant);
 
 const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
+// Pre-screening scorecard: each question is scored 1-5 by the recruiter.
+const SCREENING_QUESTION_FIELDS = [
+  'commitment_language',
+  'future_clarity',
+  'opportunity_competition',
+  'motivation_strength',
+  'stability_indicators',
+] as const;
+// Red-flag signals observed in the first 3 minutes of the call, scored 1-5.
+const RED_FLAG_FIELDS = [
+  'low_energy',
+  'vague_motivation',
+  'uncertain_joining_timeline',
+  'avoids_current_status',
+  'salary_focus_early',
+  'weak_communication',
+  'non_committed_language',
+] as const;
+
+function screeningRiskLevel(totalScore: number): string {
+  if (totalScore >= 20) return 'High Join Probability';
+  if (totalScore >= 15) return 'Moderate Risk';
+  return 'High Ghosting Risk';
+}
 const OFFER_STATUSES = ['screening_rejected', 'offer_rejected', 'not_interested', 'joined_elsewhere', 'left_company'];
+// Statuses shown in list badges: OFFER_STATUSES plus the check-in outcomes set by the follow-up engine.
+const DISPLAY_OFFER_STATUSES = [...OFFER_STATUSES, 'doing_well', 'issue_flagged', 'no_answer'];
 const tid = (req: Request) => req.tenant!.id;
 
+// `status` filters on the badge shown in the UI (offer_status when set, else stage).
+function statusFilterClause(status: string, i: number): { sql: string; nextIndex: number } {
+  if (DISPLAY_OFFER_STATUSES.includes(status)) {
+    return { sql: ` AND c.offer_status = $${i}`, nextIndex: i + 1 };
+  }
+  return { sql: ` AND c.stage = $${i} AND c.offer_status IS NULL`, nextIndex: i + 1 };
+}
+
 router.get('/', async (req, res) => {
-  const { job_id, stage, search, recruiter_id, scope, hot } = req.query;
+  const { job_id, stage, status, search, recruiter_id, scope, hot } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.*, j.title AS job_title, u.name AS recruiter_name,
@@ -45,6 +79,12 @@ router.get('/', async (req, res) => {
   if (stage) {
     sql += ` AND c.stage = $${i++}`;
     params.push(stage);
+  }
+  if (status) {
+    const clause = statusFilterClause(String(status), i);
+    sql += clause.sql;
+    params.push(status);
+    i = clause.nextIndex;
   }
   if (search) {
     sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
@@ -95,7 +135,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/export', async (req, res) => {
-  const { job_id, stage, search, ids, recruiter_id, scope } = req.query;
+  const { job_id, stage, status, search, ids, recruiter_id, scope } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.name, c.email, c.phone, c.stage, j.title AS job_title, u.name AS recruiter_name, c.ai_score, c.updated_at
@@ -121,6 +161,12 @@ router.get('/export', async (req, res) => {
   if (stage) {
     sql += ` AND c.stage = $${i++}`;
     params.push(stage);
+  }
+  if (status) {
+    const clause = statusFilterClause(String(status), i);
+    sql += clause.sql;
+    params.push(status);
+    i = clause.nextIndex;
   }
   if (search) {
     sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
@@ -469,6 +515,60 @@ router.get('/:id/suggestions', async (req, res) => {
     suggestions.push(`Based on profile, salary range looks like ${c.salary_expectation}.`);
   }
   res.json({ suggestions, ai_score: c.ai_score, salary_expectation: c.salary_expectation });
+});
+
+router.put('/:id/screening', async (req, res) => {
+  const candidateId = Number(req.params.id);
+  const { rows: existing } = await pool.query(
+    'SELECT id, name FROM candidates WHERE id = $1 AND tenant_id = $2',
+    [candidateId, tid(req)]
+  );
+  if (!existing[0]) return res.status(404).json({ error: 'Candidate not found' });
+
+  const scores: Record<string, number | null> = {};
+  for (const field of [...SCREENING_QUESTION_FIELDS, ...RED_FLAG_FIELDS]) {
+    const value = req.body[field];
+    if (value === undefined || value === null) {
+      scores[field] = null;
+      continue;
+    }
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 5) {
+      return res.status(400).json({ error: `${field} must be a score from 1 to 5` });
+    }
+    scores[field] = n;
+  }
+
+  // Unscored questions count as 0, matching the spreadsheet formula the risk
+  // levels come from: >=20 join, >=15 moderate, else ghosting risk.
+  const totalScore = SCREENING_QUESTION_FIELDS.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
+  const totalRedFlags = RED_FLAG_FIELDS.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
+  const screening = {
+    ...scores,
+    total_score: totalScore,
+    total_red_flags: totalRedFlags,
+    risk_level: screeningRiskLevel(totalScore),
+    updated_by: req.user!.id,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { rows } = await pool.query(
+    'UPDATE candidates SET screening = $1::jsonb, updated_at = NOW() WHERE id = $2 AND tenant_id = $3 RETURNING *',
+    [JSON.stringify(screening), candidateId, tid(req)]
+  );
+
+  await pool.query(
+    'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+    [
+      'screening',
+      `${existing[0].name} pre-screening scored ${totalScore}/25 — ${screening.risk_level}`,
+      req.user!.id,
+      candidateId,
+      tid(req),
+    ]
+  );
+
+  res.json(rows[0]);
 });
 
 router.get('/:id', async (req, res) => {

@@ -55,9 +55,20 @@ export default function SettingsPage() {
                 <div className="setting-card">
                   <div className="setting-heading">Team Members</div>
                   {users.map((u) => (
-                    <div key={u.id} className="setting-item">
+                    <div key={u.id} className="setting-item" style={{ alignItems: 'center', gap: '0.75rem' }}>
                       <span>{u.name} ({u.role})</span>
                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{u.email}</span>
+                      <input
+                        className="input-field"
+                        style={{ maxWidth: '16rem', fontSize: '0.85rem' }}
+                        placeholder="WhatsApp signature (defaults to name)"
+                        defaultValue={u.wa_signature ?? ''}
+                        onBlur={async (e) => {
+                          if ((e.target.value || '') === (u.wa_signature ?? '')) return;
+                          await api.updateUser(u.id, { wa_signature: e.target.value });
+                          load();
+                        }}
+                      />
                     </div>
                   ))}
                 </div>

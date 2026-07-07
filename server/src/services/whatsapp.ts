@@ -56,6 +56,19 @@ export function normalizePhone(phone: string): string {
   return digits;
 }
 
+/**
+ * Prefix an outbound message with the sending recruiter's identity, since all
+ * messages leave from the one shared business number. Uses WhatsApp's *bold*
+ * formatting. Example rendered output:
+ *
+ *   Priya Sharma — AIOS Recruitment:
+ *   Hi Rahul, your interview is confirmed for Friday 3pm.
+ */
+export function withSenderSignature(text: string, senderName: string, companyName?: string): string {
+  const identity = companyName ? `${senderName} — ${companyName}` : senderName;
+  return `*${identity}:*\n${text}`;
+}
+
 /** Send a free-form text message (allowed inside the 24h customer window). */
 export async function sendWhatsAppText(toPhone: string | null, text: string): Promise<WaSendResult> {
   if (whatsappMode() === 'simulated') return { simulated: true, delivered: false };

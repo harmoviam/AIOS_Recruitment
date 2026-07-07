@@ -10,6 +10,9 @@ router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
 
+// Placement tenure options; drives the post-joining check-in schedule per job.
+const TENURE_OPTIONS = [30, 45, 60, 90];
+
 /** Match candidate list scoping — recruiters/HMs only see their own team's counts. */
 function candidateScopeSql(req: Request, paramStart: number) {
   const role = req.user!.role;
@@ -72,14 +75,17 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { title, client, location, status, assigned_to, open_positions, description } = req.body;
+  const { title, client, location, status, assigned_to, open_positions, description, tenure_days } = req.body;
   if (!title || !client || !location) {
     return res.status(400).json({ error: 'Title, client, and location required' });
   }
+  if (tenure_days != null && !TENURE_OPTIONS.includes(Number(tenure_days))) {
+    return res.status(400).json({ error: `tenure_days must be one of ${TENURE_OPTIONS.join(', ')}` });
+  }
 
   const { rows } = await pool.query(
-    `INSERT INTO jobs (title, client, location, status, assigned_to, open_positions, description, tenant_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    `INSERT INTO jobs (title, client, location, status, assigned_to, open_positions, description, tenure_days, tenant_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
     [
       title,
       client,
@@ -88,6 +94,7 @@ router.post('/', async (req, res) => {
       assigned_to || req.user!.id,
       open_positions || 1,
       description || null,
+      tenure_days != null ? Number(tenure_days) : null,
       tid(req),
     ]
   );
@@ -95,7 +102,14 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const fields = ['title', 'client', 'location', 'status', 'assigned_to', 'open_positions', 'description'] as const;
+  const fields = ['title', 'client', 'location', 'status', 'assigned_to', 'open_positions', 'description', 'tenure_days'] as const;
+  if (
+    req.body.tenure_days !== undefined &&
+    req.body.tenure_days !== null &&
+    !TENURE_OPTIONS.includes(Number(req.body.tenure_days))
+  ) {
+    return res.status(400).json({ error: `tenure_days must be one of ${TENURE_OPTIONS.join(', ')}` });
+  }
   const updates: string[] = [];
   const params: unknown[] = [];
   let i = 1;

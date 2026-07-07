@@ -189,6 +189,7 @@ export default function FollowUpCenterPage() {
   const [settingDateFor, setSettingDateFor] = useState<FollowUp | null>(null);
   const [joiningDate, setJoiningDate] = useState('');
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const load = async () => {
     // GET /follow-ups triggers the server-side rule sync, so one call is enough.
@@ -275,16 +276,25 @@ export default function FollowUpCenterPage() {
   };
 
   const whatsapp = (f: FollowUp) => {
-    navigate(`/messages?candidate=${f.candidate_id}&from=${encodeURIComponent('/follow-ups')}`);
+    const draft = f.message_template ? `&draft=${encodeURIComponent(f.message_template)}` : '';
+    navigate(`/messages?candidate=${f.candidate_id}&from=${encodeURIComponent('/follow-ups')}${draft}`);
   };
 
   const email = (f: FollowUp) => {
     if (f.candidate_email) {
       const subject = encodeURIComponent(`Regarding ${f.job_title || 'your application'}`);
-      window.location.href = `mailto:${f.candidate_email}?subject=${subject}`;
+      const body = f.message_template ? `&body=${encodeURIComponent(f.message_template)}` : '';
+      window.location.href = `mailto:${f.candidate_email}?subject=${subject}${body}`;
     } else {
       alert('No email on file for this candidate.');
     }
+  };
+
+  const copyTemplate = async (f: FollowUp) => {
+    if (!f.message_template) return;
+    await navigator.clipboard.writeText(f.message_template);
+    setCopiedId(f.id);
+    setTimeout(() => setCopiedId((id) => (id === f.id ? null : id)), 2000);
   };
 
   const openReschedule = (f: FollowUp) => {
@@ -487,6 +497,23 @@ export default function FollowUpCenterPage() {
                 {f.notes && <p className="follow-up-notes">{f.notes}</p>}
                 {f.ai_suggestion && <div className="ai-chip">🤖 {f.ai_suggestion}</div>}
 
+                {f.message_template && !done && (
+                  <details className="fu-template">
+                    <summary>
+                      💬 Suggested message — {step || 'follow-up'}
+                    </summary>
+                    <pre className="fu-template-text">{f.message_template}</pre>
+                    <div className="fu-template-actions">
+                      <button type="button" className="button-pill button-secondary btn-sm" onClick={() => copyTemplate(f)}>
+                        {copiedId === f.id ? '✓ Copied' : '📋 Copy'}
+                      </button>
+                      <button type="button" className="button-pill button-secondary btn-sm" onClick={() => whatsapp(f)}>
+                        💬 Send via WhatsApp
+                      </button>
+                    </div>
+                  </details>
+                )}
+
                 {!done && (
                   <div className="follow-up-actions">
                     <button type="button" className="button-pill button-secondary btn-sm" onClick={() => call(f)}>📞 Call</button>
@@ -500,9 +527,11 @@ export default function FollowUpCenterPage() {
                     >
                       ✓ Record outcome
                     </button>
-                    <button type="button" className="button-pill button-secondary btn-sm" disabled={isBusy} onClick={() => openReschedule(f)}>
-                      Reschedule
-                    </button>
+                    {f.category !== 'onboarding' && (
+                      <button type="button" className="button-pill button-secondary btn-sm" disabled={isBusy} onClick={() => openReschedule(f)}>
+                        Reschedule
+                      </button>
+                    )}
                     {f.status !== 'missed' && (
                       <button type="button" className="button-pill button-secondary btn-sm" disabled={isBusy} onClick={() => markMissed(f.id)}>
                         Mark missed

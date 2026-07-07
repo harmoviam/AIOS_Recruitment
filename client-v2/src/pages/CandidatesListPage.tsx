@@ -7,6 +7,7 @@ import PageHeader from '../components/ui/PageHeader';
 import StatusBadge from '../components/ui/StatusBadge';
 import SideDrawer from '../components/ui/SideDrawer';
 import Tabs from '../components/ui/Tabs';
+import { riskBadgeClass } from '../types';
 import type { Candidate, Job, RecruiterStat } from '../types';
 
 type HmScope = 'my' | 'team';
@@ -53,7 +54,7 @@ export default function CandidatesListPage() {
     const params: Record<string, string> = {};
     if (search) params.search = search;
     if (jobFilter) params.job_id = jobFilter;
-    if (stageFilter) params.stage = stageFilter;
+    if (stageFilter) params.status = stageFilter;
     if (filterParam === 'new') params.stage = 'applied';
     if (filterParam === 'joined') params.stage = 'joined';
     if (filterParam === 'selected') params.stage = 'selected';
@@ -176,11 +177,24 @@ export default function CandidatesListPage() {
         <div className="filter-bar sticky">
           <select className="input-field filter-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
             <option value="">All statuses</option>
-            <option value="applied">New / Applied</option>
-            <option value="screening">Screening</option>
-            <option value="interview">Interview</option>
-            <option value="selected">Selected</option>
-            <option value="joined">Joined</option>
+            <optgroup label="Pipeline stage">
+              <option value="applied">New / Applied</option>
+              <option value="screening">Screening</option>
+              <option value="interview">Interview</option>
+              <option value="selected">Selected</option>
+              <option value="joined">Joined</option>
+              <option value="rejected">Rejected</option>
+            </optgroup>
+            <optgroup label="Outcome">
+              <option value="screening_rejected">Screening Rejected</option>
+              <option value="offer_rejected">Offer Rejected</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="joined_elsewhere">Joined Elsewhere</option>
+              <option value="left_company">Left Company</option>
+              <option value="doing_well">Doing Well</option>
+              <option value="issue_flagged">Issue Flagged</option>
+              <option value="no_answer">No Answer</option>
+            </optgroup>
           </select>
           <select className="input-field filter-select" value={jobFilter} onChange={(e) => setJobFilter(e.target.value)}>
             <option value="">All jobs</option>
@@ -211,6 +225,7 @@ export default function CandidatesListPage() {
                 <th>Phone</th>
                 <th>Job</th>
                 <th>Status</th>
+                <th>Risk</th>
                 <th>Interview Date</th>
                 <th>Joining Date</th>
                 <th>Recruiter</th>
@@ -238,6 +253,18 @@ export default function CandidatesListPage() {
                   <td>{c.phone || '—'}</td>
                   <td>{c.job_title || '—'}</td>
                   <td><StatusBadge status={c.offer_status || c.stage} /></td>
+                  <td>
+                    {c.screening ? (
+                      <span
+                        className={riskBadgeClass(c.screening.risk_level)}
+                        title={`Screening ${c.screening.total_score}/25 · Red flags ${c.screening.total_red_flags}/35`}
+                      >
+                        {c.screening.risk_level}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>{c.interview_date ? new Date(c.interview_date).toLocaleDateString() : '—'}</td>
                   <td>{c.joined_at ? new Date(c.joined_at).toLocaleDateString() : '—'}</td>
                   <td>{c.recruiter_name || '—'}</td>
@@ -295,6 +322,14 @@ export default function CandidatesListPage() {
               {preview.is_hot && <span className="hot-flame" title="Hot candidate">🔥 Hot</span>}
             </p>
             <StatusBadge status={preview.offer_status || preview.stage} />
+            {preview.screening && (
+              <p style={{ marginTop: '0.5rem' }}>
+                <span className={riskBadgeClass(preview.screening.risk_level)}>{preview.screening.risk_level}</span>
+                <span className="text-muted" style={{ marginLeft: '0.5rem' }}>
+                  Screening {preview.screening.total_score}/25 · Red flags {preview.screening.total_red_flags}/35
+                </span>
+              </p>
+            )}
             <div className="drawer-actions">
               <Link to={`/messages?candidate=${preview.id}&from=${encodeURIComponent('/candidates')}`} className="button-pill button-secondary btn-sm">WhatsApp</Link>
               <Link to="/follow-ups" className="button-pill button-secondary btn-sm">Follow-up</Link>

@@ -104,6 +104,11 @@ export const api = {
     request<import('../types').Candidate>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate: (id: number, data: Partial<import('../types').Candidate>) =>
     request<import('../types').Candidate>(`/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  saveScreening: (id: number, scores: Record<string, number | null>) =>
+    request<import('../types').Candidate>(`/candidates/${id}/screening`, {
+      method: 'PUT',
+      body: JSON.stringify(scores),
+    }),
   deleteCandidate: (id: number) => request<void>(`/candidates/${id}`, { method: 'DELETE' }),
   bulkUpdateCandidates: (ids: number[], data: { stage?: string; offer_status?: string; recruiter_id?: number }) =>
     request<{ updated: number }>('/candidates/bulk', { method: 'PATCH', body: JSON.stringify({ ids, ...data }) }),
@@ -212,6 +217,6 @@ export const api = {
   getUsers: () => request<import('../types').User[]>('/settings/users/list'),
   createUser: (data: { email: string; password: string; name: string; role?: string }) =>
     request('/settings/users/list', { method: 'POST', body: JSON.stringify(data) }),
-  updateUser: (id: number, data: Partial<{ name: string; role: string; password: string }>) =>
+  updateUser: (id: number, data: Partial<{ name: string; role: string; password: string; wa_signature: string }>) =>
     request(`/settings/users/list/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 };

@@ -24,7 +24,7 @@ export default function JobsPage() {
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState({ title: '', client: '', location: '', open_positions: 1, description: '' });
+  const [form, setForm] = useState({ title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' });
 
   const load = useCallback(
     () =>
@@ -46,8 +46,8 @@ export default function JobsPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.createJob(form);
-    setForm({ title: '', client: '', location: '', open_positions: 1, description: '' });
+    await api.createJob({ ...form, tenure_days: form.tenure_days ? Number(form.tenure_days) : null });
+    setForm({ title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' });
     setShowForm(false);
     load();
   };
@@ -117,6 +117,13 @@ export default function JobsPage() {
               <input className="input-field" placeholder="Client" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} required />
               <input className="input-field" placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} required />
               <input type="number" className="input-field" placeholder="Open positions" value={form.open_positions} onChange={(e) => setForm({ ...form, open_positions: Number(e.target.value) })} />
+              <select className="input-field" value={form.tenure_days} onChange={(e) => setForm({ ...form, tenure_days: e.target.value })}>
+                <option value="">Tenure (default 90 days)</option>
+                <option value="30">30 days</option>
+                <option value="45">45 days</option>
+                <option value="60">60 days</option>
+                <option value="90">90 days</option>
+              </select>
             </div>
             <textarea className="input-field" style={{ marginTop: '1rem' }} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             <button type="submit" className="button-pill button-primary" style={{ marginTop: '1rem' }}>
@@ -146,6 +153,7 @@ export default function JobsPage() {
                 <div style={{ display: 'grid', gap: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                   <div>Assigned: <strong>{job.assigned_name || '—'}</strong></div>
                   <div>Open: <strong>{job.open_positions}</strong></div>
+                  <div>Tenure: <strong>{job.tenure_days ? `${job.tenure_days} days` : '90 days (default)'}</strong></div>
                   <div>Match: <strong style={{ color: 'var(--success)' }}>{job.match_percent ?? 0}%</strong></div>
                   <div>In pipeline: <strong>{job.pipeline_count ?? 0}</strong></div>
                 </div>
