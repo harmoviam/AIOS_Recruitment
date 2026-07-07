@@ -6,6 +6,7 @@ import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
 import SideDrawer from '../components/ui/SideDrawer';
 import type { Company, HiringManager, RecruiterStat, TeamPerformance } from '../types';
+import { showDemoCredentials } from '../utils/demoMode';
 
 type DrawerMode = { type: 'add' } | { type: 'edit'; recruiter: RecruiterStat };
 
@@ -49,7 +50,7 @@ export default function RecruitersPage() {
     setForm({
       name: '',
       email: '',
-      password: 'password123',
+      password: showDemoCredentials ? 'password123' : '',
       company_id: selectedHm?.company_id ? String(selectedHm.company_id) : '',
       managed_by_id: selectedHm ? String(selectedHm.id) : '',
     });

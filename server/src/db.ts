@@ -4,6 +4,8 @@ import { DB_SCHEMA, pool, useSchema } from './dbConfig.js';
 
 export { pool, DB_SCHEMA };
 
+const allowDemoSeed = process.env.NODE_ENV !== 'production';
+
 const TENANT_SEEDS = [
   {
     slug: 'staffpro-agency',
@@ -181,13 +183,15 @@ export async function initDb() {
     await migrateScreening(client);
     await migrateFollowUpEngine(client);
     await migrateMultiTenant(client);
-    await ensureAllTenantsSeeded(client);
+    if (allowDemoSeed) {
+      await ensureAllTenantsSeeded(client);
 
-    const { rows: candRows } = await client.query('SELECT COUNT(*)::int AS c FROM candidates');
-    if (candRows[0].c === 0) await seedDb(client);
-    else await seedPhase1Extras(client);
+      const { rows: candRows } = await client.query('SELECT COUNT(*)::int AS c FROM candidates');
+      if (candRows[0].c === 0) await seedDb(client);
+      else await seedPhase1Extras(client);
 
-    await ensureTodayInterviews(client);
+      await ensureTodayInterviews(client);
+    }
   } finally {
     client.release();
   }
@@ -438,7 +442,7 @@ async function migrateMultiTenant(client: pg.PoolClient) {
   await client.query(`ALTER TABLE activities ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE`);
 
   const { rows: tenantCount } = await client.query('SELECT COUNT(*)::int AS c FROM tenants');
-  if (tenantCount[0].c === 0) {
+  if (allowDemoSeed && tenantCount[0].c === 0) {
     for (const t of TENANT_SEEDS) {
       await client.query(
         `INSERT INTO tenants (slug, name, plan, status, primary_color, logo_initials, features)
@@ -502,7 +506,9 @@ async function migrateMultiTenant(client: pg.PoolClient) {
     CREATE UNIQUE INDEX IF NOT EXISTS jobs_tenant_title_idx
     ON jobs (tenant_id, title)
   `);
-  await ensureDemoUsers(client, defaultId);
+  if (allowDemoSeed) {
+    await ensureDemoUsers(client, defaultId);
+  }
 }
 
 /** Merge duplicate job rows (same tenant + title) created by concurrent initDb runs. */

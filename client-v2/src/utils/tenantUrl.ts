@@ -34,18 +34,32 @@ export function platformLoginUrl(): string {
   return `${window.location.origin}${PLATFORM_LOGIN_PATH}`;
 }
 
+/** Platform host suffixes — never treated as tenant subdomains (e.g. Cloud Run). */
+const PLATFORM_HOST_SUFFIXES = ['.run.app', '.appspot.com', '.cloudfunctions.net'];
+
 /** Parse tenant slug from hostname (e.g. staffpro-agency.localhost or earlyjobs.aios.app). */
 export function getTenantSlugFromHost(hostname = typeof window !== 'undefined' ? window.location.hostname : ''): string | null {
   const h = hostname.toLowerCase();
   if (!h || h === 'localhost' || h === '127.0.0.1') return null;
+  if (PLATFORM_HOST_SUFFIXES.some((suffix) => h.endsWith(suffix))) return null;
 
-  const parts = h.split('.');
-  if (parts.length < 2) return null;
+  const domain = APP_DOMAIN.toLowerCase();
 
-  const sub = parts[0];
-  if (!sub || sub === 'www') return null;
-  if (sub === 'platform') return 'platform';
-  return sub;
+  // Production tenant subdomain: {slug}.aios.app
+  if (h.endsWith(`.${domain}`)) {
+    const sub = h.slice(0, -(domain.length + 1));
+    if (!sub || sub === 'www' || sub.includes('.')) return null;
+    return sub === 'platform' ? 'platform' : sub;
+  }
+
+  // Local dev tenant subdomain: {slug}.localhost
+  if (h.endsWith('.localhost')) {
+    const sub = h.slice(0, -'.localhost'.length);
+    if (!sub || sub === 'www' || sub.includes('.')) return null;
+    return sub === 'platform' ? 'platform' : sub;
+  }
+
+  return null;
 }
 
 export function loginRedirectPath(storedSlug?: string | null): string {

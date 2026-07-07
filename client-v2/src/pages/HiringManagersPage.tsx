@@ -7,6 +7,9 @@ import PageHeader from '../components/ui/PageHeader';
 import SideDrawer from '../components/ui/SideDrawer';
 import type { Company, HiringManager } from '../types';
 import { tenantLoginUrl } from '../utils/tenantUrl';
+import { showDemoCredentials } from '../utils/demoMode';
+
+const defaultHmPassword = () => (showDemoCredentials ? 'password123' : '');
 
 export default function HiringManagersPage() {
   const { tenant } = useTenant();
@@ -14,7 +17,7 @@ export default function HiringManagersPage() {
   const [managers, setManagers] = useState<HiringManager[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: 'password123', company_id: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: defaultHmPassword(), company_id: '' });
   const [loginHm, setLoginHm] = useState<HiringManager | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [createdLogin, setCreatedLogin] = useState<{ name: string; email: string; password: string } | null>(null);
@@ -39,7 +42,7 @@ export default function HiringManagersPage() {
       });
       setCreatedLogin({ name: form.name, email: form.email, password: form.password });
       setShowAdd(false);
-      setForm({ name: '', email: '', password: 'password123', company_id: '' });
+      setForm({ name: '', email: '', password: defaultHmPassword(), company_id: '' });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create hiring manager');
@@ -199,13 +202,15 @@ export default function HiringManagersPage() {
           </table>
         </div>
 
-        <div className="card" style={{ marginTop: '1rem' }}>
-          <h3 className="card-heading">Demo Hiring Manager (StaffPro)</h3>
-          <div className="detail-row"><span className="detail-label">Organization</span><strong>StaffPro Agency (staffpro-agency)</strong></div>
-          <div className="detail-row"><span className="detail-label">Email</span><code>anil.mehta@client.com</code></div>
-          <div className="detail-row"><span className="detail-label">Password</span><code>password123</code></div>
-          <div className="detail-row"><span className="detail-label">Company</span><span>TCS</span></div>
-        </div>
+        {showDemoCredentials && (
+          <div className="card" style={{ marginTop: '1rem' }}>
+            <h3 className="card-heading">Demo Hiring Manager (StaffPro)</h3>
+            <div className="detail-row"><span className="detail-label">Organization</span><strong>StaffPro Agency (staffpro-agency)</strong></div>
+            <div className="detail-row"><span className="detail-label">Email</span><code>anil.mehta@client.com</code></div>
+            <div className="detail-row"><span className="detail-label">Password</span><code>password123</code></div>
+            <div className="detail-row"><span className="detail-label">Company</span><span>TCS</span></div>
+          </div>
+        )}
       </div>
 
       <SideDrawer

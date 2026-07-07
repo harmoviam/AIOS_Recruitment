@@ -12,6 +12,7 @@ import {
   tenantLoginUrl,
   tenantSubdomainLoginUrl,
 } from '../utils/tenantUrl';
+import { showDemoCredentials } from '../utils/demoMode';
 import { WALKTHROUGH_GUIDES, type WalkthroughRole } from '../data/walkthroughs';
 
 function BrandMark({ compact = false }: { compact?: boolean }) {
@@ -257,8 +258,8 @@ function TenantLoginForm({
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [branding, setBranding] = useState<TenantBranding | null>(null);
   const [tenantError, setTenantError] = useState('');
-  const [email, setEmail] = useState(DEMO_EMAILS[workspace] || '');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState(showDemoCredentials ? DEMO_EMAILS[workspace] || '' : '');
+  const [password, setPassword] = useState(showDemoCredentials ? 'password123' : '');
   const [showPassword, setShowPassword] = useState(false);
   const [orgName, setOrgName] = useState('');
   const [registerSlug, setRegisterSlug] = useState('');
@@ -273,11 +274,11 @@ function TenantLoginForm({
       if (isPlatform) {
         setBranding(null);
         setTenantError('');
-        setEmail(DEMO_EMAILS.platform);
+        if (showDemoCredentials) setEmail(DEMO_EMAILS.platform);
       }
       return;
     }
-    setEmail(DEMO_EMAILS[workspace] || '');
+    if (showDemoCredentials) setEmail(DEMO_EMAILS[workspace] || '');
     setTenantError('');
     api
       .getTenantBySlug(workspace)
@@ -525,7 +526,7 @@ function TenantLoginForm({
               )}
             </button>
 
-            {mode === 'login' && (
+            {showDemoCredentials && mode === 'login' && (
               <details className="login-demo">
                 <summary>Demo credentials</summary>
                 <p>{demoHint}</p>

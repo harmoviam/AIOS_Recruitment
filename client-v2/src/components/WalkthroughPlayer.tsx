@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { WalkthroughGuide, WalkthroughStep } from '../data/walkthroughs';
+import { sanitizeWalkthroughHighlights, showDemoCredentials } from '../utils/demoMode';
 
 function MockScene({ step, guide }: { step: WalkthroughStep; guide: WalkthroughGuide }) {
   const accent = guide.accent;
+  const highlights = sanitizeWalkthroughHighlights(step.highlights);
 
   if (step.scene === 'login') {
     return (
@@ -16,7 +18,7 @@ function MockScene({ step, guide }: { step: WalkthroughStep; guide: WalkthroughG
           <div className="wt-mock-field wt-mock-shimmer" />
           <div className="wt-mock-field wt-mock-shimmer" style={{ animationDelay: '0.2s' }} />
           <div className="wt-mock-btn" style={{ background: accent }}>Sign In</div>
-          {step.highlights?.map((h) => (
+          {highlights?.map((h) => (
             <div key={h} className="wt-mock-highlight">{h}</div>
           ))}
         </div>
@@ -208,8 +210,12 @@ export default function WalkthroughPlayer({ guide, backTo, backLabel = '← Back
         <strong>Try it yourself</strong>
         <div className="wt-demo-grid">
           <div><span className="text-muted">Login URL</span><code>{guide.loginUrl}</code></div>
-          <div><span className="text-muted">Email</span><code>{guide.demoEmail}</code></div>
-          <div><span className="text-muted">Password</span><code>{guide.demoPassword}</code></div>
+          {showDemoCredentials && (
+            <>
+              <div><span className="text-muted">Email</span><code>{guide.demoEmail}</code></div>
+              <div><span className="text-muted">Password</span><code>{guide.demoPassword}</code></div>
+            </>
+          )}
         </div>
         <Link to={guide.loginUrl} className="button-pill button-primary btn-sm" style={{ marginTop: '0.75rem' }}>
           Open login →
