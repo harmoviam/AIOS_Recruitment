@@ -107,7 +107,14 @@ Authentication uses **Workload Identity Federation** (OIDC) — no long-lived se
 
 ### One-time WIF setup (GCP)
 
-Run once per project. Requires `gcloud` authenticated to `aiosrecruitment`.
+Run once per project:
+
+```bash
+chmod +x scripts/setup-github-wif.sh
+./scripts/setup-github-wif.sh
+```
+
+Or manually with `gcloud` (requires `gcloud` authenticated to `aiosrecruitment`):
 
 ```bash
 PROJECT_ID=aiosrecruitment
