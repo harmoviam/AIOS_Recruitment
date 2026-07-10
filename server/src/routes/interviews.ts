@@ -14,6 +14,7 @@ import {
   appPublicUrl,
   candidateJoinPath,
   createLiveKitToken,
+  extractJoinToken,
   generateJoinCode,
   interviewRoomName,
   isLiveKitConfigured,
@@ -245,6 +246,15 @@ router.post('/', async (req, res) => {
       [link, joinCode, interview.id]
     );
     Object.assign(interview, updated[0]);
+  } else {
+    const token = extractJoinToken(meeting_link);
+    if (token && !token.includes('.')) {
+      const { rows: updated } = await pool.query(
+        'UPDATE interviews SET join_code = $1 WHERE id = $2 RETURNING *',
+        [token, interview.id]
+      );
+      Object.assign(interview, updated[0]);
+    }
   }
 
   await pool.query(

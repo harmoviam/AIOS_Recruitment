@@ -107,6 +107,15 @@ export function generateJoinCode(): string {
 }
 
 /** Whether a candidate may open the join page for this interview. */
+export function isJoinLinkUsable(scheduledAt: string | Date, durationMinutes = 60): boolean {
+  const start = new Date(scheduledAt).getTime();
+  const now = Date.now();
+  const earliest = start - 30 * 24 * 60 * 60 * 1000;
+  const latest = start + (durationMinutes + 24 * 60) * 60 * 1000;
+  return now >= earliest && now <= latest;
+}
+
+/** Whether a candidate may enter the live video room right now. */
 export function isJoinWindowOpen(scheduledAt: string | Date, durationMinutes = 60): boolean {
   const start = new Date(scheduledAt).getTime();
   const now = Date.now();

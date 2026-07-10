@@ -143,6 +143,7 @@ export interface InterviewJoinPreview {
   roundType: string;
   status: string;
   livekitConfigured: boolean;
+  joinWindowOpen?: boolean;
 }
 
 /** BPO/CRM screening scorecard filled during the live interview call. */

@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import {
   createLiveKitToken,
   interviewRoomName,
+  isJoinLinkUsable,
   isJoinWindowOpen,
   isLiveKitConfigured,
   liveKitServerUrl,
@@ -11,7 +12,14 @@ import {
 
 const router = Router();
 
-type JoinPayload = { interviewId: number; tenantId: number };
+type InterviewJoinRow = {
+  id: number;
+  scheduled_at: string;
+  duration_minutes: number | null;
+  tenant_id: number;
+  join_code: string | null;
+  meeting_link: string | null;
+};
 
 function decodeJoinToken(raw: string): string {
   try {
@@ -21,35 +29,61 @@ function decodeJoinToken(raw: string): string {
   }
 }
 
-async function resolveJoinToken(token: string): Promise<JoinPayload | null> {
-  const decoded = decodeJoinToken(token);
+async function backfillJoinCode(interviewId: number, joinCode: string, current: InterviewJoinRow) {
+  if (current.join_code === joinCode) return;
+  await pool.query('UPDATE interviews SET join_code = $1 WHERE id = $2', [joinCode, interviewId]);
+}
 
-  // Short opaque codes have no dots — avoids WhatsApp breaking JWT links at `.`.
+async function findInterviewByJoinToken(token: string): Promise<InterviewJoinRow | null> {
+  const decoded = decodeJoinToken(token);
+  if (!decoded) return null;
+
   if (!decoded.includes('.')) {
-    const { rows } = await pool.query<{
-      id: number;
-      scheduled_at: string;
-      duration_minutes: number | null;
-      tenant_id: number;
-    }>(
-      `SELECT i.id, i.scheduled_at, i.duration_minutes, c.tenant_id
+    const { rows } = await pool.query<InterviewJoinRow>(
+      `SELECT i.id, i.scheduled_at, i.duration_minutes, i.join_code, i.meeting_link, c.tenant_id
        FROM interviews i
        JOIN candidates c ON c.id = i.candidate_id
        WHERE i.join_code = $1`,
       [decoded]
     );
-    if (!rows[0]) return null;
-    const iv = rows[0];
-    if (!isJoinWindowOpen(iv.scheduled_at, iv.duration_minutes ?? 60)) return null;
-    return { interviewId: iv.id, tenantId: iv.tenant_id };
+    if (rows[0]) return rows[0];
+
+    const { rows: byLink } = await pool.query<InterviewJoinRow>(
+      `SELECT i.id, i.scheduled_at, i.duration_minutes, i.join_code, i.meeting_link, c.tenant_id
+       FROM interviews i
+       JOIN candidates c ON c.id = i.candidate_id
+       WHERE i.meeting_link LIKE $1`,
+      [`%/join/interview/${decoded}%`]
+    );
+    if (byLink[0]) {
+      await backfillJoinCode(byLink[0].id, decoded, byLink[0]);
+      return { ...byLink[0], join_code: decoded };
+    }
+
+    return null;
   }
 
-  return verifyInterviewJoinToken(decoded);
+  const payload = verifyInterviewJoinToken(decoded);
+  if (!payload) return null;
+
+  const { rows } = await pool.query<InterviewJoinRow>(
+    `SELECT i.id, i.scheduled_at, i.duration_minutes, i.join_code, i.meeting_link, c.tenant_id
+     FROM interviews i
+     JOIN candidates c ON c.id = i.candidate_id
+     WHERE i.id = $1 AND c.tenant_id = $2`,
+    [payload.interviewId, payload.tenantId]
+  );
+  return rows[0] ?? null;
 }
 
 router.get('/:joinToken', async (req, res) => {
-  const payload = await resolveJoinToken(req.params.joinToken);
-  if (!payload) return res.status(401).json({ error: 'Invalid or expired interview link' });
+  const interview = await findInterviewByJoinToken(req.params.joinToken);
+  if (!interview) return res.status(404).json({ error: 'Interview link not found' });
+
+  const duration = interview.duration_minutes ?? 60;
+  if (!isJoinLinkUsable(interview.scheduled_at, duration)) {
+    return res.status(410).json({ error: 'This interview link has expired' });
+  }
 
   const { rows } = await pool.query(
     `SELECT i.id, i.scheduled_at, i.round_type, i.status, i.duration_minutes,
@@ -58,7 +92,7 @@ router.get('/:joinToken', async (req, res) => {
      JOIN candidates c ON c.id = i.candidate_id
      JOIN tenants t ON t.id = c.tenant_id
      WHERE i.id = $1 AND c.tenant_id = $2`,
-    [payload.interviewId, payload.tenantId]
+    [interview.id, interview.tenant_id]
   );
 
   if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
@@ -72,12 +106,23 @@ router.get('/:joinToken', async (req, res) => {
     roundType: iv.round_type,
     status: iv.status,
     livekitConfigured: isLiveKitConfigured(),
+    joinWindowOpen: isJoinWindowOpen(iv.scheduled_at, iv.duration_minutes ?? 60),
   });
 });
 
 router.post('/:joinToken/token', async (req, res) => {
-  const payload = await resolveJoinToken(req.params.joinToken);
-  if (!payload) return res.status(401).json({ error: 'Invalid or expired interview link' });
+  const interview = await findInterviewByJoinToken(req.params.joinToken);
+  if (!interview) return res.status(404).json({ error: 'Interview link not found' });
+
+  const duration = interview.duration_minutes ?? 60;
+  if (!isJoinLinkUsable(interview.scheduled_at, duration)) {
+    return res.status(410).json({ error: 'This interview link has expired' });
+  }
+  if (!isJoinWindowOpen(interview.scheduled_at, duration)) {
+    return res.status(403).json({
+      error: 'The video room opens 2 hours before your scheduled interview time. Please try again closer to the start.',
+    });
+  }
 
   const participantName = String(req.body.participantName || '').trim();
   if (!participantName || participantName.length > 80) {
@@ -95,7 +140,7 @@ router.post('/:joinToken/token', async (req, res) => {
      FROM interviews i
      JOIN candidates c ON c.id = i.candidate_id
      WHERE i.id = $1 AND c.tenant_id = $2`,
-    [payload.interviewId, payload.tenantId]
+    [interview.id, interview.tenant_id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
 

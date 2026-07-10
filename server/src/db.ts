@@ -312,6 +312,12 @@ async function migrateJoinCodes(client: pg.PoolClient) {
   for (const row of rows) {
     const token = row.meeting_link ? extractJoinToken(row.meeting_link) : null;
     const hasJwtLink = Boolean(token?.includes('.'));
+
+    if (!row.join_code && token && !hasJwtLink) {
+      await client.query('UPDATE interviews SET join_code = $1 WHERE id = $2', [token, row.id]);
+      row.join_code = token;
+    }
+
     if (row.join_code && !hasJwtLink) continue;
 
     const joinCode = row.join_code || generateJoinCode();

@@ -13,6 +13,7 @@ export default function JoinInterviewPage() {
     scheduledAt: string;
     roundType: string;
     livekitConfigured: boolean;
+    joinWindowOpen: boolean;
   } | null>(null);
   const [name, setName] = useState('');
   const [session, setSession] = useState<VideoSession | null>(null);
@@ -24,7 +25,14 @@ export default function JoinInterviewPage() {
     api
       .getInterviewJoinPreview(joinToken)
       .then((data) => {
-        setPreview(data);
+        setPreview({
+          candidateName: data.candidateName,
+          tenantName: data.tenantName,
+          scheduledAt: data.scheduledAt,
+          roundType: data.roundType,
+          livekitConfigured: data.livekitConfigured,
+          joinWindowOpen: data.joinWindowOpen ?? true,
+        });
         setName(data.candidateName || '');
       })
       .catch((e: Error) => setError(e.message))
@@ -84,6 +92,16 @@ export default function JoinInterviewPage() {
               <p className="interview-video-error" style={{ marginTop: '1rem' }}>
                 Video calling is not configured on this server yet. Please contact your recruiter.
               </p>
+            ) : !preview.joinWindowOpen ? (
+              <>
+                <p className="join-interview-tip" style={{ marginTop: '1.25rem' }}>
+                  Your interview is scheduled for {new Date(preview.scheduledAt).toLocaleString()}.
+                  The video room opens <strong>2 hours before</strong> the start time — please return then to join.
+                </p>
+                <p className="text-muted" style={{ marginTop: '0.75rem' }}>
+                  Bookmark this page or use the same link from WhatsApp when it is time to join.
+                </p>
+              </>
             ) : (
               <form onSubmit={join} style={{ marginTop: '1.25rem' }}>
                 <label className="join-interview-label" htmlFor="participant-name">
