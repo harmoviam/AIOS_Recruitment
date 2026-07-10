@@ -125,6 +125,58 @@ After the secrets exist, every deploy (push to `main` or manual dispatch) keeps
 WhatsApp in **Live** mode. To rotate a value, add a new secret version — the
 workflow always reads `:latest`.
 
+## Candidate join links (`APP_PUBLIC_URL`)
+
+Interview join links sent to candidates must use your **public app URL**, not
+`localhost`. The deploy workflow sets `APP_PUBLIC_URL` automatically from the
+Cloud Run service URL on each deploy.
+
+If you use a **custom domain** (e.g. `earlyjobs.aios.app`), set it explicitly
+after deploy:
+
+```bash
+gcloud run services update harmirecruit \
+  --region us-central1 \
+  --project aiosrecruitment \
+  --update-env-vars "APP_PUBLIC_URL=https://earlyjobs.aios.app"
+```
+
+Stale `localhost` links in the database are rewritten automatically on the next
+app restart (when `APP_PUBLIC_URL` is set) and whenever interviews are loaded
+via the API.
+
+## LiveKit video interviews
+
+Video calls require [LiveKit Cloud](https://cloud.livekit.io) (free tier works)
+or a self-hosted LiveKit server. Without these secrets, recruiters can still use
+**Interview Screening**; only the video room is disabled.
+
+Create three secrets in `aiosrecruitment`:
+
+| Secret | Env var | Example |
+|--------|---------|---------|
+| `harmirecruit-livekit-url` | `LIVEKIT_URL` | `wss://your-project.livekit.cloud` |
+| `harmirecruit-livekit-api-key` | `LIVEKIT_API_KEY` | From LiveKit Cloud → Settings → Keys |
+| `harmirecruit-livekit-api-secret` | `LIVEKIT_API_SECRET` | From LiveKit Cloud → Settings → Keys |
+
+```bash
+echo -n 'wss://your-project.livekit.cloud' | gcloud secrets create harmirecruit-livekit-url \
+  --data-file=- --project=aiosrecruitment
+echo -n 'APIxxxxx' | gcloud secrets create harmirecruit-livekit-api-key \
+  --data-file=- --project=aiosrecruitment
+echo -n 'secretxxxxx' | gcloud secrets create harmirecruit-livekit-api-secret \
+  --data-file=- --project=aiosrecruitment
+
+for S in harmirecruit-livekit-url harmirecruit-livekit-api-key harmirecruit-livekit-api-secret; do
+  gcloud secrets add-iam-policy-binding "$S" \
+    --member="serviceAccount:cloud-run-harmirecruit-sa@aiosrecruitment.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor" --project=aiosrecruitment
+done
+```
+
+Redeploy (push to `main` or workflow dispatch). The deploy workflow wires these
+secrets when `harmirecruit-livekit-api-key` exists.
+
 ## CI/CD (GitHub Actions)
 
 Workflow: `.github/workflows/deploy-cloud-run.yml`

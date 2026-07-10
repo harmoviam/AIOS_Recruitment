@@ -1,6 +1,7 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { DB_SCHEMA, pool, useSchema } from './dbConfig.js';
+import { normalizeMeetingLink } from './services/livekit.js';
 
 export { pool, DB_SCHEMA };
 
@@ -183,6 +184,7 @@ export async function initDb() {
     await migrateScreening(client);
     await migrateFollowUpEngine(client);
     await migrateInterviewEvaluation(client);
+    await fixStaleMeetingLinks(client);
     await migrateMultiTenant(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
@@ -285,6 +287,24 @@ async function migrateScreening(client: pg.PoolClient) {
 async function migrateInterviewEvaluation(client: pg.PoolClient) {
   // Structured BPO/CRM screening questions scored 1–5 during the interview call.
   await client.query(`ALTER TABLE interviews ADD COLUMN IF NOT EXISTS evaluation JSONB`);
+}
+
+async function fixStaleMeetingLinks(client: pg.PoolClient) {
+  const base = (process.env.APP_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (!base || base.includes('localhost')) return;
+
+  const { rows } = await client.query<{ id: number; meeting_link: string }>(
+    `SELECT id, meeting_link FROM interviews
+     WHERE meeting_link IS NOT NULL
+       AND (meeting_link LIKE '%localhost%' OR meeting_link LIKE '%127.0.0.1%')`
+  );
+
+  for (const row of rows) {
+    const normalized = normalizeMeetingLink(row.meeting_link, base);
+    if (normalized && normalized !== row.meeting_link) {
+      await client.query('UPDATE interviews SET meeting_link = $1 WHERE id = $2', [normalized, row.id]);
+    }
+  }
 }
 
 async function migrateFollowUpEngine(client: pg.PoolClient) {

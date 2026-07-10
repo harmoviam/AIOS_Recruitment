@@ -25,6 +25,9 @@ JWT_SECRET="harmirecruit-jwt-secret"
 WA_TOKEN_SECRET="harmirecruit-whatsapp-token"
 WA_VERIFY_SECRET="harmirecruit-whatsapp-verify"
 WA_PHONE_SECRET="harmirecruit-whatsapp-phone-id"
+LK_URL_SECRET="harmirecruit-livekit-url"
+LK_KEY_SECRET="harmirecruit-livekit-api-key"
+LK_SECRET_SECRET="harmirecruit-livekit-api-secret"
 
 DB_USER="${DB_USER:-app_user}"
 DB_PASSWORD="${DB_PASSWORD:?Set DB_PASSWORD to the Cloud SQL app_user password}"
@@ -136,12 +139,20 @@ upsert_secret() {
 upsert_secret "${WA_TOKEN_SECRET}"  "${WHATSAPP_ACCESS_TOKEN:-}"
 upsert_secret "${WA_VERIFY_SECRET}" "${WHATSAPP_VERIFY_TOKEN:-}"
 upsert_secret "${WA_PHONE_SECRET}"  "${WHATSAPP_PHONE_NUMBER_ID:-}"
+upsert_secret "${LK_URL_SECRET}"    "${LIVEKIT_URL:-}"
+upsert_secret "${LK_KEY_SECRET}"    "${LIVEKIT_API_KEY:-}"
+upsert_secret "${LK_SECRET_SECRET}" "${LIVEKIT_API_SECRET:-}"
 
 # Grant SA access to secrets (WhatsApp ones only if they exist)
 SECRETS_TO_GRANT=("${DB_SECRET}" "${JWT_SECRET}")
 for WA_SECRET in "${WA_TOKEN_SECRET}" "${WA_VERIFY_SECRET}" "${WA_PHONE_SECRET}"; do
   if gcloud secrets describe "${WA_SECRET}" --project="${APP_PROJECT_ID}" &>/dev/null; then
     SECRETS_TO_GRANT+=("${WA_SECRET}")
+  fi
+done
+for LK_SECRET in "${LK_URL_SECRET}" "${LK_KEY_SECRET}" "${LK_SECRET_SECRET}"; do
+  if gcloud secrets describe "${LK_SECRET}" --project="${APP_PROJECT_ID}" &>/dev/null; then
+    SECRETS_TO_GRANT+=("${LK_SECRET}")
   fi
 done
 
@@ -188,9 +199,19 @@ if [[ "${DEPLOY}" =~ ^([Yy]|1|true|yes)$ ]]; then
 
   DEPLOY_ENV_VARS="NODE_ENV=production"
   DEPLOY_SECRETS="DATABASE_URL=${DB_SECRET}:latest,JWT_SECRET=${JWT_SECRET}:latest"
+  APP_URL=$(gcloud run services describe "${SERVICE_NAME}" \
+    --region "${REGION}" \
+    --project "${APP_PROJECT_ID}" \
+    --format='value(status.url)' 2>/dev/null || true)
+  if [[ -n "${APP_URL}" ]]; then
+    DEPLOY_ENV_VARS="${DEPLOY_ENV_VARS},APP_PUBLIC_URL=${APP_URL}"
+  fi
   if gcloud secrets describe "${WA_TOKEN_SECRET}" --project="${APP_PROJECT_ID}" &>/dev/null; then
     DEPLOY_ENV_VARS="${DEPLOY_ENV_VARS},WHATSAPP_ENABLED=true,WHATSAPP_API_URL=https://graph.facebook.com/v20.0,WHATSAPP_DEFAULT_COUNTRY_CODE=91"
     DEPLOY_SECRETS="${DEPLOY_SECRETS},WHATSAPP_ACCESS_TOKEN=${WA_TOKEN_SECRET}:latest,WHATSAPP_VERIFY_TOKEN=${WA_VERIFY_SECRET}:latest,WHATSAPP_PHONE_NUMBER_ID=${WA_PHONE_SECRET}:latest"
+  fi
+  if gcloud secrets describe "${LK_KEY_SECRET}" --project="${APP_PROJECT_ID}" &>/dev/null; then
+    DEPLOY_SECRETS="${DEPLOY_SECRETS},LIVEKIT_URL=${LK_URL_SECRET}:latest,LIVEKIT_API_KEY=${LK_KEY_SECRET}:latest,LIVEKIT_API_SECRET=${LK_SECRET_SECRET}:latest"
   fi
 
   echo "Deploying Cloud Run service..."

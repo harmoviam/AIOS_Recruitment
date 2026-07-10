@@ -11,6 +11,7 @@ import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
 import {
+  appPublicUrl,
   candidateJoinPath,
   createInterviewJoinToken,
   createLiveKitToken,
@@ -18,6 +19,7 @@ import {
   interviewRoomName,
   isLiveKitConfigured,
   liveKitServerUrl,
+  normalizeMeetingLink,
 } from '../services/livekit.js';
 
 const router = Router();
@@ -81,6 +83,27 @@ async function fetchInterviewForTenant(req: Request, interviewId: number) {
   return rows[0] ?? null;
 }
 
+type InterviewRow = Record<string, unknown> & { id: number; meeting_link?: string | null };
+
+async function withNormalizedMeetingLinks(req: Request, rows: InterviewRow[]): Promise<InterviewRow[]> {
+  const base = appPublicUrl(req);
+  const updates: { id: number; link: string }[] = [];
+
+  for (const row of rows) {
+    const normalized = normalizeMeetingLink(row.meeting_link, base);
+    if (normalized && normalized !== row.meeting_link) {
+      row.meeting_link = normalized;
+      updates.push({ id: row.id, link: normalized });
+    }
+  }
+
+  for (const { id, link } of updates) {
+    await pool.query('UPDATE interviews SET meeting_link = $1 WHERE id = $2', [link, id]);
+  }
+
+  return rows;
+}
+
 router.get('/', async (req, res) => {
   const { date, candidate_id } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
@@ -116,7 +139,7 @@ router.get('/', async (req, res) => {
   sql += ' ORDER BY i.scheduled_at ASC';
 
   const { rows } = await pool.query(sql, params);
-  res.json(rows);
+  res.json(await withNormalizedMeetingLinks(req, rows));
 });
 
 router.get('/:id', async (req, res) => {
@@ -124,7 +147,8 @@ router.get('/:id', async (req, res) => {
   if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
   const row = await fetchInterviewForTenant(req, interviewId);
   if (!row) return res.status(404).json({ error: 'Interview not found' });
-  res.json(row);
+  const [normalized] = await withNormalizedMeetingLinks(req, [row]);
+  res.json(normalized);
 });
 
 router.put('/:id/evaluation', async (req, res) => {
@@ -183,7 +207,7 @@ router.put('/:id/evaluation', async (req, res) => {
     ]
   );
 
-  res.json(rows[0]);
+  res.json((await withNormalizedMeetingLinks(req, rows))[0]);
 });
 
 router.post('/', async (req, res) => {
@@ -220,7 +244,7 @@ router.post('/', async (req, res) => {
       tid(req),
       interviewJoinExpiry(scheduled_at, duration)
     );
-    const link = candidateJoinPath(joinToken);
+    const link = candidateJoinPath(joinToken, appPublicUrl(req));
     const { rows: updated } = await pool.query(
       'UPDATE interviews SET meeting_link = $1 WHERE id = $2 RETURNING *',
       [link, interview.id]
@@ -262,7 +286,7 @@ router.post('/', async (req, res) => {
     whatsapp = { status: result.waStatus, error: result.wa.error };
   }
 
-  res.status(201).json({ ...interview, whatsapp });
+  res.status(201).json({ ...(await withNormalizedMeetingLinks(req, [interview]))[0], whatsapp });
 });
 
 router.get('/:id/video-token', async (req, res) => {
@@ -278,7 +302,9 @@ router.get('/:id/video-token', async (req, res) => {
   const iv = await fetchInterviewForTenant(req, interviewId);
   if (!iv) return res.status(404).json({ error: 'Interview not found' });
 
-  const roomName = interviewRoomName(iv.id);
+  const [normalizedIv] = await withNormalizedMeetingLinks(req, [iv]);
+
+  const roomName = interviewRoomName(normalizedIv.id);
   const displayName = req.user!.name || req.user!.email;
   const identity = `staff-${req.user!.id}`;
   const token = await createLiveKitToken(roomName, identity, displayName);
@@ -289,12 +315,12 @@ router.get('/:id/video-token', async (req, res) => {
     roomName,
     participantName: displayName,
     interview: {
-      id: iv.id,
-      candidateName: iv.candidate_name,
-      scheduledAt: iv.scheduled_at,
-      roundType: iv.round_type,
-      meetingLink: iv.meeting_link,
-      evaluation: iv.evaluation ?? null,
+      id: normalizedIv.id,
+      candidateName: normalizedIv.candidate_name,
+      scheduledAt: normalizedIv.scheduled_at,
+      roundType: normalizedIv.round_type,
+      meetingLink: normalizedIv.meeting_link,
+      evaluation: normalizedIv.evaluation ?? null,
     },
   });
 });
@@ -325,7 +351,8 @@ router.patch('/:id', async (req, res) => {
     params
   );
   if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
-  res.json(rows[0]);
+  const [normalized] = await withNormalizedMeetingLinks(req, rows);
+  res.json(normalized);
 });
 
 router.delete('/:id', async (req, res) => {

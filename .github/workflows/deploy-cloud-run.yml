@@ -90,6 +90,15 @@ jobs:
           ENV_VARS="NODE_ENV=production"
           SECRETS="DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest"
 
+          APP_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project "${PROJECT_ID}" \
+            --format='value(status.url)' 2>/dev/null || true)
+          if [ -n "${APP_URL}" ]; then
+            echo "Setting APP_PUBLIC_URL=${APP_URL}"
+            ENV_VARS="${ENV_VARS},APP_PUBLIC_URL=${APP_URL}"
+          fi
+
           if gcloud secrets describe harmirecruit-whatsapp-token \
               --project "${PROJECT_ID}" >/dev/null 2>&1; then
             echo "WhatsApp secrets found — enabling live WhatsApp integration."
@@ -97,6 +106,14 @@ jobs:
             SECRETS="${SECRETS},WHATSAPP_ACCESS_TOKEN=harmirecruit-whatsapp-token:latest,WHATSAPP_VERIFY_TOKEN=harmirecruit-whatsapp-verify:latest,WHATSAPP_PHONE_NUMBER_ID=harmirecruit-whatsapp-phone-id:latest"
           else
             echo "WhatsApp secrets not found — deploying in simulated WhatsApp mode."
+          fi
+
+          if gcloud secrets describe harmirecruit-livekit-api-key \
+              --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            echo "LiveKit secrets found — enabling video interviews."
+            SECRETS="${SECRETS},LIVEKIT_URL=harmirecruit-livekit-url:latest,LIVEKIT_API_KEY=harmirecruit-livekit-api-key:latest,LIVEKIT_API_SECRET=harmirecruit-livekit-api-secret:latest"
+          else
+            echo "LiveKit secrets not found — video calls disabled (screening still works)."
           fi
 
           gcloud run deploy ${{ env.SERVICE_NAME }} \

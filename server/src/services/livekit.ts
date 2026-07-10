@@ -1,7 +1,9 @@
+import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
 import { AccessToken } from 'livekit-server-sdk';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const JOIN_PATH_RE = /\/join\/interview\/([^/?#]+)/;
 
 export function isLiveKitConfigured(): boolean {
   return !!(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET && process.env.LIVEKIT_URL);
@@ -15,12 +17,56 @@ export function interviewRoomName(interviewId: number): string {
   return `aios-iv-${interviewId}`;
 }
 
-export function appPublicUrl(): string {
-  return (process.env.APP_PUBLIC_URL || 'http://localhost:5174').replace(/\/$/, '');
+/** Public browser URL for candidate join links (no trailing slash). */
+export function appPublicUrl(req?: Pick<Request, 'headers' | 'protocol'>): string {
+  const fromEnv = process.env.APP_PUBLIC_URL?.trim().replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+
+  if (req && process.env.NODE_ENV === 'production') {
+    const proto =
+      (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() ||
+      req.protocol ||
+      'https';
+    const host =
+      (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim() ||
+      req.headers.host;
+    if (host && !host.includes('localhost') && !host.startsWith('127.')) {
+      return `${proto}://${host}`;
+    }
+  }
+
+  return 'http://localhost:5174';
 }
 
-export function candidateJoinPath(joinToken: string): string {
-  return `${appPublicUrl()}/join/interview/${joinToken}`;
+export function extractJoinToken(meetingLink: string): string | null {
+  const match = meetingLink.match(JOIN_PATH_RE);
+  return match ? match[1] : null;
+}
+
+export function candidateJoinPath(joinToken: string, baseUrl?: string): string {
+  const base = (baseUrl || appPublicUrl()).replace(/\/$/, '');
+  return `${base}/join/interview/${joinToken}`;
+}
+
+/** Rewrite stale dev/localhost join links to the current public app URL. */
+export function normalizeMeetingLink(
+  meetingLink: string | null | undefined,
+  baseUrl?: string
+): string | null {
+  if (!meetingLink) return null;
+  const token = extractJoinToken(meetingLink);
+  if (!token) return meetingLink;
+
+  const base = (baseUrl || appPublicUrl()).replace(/\/$/, '');
+  if (base.includes('localhost')) return meetingLink;
+
+  const normalized = candidateJoinPath(token, base);
+  try {
+    if (new URL(meetingLink).origin !== new URL(normalized).origin) return normalized;
+  } catch {
+    if (meetingLink.includes('localhost') || meetingLink.includes('127.0.0.1')) return normalized;
+  }
+  return meetingLink;
 }
 
 interface InterviewJoinPayload {
