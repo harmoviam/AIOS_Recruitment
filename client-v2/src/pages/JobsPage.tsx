@@ -4,12 +4,25 @@ import { api } from '../api/client';
 import { useRefetchOnFocus } from '../utils/useRefetchOnFocus';
 import type { Job } from '../types';
 
-type StatusFilter = 'all' | 'active' | 'inactive';
+type StatusFilter = 'all' | 'active' | 'inactive' | '60days' | '90days';
+
+const FILTER_LABELS: Record<StatusFilter, string> = {
+  all: 'All',
+  active: 'Active',
+  inactive: 'Inactive',
+  '60days': '60 Days',
+  '90days': '90 Days',
+};
 
 const ACTIVE_STATUSES = ['active', 'urgent', 'open'];
 
 function isActive(status: string) {
   return ACTIVE_STATUSES.includes((status || '').toLowerCase());
+}
+
+// Jobs without an explicit tenure default to 90 days (matches the card display).
+function tenureDays(job: Job) {
+  return job.tenure_days ?? 90;
 }
 
 function statusMeta(status: string): { label: string; className: string } {
@@ -25,6 +38,7 @@ export default function JobsPage() {
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({ title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' });
+  const [generating, setGenerating] = useState(false);
 
   const load = useCallback(
     () =>
@@ -52,6 +66,27 @@ export default function JobsPage() {
     load();
   };
 
+  const generateDescription = async () => {
+    if (!form.title.trim()) {
+      alert('Enter a title first — the AI drafts the description from it.');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const r = await api.generateJobDescription({
+        title: form.title,
+        client: form.client,
+        location: form.location,
+        open_positions: form.open_positions,
+      });
+      setForm((f) => ({ ...f, description: r.description }));
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const toggleStatus = async (job: Job) => {
     const next = isActive(job.status) ? 'inactive' : 'active';
     await api.updateJob(job.id, { status: next });
@@ -60,13 +95,21 @@ export default function JobsPage() {
 
   const counts = useMemo(() => {
     const active = jobs.filter((j) => isActive(j.status)).length;
-    return { all: jobs.length, active, inactive: jobs.length - active };
+    return {
+      all: jobs.length,
+      active,
+      inactive: jobs.length - active,
+      '60days': jobs.filter((j) => tenureDays(j) === 60).length,
+      '90days': jobs.filter((j) => tenureDays(j) === 90).length,
+    };
   }, [jobs]);
 
   const visibleJobs = useMemo(() => {
     return jobs.filter((j) => {
       if (filter === 'active' && !isActive(j.status)) return false;
       if (filter === 'inactive' && isActive(j.status)) return false;
+      if (filter === '60days' && tenureDays(j) !== 60) return false;
+      if (filter === '90days' && tenureDays(j) !== 90) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         return (
@@ -97,14 +140,14 @@ export default function JobsPage() {
         <p className="section-description">Active positions with match scores and pipeline counts.</p>
 
         <div className="job-filter-bar">
-          {(['all', 'active', 'inactive'] as StatusFilter[]).map((f) => (
+          {(['all', 'active', 'inactive', '60days', '90days'] as StatusFilter[]).map((f) => (
             <button
               key={f}
               type="button"
               className={`job-filter-chip${filter === f ? ' active' : ''}`}
               onClick={() => setFilter(f)}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {FILTER_LABELS[f]}
               <span className="job-filter-count">{counts[f]}</span>
             </button>
           ))}
@@ -126,9 +169,20 @@ export default function JobsPage() {
               </select>
             </div>
             <textarea className="input-field" style={{ marginTop: '1rem' }} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            <button type="submit" className="button-pill button-primary" style={{ marginTop: '1rem' }}>
-              Create job
-            </button>
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+              <button type="submit" className="button-pill button-primary">
+                Create job
+              </button>
+              <button
+                type="button"
+                className="button-pill button-secondary"
+                disabled={generating}
+                title="Draft the description with AI from the fields above"
+                onClick={generateDescription}
+              >
+                {generating ? '… Drafting' : '✨ Draft with AI'}
+              </button>
+            </div>
           </form>
         )}
 

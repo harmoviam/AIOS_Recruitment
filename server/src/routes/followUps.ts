@@ -13,6 +13,7 @@ import {
   syncFollowUps,
 } from '../services/followUpEngine.js';
 import { followUpMessageTemplate } from '../services/messageTemplates.js';
+import { aiMode, generateFollowUpScript } from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -153,6 +154,60 @@ router.post('/', async (req, res) => {
     ]
   );
   res.status(201).json(rows[0]);
+});
+
+// Generate a personalized call script for one follow-up and persist it to
+// ai_suggestion (replacing the rules engine's generic template text).
+router.post('/:id/ai-script', async (req, res) => {
+  if (aiMode() === 'disabled') {
+    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
+  }
+
+  const { rows } = await pool.query(
+    `SELECT f.*, c.name AS candidate_name, c.stage AS candidate_stage,
+       c.expected_joining_at, c.joined_at, j.title AS job_title,
+       i.scheduled_at AS interview_at
+     FROM follow_ups f
+     JOIN candidates c ON c.id = f.candidate_id AND c.tenant_id = f.tenant_id
+     LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = f.tenant_id
+     LEFT JOIN interviews i ON i.id = f.interview_id
+     WHERE f.id = $1 AND f.tenant_id = $2`,
+    [req.params.id, tid(req)]
+  );
+  const f = rows[0];
+  if (!f) return res.status(404).json({ error: 'Follow-up not found' });
+
+  const { rows: prior } = await pool.query(
+    `SELECT category, outcome, completed_at FROM follow_ups
+     WHERE tenant_id = $1 AND candidate_id = $2 AND outcome IS NOT NULL AND completed_at IS NOT NULL
+     ORDER BY completed_at DESC LIMIT 5`,
+    [tid(req), f.candidate_id]
+  );
+
+  const script = await generateFollowUpScript({
+    category: f.category,
+    type: f.type,
+    dueAt: f.due_at,
+    milestoneDay: f.milestone_day,
+    candidateName: f.candidate_name,
+    stage: f.candidate_stage,
+    jobTitle: f.job_title,
+    interviewAt: f.interview_at,
+    expectedJoiningAt: f.expected_joining_at,
+    joinedAt: f.joined_at,
+    priorOutcomes: prior.map((p) => ({
+      category: p.category,
+      outcome: p.outcome,
+      completedAt: p.completed_at,
+    })),
+  });
+  if (!script) return res.status(502).json({ error: 'AI script generation failed — try again' });
+
+  const { rows: updated } = await pool.query(
+    'UPDATE follow_ups SET ai_suggestion = $1 WHERE id = $2 AND tenant_id = $3 RETURNING *',
+    [script, req.params.id, tid(req)]
+  );
+  res.json(updated[0]);
 });
 
 router.patch('/:id', async (req, res) => {

@@ -7,6 +7,9 @@ import Tabs from '../components/ui/Tabs';
 import {
   FOLLOW_UP_CATEGORIES,
   FOLLOW_UP_FLOWS,
+  JOINING_MILESTONE_LABELS,
+  OUTCOME_LABELS,
+  followUpStepLabel,
   type FollowUp,
   type FollowUpFlow,
 } from '../types';
@@ -53,28 +56,6 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
   FOLLOW_UP_CATEGORIES.map((c) => [c.id, c.label])
 );
 
-const OUTCOME_LABELS: Record<string, string> = {
-  confirmed: 'Confirmed',
-  connected: 'Connected',
-  no_answer: 'No answer',
-  rescheduled: 'Rescheduled',
-  not_interested: 'Not interested',
-  offer_rejected: 'Offer rejected',
-  joined_elsewhere: 'Joined elsewhere',
-  doing_well: 'Doing well',
-  issue_flagged: 'Issue flagged',
-  left_company: 'Left company',
-  done: 'Done',
-  auto_closed: 'Auto-closed',
-};
-
-/** milestone_day → label for Post-Selected joining reminders (-7 / -1 / 0). */
-const JOINING_MILESTONE_LABELS: Record<number, string> = {
-  [-7]: '1 week before joining',
-  [-1]: '1 day before joining',
-  [0]: 'Joining day',
-};
-
 const CATEGORY_TO_FLOW: Record<string, FollowUpFlow> = Object.fromEntries(
   FOLLOW_UP_FLOWS.flatMap((fl) => fl.categories.map((c) => [c, fl.id]))
 );
@@ -85,21 +66,7 @@ function flowOf(f: FollowUp): FollowUpFlow {
 
 /** Human label for the step this follow-up represents in its flow. */
 function milestoneLabel(f: FollowUp): string | null {
-  switch (f.category) {
-    case 'interview_prep':
-      return '1 day before interview';
-    case 'interview_day':
-      return 'Interview day';
-    case 'no_response':
-      return 'Unreachable — escalated retry';
-    case 'offer_followup':
-      if (f.milestone_day == null) return 'Confirm joining date';
-      return JOINING_MILESTONE_LABELS[f.milestone_day] ?? `Day ${f.milestone_day}`;
-    case 'onboarding':
-      return f.milestone_day != null ? `Day ${f.milestone_day} check-in` : 'Check-in';
-    default:
-      return null;
-  }
+  return followUpStepLabel(f.category, f.milestone_day);
 }
 
 type StepState = 'done' | 'missed' | 'current' | 'pending';
@@ -252,6 +219,20 @@ export default function FollowUpCenterPage() {
       });
       setCompleting(null);
       load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const generateScript = async (f: FollowUp) => {
+    setBusyId(f.id);
+    try {
+      const updated = await api.generateFollowUpScript(f.id);
+      setFollowUps((prev) =>
+        prev.map((x) => (x.id === f.id ? { ...x, ai_suggestion: updated.ai_suggestion } : x))
+      );
+    } catch (err) {
+      alert((err as Error).message);
     } finally {
       setBusyId(null);
     }
@@ -519,6 +500,15 @@ export default function FollowUpCenterPage() {
                     <button type="button" className="button-pill button-secondary btn-sm" onClick={() => call(f)}>📞 Call</button>
                     <button type="button" className="button-pill button-secondary btn-sm" onClick={() => whatsapp(f)}>💬 WhatsApp</button>
                     <button type="button" className="button-pill button-secondary btn-sm" onClick={() => email(f)}>✉ Email</button>
+                    <button
+                      type="button"
+                      className="button-pill button-secondary btn-sm"
+                      disabled={isBusy}
+                      title="Generate a personalized call script with AI"
+                      onClick={() => generateScript(f)}
+                    >
+                      {isBusy ? '… Generating' : '✨ AI script'}
+                    </button>
                     <button
                       type="button"
                       className="button-pill button-primary btn-sm"

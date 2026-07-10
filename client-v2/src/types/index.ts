@@ -241,6 +241,50 @@ export const FOLLOW_UP_FLOWS: {
   },
 ];
 
+export const OUTCOME_LABELS: Record<string, string> = {
+  confirmed: 'Confirmed',
+  connected: 'Connected',
+  no_answer: 'No answer',
+  rescheduled: 'Rescheduled',
+  not_interested: 'Not interested',
+  offer_rejected: 'Offer rejected',
+  joined_elsewhere: 'Joined elsewhere',
+  doing_well: 'Doing well',
+  issue_flagged: 'Issue flagged',
+  left_company: 'Left company',
+  done: 'Done',
+  auto_closed: 'Auto-closed',
+};
+
+/** milestone_day → label for Post-Selected joining reminders (-7 / -1 / 0). */
+export const JOINING_MILESTONE_LABELS: Record<number, string> = {
+  [-7]: '1 week before joining',
+  [-1]: '1 day before joining',
+  [0]: 'Joining day',
+};
+
+/** Human label for the step a follow-up represents in its flow. */
+export function followUpStepLabel(
+  category?: string | null,
+  milestoneDay?: number | null
+): string | null {
+  switch (category) {
+    case 'interview_prep':
+      return '1 day before interview';
+    case 'interview_day':
+      return 'Interview day';
+    case 'no_response':
+      return 'Unreachable — escalated retry';
+    case 'offer_followup':
+      if (milestoneDay == null) return 'Confirm joining date';
+      return JOINING_MILESTONE_LABELS[milestoneDay] ?? `Day ${milestoneDay}`;
+    case 'onboarding':
+      return milestoneDay != null ? `Day ${milestoneDay} check-in` : 'Check-in';
+    default:
+      return null;
+  }
+}
+
 export interface FollowUp {
   id: number;
   candidate_id: number;
@@ -325,6 +369,11 @@ export interface TimelineEvent {
   is_outgoing?: boolean;
   status?: string;
   created_at: string;
+  // Follow-up events only — what was captured when the follow-up was worked.
+  notes?: string | null;
+  outcome?: string | null;
+  category?: string | null;
+  milestone_day?: number | null;
 }
 
 export interface ImportValidation {

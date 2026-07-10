@@ -10,6 +10,7 @@ import {
 } from '../middleware/tenant.js';
 import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { closeOpenFollowUps, onCandidateJoined } from '../services/followUpEngine.js';
+import { aiMode, rescoreCandidate, suggestMessages } from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -478,12 +479,13 @@ router.get('/:id/timeline', async (req, res) => {
       [candidateId]
     ),
     pool.query(
-      `SELECT f.id, f.type AS description, f.due_at AS created_at, f.status, 'follow_up' AS source,
-              u.name AS actor_name
+      `SELECT f.id, f.type AS description, COALESCE(f.completed_at, f.due_at) AS created_at,
+              f.status, 'follow_up' AS source, u.name AS actor_name,
+              f.notes, f.outcome, f.category, f.milestone_day
        FROM follow_ups f
        LEFT JOIN users u ON u.id = f.assigned_to
        WHERE f.candidate_id = $1 AND f.tenant_id = $2
-       ORDER BY f.due_at DESC`,
+       ORDER BY created_at DESC`,
       [candidateId, tid(req)]
     ),
   ]);
@@ -499,12 +501,46 @@ router.get('/:id/timeline', async (req, res) => {
 });
 
 router.get('/:id/suggestions', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM candidates WHERE id = $1 AND tenant_id = $2', [
-    req.params.id,
-    tid(req),
-  ]);
+  const { rows } = await pool.query(
+    `SELECT c.*, j.title AS job_title, j.location AS job_location
+     FROM candidates c
+     LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = c.tenant_id
+     WHERE c.id = $1 AND c.tenant_id = $2`,
+    [req.params.id, tid(req)]
+  );
   const c = rows[0];
   if (!c) return res.status(404).json({ error: 'Candidate not found' });
+
+  if (aiMode() === 'live') {
+    const { rows: msgs } = await pool.query(
+      `SELECT content, is_outgoing FROM messages
+       WHERE candidate_id = $1 ORDER BY sent_at DESC LIMIT 5`,
+      [c.id]
+    );
+    const ai = await suggestMessages({
+      candidateName: c.name,
+      stage: c.stage,
+      jobTitle: c.job_title,
+      jobLocation: c.job_location,
+      salaryExpectation: c.salary_expectation,
+      recentMessages: msgs
+        .slice()
+        .reverse()
+        .map((m) => ({
+          direction: m.is_outgoing ? ('recruiter' as const) : ('candidate' as const),
+          content: m.content,
+        })),
+      purpose: 'outreach',
+    });
+    if (ai) {
+      return res.json({
+        suggestions: ai,
+        ai_score: c.ai_score,
+        salary_expectation: c.salary_expectation,
+        source: 'ai',
+      });
+    }
+  }
 
   const suggestions = [
     `Hi ${c.name.split(' ')[0]}, quick follow-up on your application. Any questions?`,
@@ -514,7 +550,7 @@ router.get('/:id/suggestions', async (req, res) => {
   if (c.salary_expectation) {
     suggestions.push(`Based on profile, salary range looks like ${c.salary_expectation}.`);
   }
-  res.json({ suggestions, ai_score: c.ai_score, salary_expectation: c.salary_expectation });
+  res.json({ suggestions, ai_score: c.ai_score, salary_expectation: c.salary_expectation, source: 'template' });
 });
 
 router.put('/:id/screening', async (req, res) => {
@@ -616,6 +652,10 @@ router.post('/', async (req, res) => {
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
     ['pipeline', `${name} added to pipeline`, req.user!.id, rows[0].id, tid(req)]
   );
+
+  // Heuristic score is returned immediately; the AI fit score (vs the job
+  // description) replaces it in the background and logs to the timeline.
+  void rescoreCandidate(tid(req), rows[0].id);
 
   res.status(201).json(rows[0]);
 });
@@ -761,16 +801,38 @@ router.patch('/:id', async (req, res) => {
     }
   }
 
+  // Profile substance changed → refresh the AI fit score in the background.
+  if (skills !== undefined || experience_years !== undefined || job_id !== undefined) {
+    void rescoreCandidate(tid(req), rows[0].id);
+  }
+
   res.json(rows[0]);
 });
 
 router.delete('/:id', async (req, res) => {
-  const { rowCount } = await pool.query('DELETE FROM candidates WHERE id = $1 AND tenant_id = $2', [
-    req.params.id,
-    tid(req),
-  ]);
-  if (!rowCount) return res.status(404).json({ error: 'Candidate not found' });
-  res.status(204).send();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Activity rows may predate the ON DELETE CASCADE constraint (see the
+    // db.ts migration), so remove them explicitly before the candidate.
+    await client.query('DELETE FROM activities WHERE candidate_id = $1 AND tenant_id = $2', [
+      req.params.id,
+      tid(req),
+    ]);
+    const { rowCount } = await client.query(
+      'DELETE FROM candidates WHERE id = $1 AND tenant_id = $2',
+      [req.params.id, tid(req)]
+    );
+    await client.query('COMMIT');
+    if (!rowCount) return res.status(404).json({ error: 'Candidate not found' });
+    res.status(204).send();
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(`Candidate ${req.params.id} delete failed:`, (err as Error).message);
+    res.status(500).json({ error: 'Failed to delete candidate' });
+  } finally {
+    client.release();
+  }
 });
 
 function parseImportRow(row: Record<string, string>) {

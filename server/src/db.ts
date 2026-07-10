@@ -133,7 +133,7 @@ export async function initDb() {
         type TEXT NOT NULL,
         description TEXT NOT NULL,
         user_id INTEGER REFERENCES users(id),
-        candidate_id INTEGER REFERENCES candidates(id),
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE CASCADE,
         tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
@@ -255,6 +255,24 @@ async function migratePhase1Tables(client: pg.PoolClient) {
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hm_notes TEXT`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS is_hot BOOLEAN NOT NULL DEFAULT FALSE`);
+  // activities.candidate_id originally lacked ON DELETE CASCADE (every other
+  // table referencing candidates has it), so deleting a candidate with history
+  // failed with an FK violation. Rewrite the constraint in place if needed.
+  await client.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = to_regclass('activities')
+          AND conname = 'activities_candidate_id_fkey'
+          AND confdeltype <> 'c'
+      ) THEN
+        ALTER TABLE activities DROP CONSTRAINT activities_candidate_id_fkey;
+        ALTER TABLE activities ADD CONSTRAINT activities_candidate_id_fkey
+          FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE;
+      END IF;
+    END $$;
+  `);
 }
 
 async function migrateScreening(client: pg.PoolClient) {
@@ -546,6 +564,51 @@ async function ensureAllTenantsSeeded(client: pg.PoolClient) {
   }
 }
 
+/** Sync EarlyJobs org users to match scripts/seed-earlyjobs-users.sql (dev only). */
+async function ensureEarlyJobsTeamUsers(client: pg.PoolClient, ejId: number, defaultHash: string) {
+  const hashAdmin = '$2a$10$oSr9QtcMxh2tvuxpKfEPyuc2WfEceQbYJeVhBLpeSsh.A6V7dGWEu'; // passwordJyoti@123
+  const hashHm = '$2a$10$.5gcWHY8Z/o3omL/KQ6z.eIwX9Bc9CHhPKO/T0a8l4c1.S4wLgVTq'; // HM@123
+  const hashRecruiter = '$2a$10$M7m/QNN/NjPrUWMPNBRYbe6sKLfBF57MbXEM6kVdbB/ucHB4m7tJq'; // Password@123
+
+  const upsert = async (
+    email: string,
+    passwordHash: string,
+    name: string,
+    role: string,
+    managedById: number | null = null
+  ) => {
+    // Prefer the exact-case row: case-only duplicates can exist, and updating a
+    // variant to the canonical email would hit the unique (tenant_id, email) index.
+    const { rows } = await client.query(
+      `SELECT id FROM users WHERE tenant_id = $1 AND lower(email) = lower($2)
+       ORDER BY (email = $2) DESC, id LIMIT 1`,
+      [ejId, email]
+    );
+    if (rows[0]) {
+      await client.query(
+        `UPDATE users
+         SET email = $1, password_hash = $2, name = $3, role = $4, managed_by_id = $5
+         WHERE id = $6`,
+        [email, passwordHash, name, role, managedById, rows[0].id]
+      );
+      return rows[0].id as number;
+    }
+    const { rows: inserted } = await client.query(
+      `INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [email, passwordHash, name, role, ejId, managedById]
+    );
+    return inserted[0].id as number;
+  };
+
+  await upsert('admin@earlyjobs.com', defaultHash, 'EarlyJobs Admin', 'admin');
+  await upsert('jyoti@earlyjobs.in', hashAdmin, 'Jyoti', 'admin');
+  const moumitaId = await upsert('moumita@earlyjobs.in', hashHm, 'Moumita', 'hiring_manager');
+  const nidhiId = await upsert('nidhi@earlyjobs.in', hashHm, 'Nidhi', 'hiring_manager');
+  await upsert('smruti@earlyjobs.in', hashRecruiter, 'Smruti', 'recruiter', nidhiId);
+  await upsert('vidhi@earlyjobs.in', hashRecruiter, 'Vidhi', 'recruiter', moumitaId);
+}
+
 async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
   const hash = bcrypt.hashSync('password123', 10);
 
@@ -582,27 +645,17 @@ async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
   const { rows: ej } = await client.query("SELECT id FROM tenants WHERE slug = 'earlyjobs'");
   if (ej[0]) {
     const ejId = ej[0].id;
+    // Legacy rename; skip when the target email already exists (unique index).
     await client.query(
       `UPDATE users SET email = 'moumita@earlyjobs.in', name = 'Moumita'
-       WHERE email = 'ravi@earlyjobs.com' AND tenant_id = $1`,
+       WHERE email = 'ravi@earlyjobs.com' AND tenant_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM users u2
+           WHERE u2.tenant_id = $1 AND lower(u2.email) = 'moumita@earlyjobs.in'
+         )`,
       [ejId]
     );
-    const ejUsers = [
-      ['admin@earlyjobs.com', 'EarlyJobs Admin', 'admin'],
-      ['moumita@earlyjobs.in', 'Moumita', 'recruiter'],
-    ];
-    for (const [email, name, role] of ejUsers) {
-      const exists = await client.query(
-        'SELECT id FROM users WHERE email = $1 AND tenant_id = $2',
-        [email, ejId]
-      );
-      if (exists.rows.length === 0) {
-        await client.query(
-          `INSERT INTO users (email, password_hash, name, role, tenant_id) VALUES ($1, $2, $3, $4, $5)`,
-          [email, hash, name, role, ejId]
-        );
-      }
-    }
+    await ensureEarlyJobsTeamUsers(client, ejId, hash);
     const settingsExists = await client.query(
       'SELECT 1 FROM settings WHERE tenant_id = $1 LIMIT 1',
       [ejId]

@@ -132,6 +132,11 @@ export const api = {
     ),
 
   getJobs: () => request<import('../types').Job[]>('/jobs'),
+  generateJobDescription: (data: { title: string; client?: string; location?: string; open_positions?: number }) =>
+    request<{ description: string }>('/jobs/generate-description', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   createJob: (data: Partial<import('../types').Job>) =>
     request<import('../types').Job>('/jobs', { method: 'POST', body: JSON.stringify(data) }),
   updateJob: (id: number, data: Partial<import('../types').Job>) =>
@@ -172,6 +177,8 @@ export const api = {
     request<import('../types').FollowUp>('/follow-ups', { method: 'POST', body: JSON.stringify(data) }),
   updateFollowUp: (id: number, data: Partial<import('../types').FollowUp> & { completed?: boolean }) =>
     request<import('../types').FollowUp>(`/follow-ups/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  generateFollowUpScript: (id: number) =>
+    request<import('../types').FollowUp>(`/follow-ups/${id}/ai-script`, { method: 'POST' }),
 
   getCompanies: (params?: Record<string, string>) => {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';

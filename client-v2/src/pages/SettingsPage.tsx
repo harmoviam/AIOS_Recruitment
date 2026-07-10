@@ -7,10 +7,19 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, Record<string, unknown>>>({});
   const [tab, setTab] = useState('team');
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '' });
+  const [waForm, setWaForm] = useState({ phone: '', businessName: '' });
 
   const load = () => {
     api.getUsers().then(setUsers);
-    api.getSettings().then((s) => setSettings(s as Record<string, Record<string, unknown>>));
+    api.getSettings().then((s) => {
+      const all = s as Record<string, Record<string, unknown>>;
+      setSettings(all);
+      const wa = all.whatsapp || {};
+      setWaForm({
+        phone: (wa.phone as string) || '',
+        businessName: (wa.businessName as string) || '',
+      });
+    });
   };
 
   useEffect(() => {
@@ -92,21 +101,49 @@ export default function SettingsPage() {
                     ? `Connected: ${whatsapp.phone as string} (${whatsapp.businessName as string})`
                     : 'Not connected'}
                 </p>
+                <input
+                  className="input-field"
+                  placeholder="Business phone (e.g. +91 90000 00000)"
+                  value={waForm.phone}
+                  onChange={(e) => setWaForm({ ...waForm, phone: e.target.value })}
+                  style={{ marginTop: '1rem' }}
+                />
+                <input
+                  className="input-field"
+                  placeholder="Business name"
+                  value={waForm.businessName}
+                  onChange={(e) => setWaForm({ ...waForm, businessName: e.target.value })}
+                  style={{ marginTop: '0.5rem' }}
+                />
                 <button
                   type="button"
-                  className="button-pill button-secondary"
+                  className="button-pill button-primary"
                   style={{ marginTop: '1rem', width: '100%' }}
+                  disabled={!waForm.phone.trim() || !waForm.businessName.trim()}
                   onClick={async () => {
                     await api.updateSetting('whatsapp', {
                       connected: true,
-                      phone: '+91 98765 43210',
-                      businessName: 'AIOS Recruitment',
+                      phone: waForm.phone.trim(),
+                      businessName: waForm.businessName.trim(),
                     });
                     load();
                   }}
                 >
-                  Reconnect Account
+                  {whatsapp.connected ? 'Update Account' : 'Connect Account'}
                 </button>
+                {Boolean(whatsapp.connected) && (
+                  <button
+                    type="button"
+                    className="button-pill button-secondary"
+                    style={{ marginTop: '0.5rem', width: '100%' }}
+                    onClick={async () => {
+                      await api.updateSetting('whatsapp', { connected: false });
+                      load();
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                )}
               </div>
             )}
 

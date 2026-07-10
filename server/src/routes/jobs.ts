@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantClause, tenantMiddleware } from '../middleware/tenant.js';
+import { aiMode, generateJobDescription } from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -61,6 +62,25 @@ router.get('/', async (req, res) => {
     match_percent: j.avg_ai_score ? Math.min(99, Math.round(Number(j.avg_ai_score) * 10)) : 0,
   }));
   res.json(jobs);
+});
+
+// Draft a job description from the basics typed into the add-job form.
+router.post('/generate-description', async (req, res) => {
+  if (aiMode() === 'disabled') {
+    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
+  }
+  const { title, client, location, open_positions, notes } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required' });
+
+  const description = await generateJobDescription({
+    title,
+    client,
+    location,
+    openPositions: open_positions ? Number(open_positions) : null,
+    notes,
+  });
+  if (!description) return res.status(502).json({ error: 'AI generation failed — try again' });
+  res.json({ description });
 });
 
 router.get('/:id', async (req, res) => {
