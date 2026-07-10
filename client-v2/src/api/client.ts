@@ -153,13 +153,18 @@ export const api = {
     request<import('../types').Interview>(`/interviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getConversations: () => request<import('../types').Conversation[]>('/messages/conversations'),
+  getMessagingIntegrationStatus: () =>
+    request<import('../types').MessagingIntegrationStatus>('/messages/status/integration'),
   getMessages: (candidateId: number) =>
     request<import('../types').Message[]>(`/messages/${candidateId}`),
   sendMessage: (candidateId: number, content: string) =>
-    request<import('../types').Message>(`/messages/${candidateId}`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    }),
+    request<import('../types').Message & { wa_status?: string; wa_error?: string }>(
+      `/messages/${candidateId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }
+    ),
   getMessageSuggestions: (candidateId: number) =>
     request<{ suggestions: string[] }>(`/messages/${candidateId}/suggestions`),
 

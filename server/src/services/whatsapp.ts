@@ -42,6 +42,29 @@ export function whatsappMode(): 'live' | 'simulated' {
   return c.enabled && c.phoneNumberId && c.accessToken ? 'live' : 'simulated';
 }
 
+/** Safe summary for Settings / inbox — never exposes tokens or secrets. */
+export function whatsappIntegrationStatus() {
+  const c = cfg();
+  const mode = whatsappMode();
+  return {
+    mode,
+    enabled: c.enabled,
+    webhookPath: '/api/whatsapp/webhook',
+    configured: {
+      phoneNumberId: Boolean(c.phoneNumberId),
+      accessToken: Boolean(c.accessToken),
+      verifyToken: Boolean(c.verifyToken),
+    },
+    ready: mode === 'live' && Boolean(c.verifyToken),
+    missing: [
+      !c.enabled ? 'WHATSAPP_ENABLED=true' : null,
+      !c.phoneNumberId ? 'WHATSAPP_PHONE_NUMBER_ID' : null,
+      !c.accessToken ? 'WHATSAPP_ACCESS_TOKEN' : null,
+      !c.verifyToken ? 'WHATSAPP_VERIFY_TOKEN' : null,
+    ].filter(Boolean) as string[],
+  };
+}
+
 export function verifyWebhookToken(token: string | undefined): boolean {
   const c = cfg();
   return Boolean(c.verifyToken) && token === c.verifyToken;

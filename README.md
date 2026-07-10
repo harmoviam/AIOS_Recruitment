@@ -92,6 +92,61 @@ NODE_ENV=production npm start
 
 Serves the built React app from Express on port 3010.
 
+## WhatsApp integration (Meta Cloud API)
+
+By default the inbox runs in **simulated** mode: messages are stored locally and nothing is sent to WhatsApp. **Settings → WhatsApp Integration** and the inbox header show the current server mode (`Live` vs `Simulated`).
+
+### 1. Meta Business setup
+
+1. Go to [developers.facebook.com](https://developers.facebook.com) → create or select an app → add the **WhatsApp** product.
+2. Under **WhatsApp → API Setup**, note the **Phone number ID**.
+3. Create a **System User** in Meta Business Settings with a permanent token that includes `whatsapp_business_messaging`.
+4. Add a test recipient phone in API Setup (required while the app is in development mode).
+
+### 2. Configure `.env`
+
+Copy from `.env.example` and set:
+
+```env
+WHATSAPP_ENABLED=true
+WHATSAPP_PHONE_NUMBER_ID=<from Meta API Setup>
+WHATSAPP_ACCESS_TOKEN=<system user token>
+WHATSAPP_VERIFY_TOKEN=<any random string you choose>
+WHATSAPP_DEFAULT_COUNTRY_CODE=91
+```
+
+Restart the API after changing env vars (`npm run dev` or redeploy).
+
+### 3. Webhook (required for inbound replies)
+
+Meta must reach your server over **HTTPS**. For local development, use a tunnel (e.g. [ngrok](https://ngrok.com)):
+
+```bash
+ngrok http 3010
+```
+
+In Meta → WhatsApp → Configuration → Webhook:
+
+| Field | Value |
+|--------|--------|
+| **Callback URL** | `https://<your-public-host>/api/whatsapp/webhook` |
+| **Verify token** | Same string as `WHATSAPP_VERIFY_TOKEN` in `.env` |
+| **Subscribe to** | `messages` |
+
+Click **Verify and save**. The app responds to Meta’s `hub.challenge` handshake on `GET /api/whatsapp/webhook`.
+
+### 4. Verify in the app
+
+1. Open **Settings → WhatsApp Integration** — banner should show **Live (Meta API)** when env is correct.
+2. Open **Messages**, pick a candidate with a phone number on file, send a test message — bubble should show **Delivered to WhatsApp** (or an error if Meta rejected it).
+3. Reply from the candidate’s phone — message should appear in the thread (refresh the thread if needed).
+
+### 5. Important limits
+
+- **24-hour window:** Free-text messages (`sendWhatsAppText`) only work within 24 hours of the candidate’s last WhatsApp message. Outside that window you need Meta **approved templates** (not yet wired for automated follow-ups).
+- **Candidate phone:** Must match the number on the candidate profile (last 10 digits are used for inbound matching).
+- **Workspace branding** in Settings (business name / display phone) is for recruiter signatures only — it does not connect the Meta account.
+
 ## Cloud deployment (GCP)
 
 Deploys to **Cloud Run** on the shared `harmoviajobs` GCP project, reusing the existing Cloud SQL instance with schema `harmirecruit`. See [DEPLOYMENT.md](./DEPLOYMENT.md) for setup, cost breakdown, and CI/CD.

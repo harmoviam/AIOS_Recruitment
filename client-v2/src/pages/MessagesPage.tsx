@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Candidate, Conversation, Message } from '../types';
+import type { Candidate, Conversation, Message, MessagingIntegrationStatus } from '../types';
 import { STAGES } from '../types';
 
 function relativeTime(iso?: string) {
@@ -20,6 +20,32 @@ function relativeTime(iso?: string) {
 
 function stageLabel(stage: string) {
   return STAGES.find((s) => s.id === stage)?.label ?? stage;
+}
+
+function waStatusLabel(status?: Message['wa_status']) {
+  switch (status) {
+    case 'sent':
+      return 'Delivered to WhatsApp';
+    case 'simulated':
+      return 'Saved locally (simulated)';
+    case 'failed':
+      return 'WhatsApp delivery failed';
+    default:
+      return null;
+  }
+}
+
+function waStatusClass(status?: Message['wa_status']) {
+  switch (status) {
+    case 'sent':
+      return 'wa-status-sent';
+    case 'simulated':
+      return 'wa-status-simulated';
+    case 'failed':
+      return 'wa-status-failed';
+    default:
+      return '';
+  }
 }
 
 function backLabelFrom(path: string) {
@@ -47,6 +73,8 @@ export default function MessagesPage() {
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
   const [sending, setSending] = useState(false);
+  const [integration, setIntegration] = useState<MessagingIntegrationStatus | null>(null);
+  const [lastSendError, setLastSendError] = useState<string | null>(null);
 
   // New-conversation picker
   const [showPicker, setShowPicker] = useState(false);
@@ -59,12 +87,14 @@ export default function MessagesPage() {
 
   useEffect(() => {
     loadConversations();
+    api.getMessagingIntegrationStatus().then(setIntegration).catch(() => setIntegration(null));
   }, []);
 
   useEffect(() => {
     if (!selectedId) {
       setMessages([]);
       setSuggestions([]);
+      setLastSendError(null);
       return;
     }
     api.getMessages(selectedId).then(setMessages);
@@ -78,9 +108,21 @@ export default function MessagesPage() {
   const send = async (content: string) => {
     if (!selectedId || !content.trim() || sending) return;
     setSending(true);
+    setLastSendError(null);
     try {
       const msg = await api.sendMessage(selectedId, content.trim());
-      setMessages((prev) => [...prev, msg]);
+      const waStatus = msg.wa_status as Message['wa_status'] | undefined;
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...msg,
+          wa_status: waStatus,
+          wa_error: msg.wa_error,
+        },
+      ]);
+      if (waStatus === 'failed') {
+        setLastSendError(msg.wa_error || 'Message was saved but WhatsApp delivery failed.');
+      }
       setDraft('');
       loadConversations();
       const r = await api.getMessageSuggestions(selectedId);
@@ -152,6 +194,18 @@ export default function MessagesPage() {
         )}
         <div className="search-bar">
           WhatsApp Shared Inbox
+          {integration && (
+            <span
+              className={`inbox-mode-pill${integration.mode === 'live' ? ' inbox-mode-live' : ''}`}
+              title={
+                integration.mode === 'live'
+                  ? 'Messages are sent via Meta WhatsApp API'
+                  : 'Simulated mode — configure .env to go live'
+              }
+            >
+              {integration.mode === 'live' ? 'Live' : 'Simulated'}
+            </span>
+          )}
           {totalUnread > 0 && <span className="inbox-unread-total">{totalUnread} new</span>}
         </div>
         <button type="button" className="button-pill button-primary" onClick={openPicker}>
@@ -220,17 +274,36 @@ export default function MessagesPage() {
                   {messages.length === 0 && (
                     <p className="empty-inline">No messages yet. Send the first message below.</p>
                   )}
-                  {messages.map((m) => (
-                    <div key={m.id} className={`message${m.is_outgoing ? ' sent' : ''}`}>
-                      <div className="message-bubble">
-                        {m.content}
-                        <span className="message-time">{relativeTime(m.sent_at)}</span>
+                  {messages.map((m) => {
+                    const statusLabel = m.is_outgoing ? waStatusLabel(m.wa_status) : null;
+                    return (
+                      <div key={m.id} className={`message${m.is_outgoing ? ' sent' : ''}`}>
+                        <div className="message-bubble">
+                          {m.content}
+                          <span className="message-time">{relativeTime(m.sent_at)}</span>
+                          {statusLabel && (
+                            <span className={`message-wa-status ${waStatusClass(m.wa_status)}`}>
+                              {statusLabel}
+                              {m.wa_error ? ` — ${m.wa_error}` : ''}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <div ref={messagesEndRef} />
                 </div>
                 <div className="chat-input">
+                  {lastSendError && (
+                    <div className="chat-send-error" role="alert">
+                      {lastSendError}
+                    </div>
+                  )}
+                  {integration?.mode === 'simulated' && (
+                    <p className="chat-simulated-hint">
+                      Simulated mode — message is saved in the inbox only until WhatsApp env vars are set on the server.
+                    </p>
+                  )}
                   <textarea
                     className="input-field"
                     placeholder="Type a message…"

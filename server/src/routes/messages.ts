@@ -7,7 +7,11 @@ import {
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
-import { sendWhatsAppText, whatsappMode, withSenderSignature } from '../services/whatsapp.js';
+import {
+  sendWhatsAppText,
+  whatsappIntegrationStatus,
+  withSenderSignature,
+} from '../services/whatsapp.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
 import { aiMode, suggestMessages } from '../services/ai.js';
 
@@ -32,6 +36,10 @@ router.get('/conversations', async (req, res) => {
     [t.param]
   );
   res.json(rows);
+});
+
+router.get('/status/integration', (_req, res) => {
+  res.json({ ...whatsappIntegrationStatus(), ai: aiMode() });
 });
 
 router.get('/:candidateId/suggestions', async (req, res) => {
@@ -153,10 +161,6 @@ router.post('/:candidateId', async (req, res) => {
   );
 
   res.status(201).json({ ...rows[0], wa_status: waStatus, wa_error: wa.error });
-});
-
-router.get('/status/integration', async (_req, res) => {
-  res.json({ mode: whatsappMode(), ai: aiMode() });
 });
 
 export default router;

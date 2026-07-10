@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { User } from '../types';
+import type { MessagingIntegrationStatus, User } from '../types';
+
+function integrationModeLabel(status: MessagingIntegrationStatus | null) {
+  if (!status) return 'Checking…';
+  return status.mode === 'live' ? 'Live (Meta API)' : 'Simulated (local only)';
+}
 
 export default function SettingsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Record<string, Record<string, unknown>>>({});
+  const [integration, setIntegration] = useState<MessagingIntegrationStatus | null>(null);
   const [tab, setTab] = useState('team');
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '' });
   const [waForm, setWaForm] = useState({ phone: '', businessName: '' });
 
   const load = () => {
     api.getUsers().then(setUsers);
+    api.getMessagingIntegrationStatus().then(setIntegration).catch(() => setIntegration(null));
     api.getSettings().then((s) => {
       const all = s as Record<string, Record<string, unknown>>;
       setSettings(all);
@@ -96,10 +103,44 @@ export default function SettingsPage() {
             {tab === 'whatsapp' && (
               <div className="setting-card">
                 <div className="setting-heading">WhatsApp Integration</div>
-                <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+
+                <div
+                  className={`wa-integration-banner${integration?.mode === 'live' ? ' wa-integration-live' : ' wa-integration-simulated'}`}
+                >
+                  <div className="wa-integration-banner-head">
+                    <span className="wa-integration-badge">
+                      {integration?.mode === 'live' ? '● Live' : '○ Simulated'}
+                    </span>
+                    <strong>{integrationModeLabel(integration)}</strong>
+                  </div>
+                  <p className="wa-integration-detail">
+                    {integration?.mode === 'live'
+                      ? 'Outbound messages are delivered through the Meta WhatsApp Cloud API. Inbound replies arrive via the webhook.'
+                      : 'Messages are saved in the inbox only — nothing is sent to WhatsApp until server env vars are configured (see README).'}
+                  </p>
+                  {integration && integration.mode === 'simulated' && integration.missing.length > 0 && (
+                    <p className="wa-integration-missing">
+                      Set in <code>.env</code> and restart the API: {integration.missing.join(', ')}
+                    </p>
+                  )}
+                  {integration && (
+                    <p className="wa-integration-webhook">
+                      Webhook URL for Meta:{' '}
+                      <code>
+                        https://&lt;your-public-domain&gt;{integration.webhookPath}
+                      </code>
+                      {integration.configured.verifyToken
+                        ? ' · Verify token is set on the server'
+                        : ' · Set WHATSAPP_VERIFY_TOKEN on the server'}
+                    </p>
+                  )}
+                </div>
+
+                <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: '1.25rem' }}>
+                  Display settings for your workspace (shown in signatures; does not connect Meta by itself):
                   {whatsapp.connected
-                    ? `Connected: ${whatsapp.phone as string} (${whatsapp.businessName as string})`
-                    : 'Not connected'}
+                    ? ` ${whatsapp.phone as string} (${whatsapp.businessName as string})`
+                    : ' not configured'}
                 </p>
                 <input
                   className="input-field"

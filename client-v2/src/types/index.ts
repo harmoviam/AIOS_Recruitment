@@ -140,6 +140,23 @@ export interface Message {
   content: string;
   is_outgoing: boolean;
   sent_at: string;
+  /** Present on outbound messages after send (not persisted in DB yet). */
+  wa_status?: 'sent' | 'simulated' | 'failed';
+  wa_error?: string;
+}
+
+export interface MessagingIntegrationStatus {
+  mode: 'live' | 'simulated';
+  enabled: boolean;
+  webhookPath: string;
+  configured: {
+    phoneNumberId: boolean;
+    accessToken: boolean;
+    verifyToken: boolean;
+  };
+  ready: boolean;
+  missing: string[];
+  ai: 'live' | 'disabled';
 }
 
 export interface Conversation {
