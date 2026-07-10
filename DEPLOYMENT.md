@@ -81,6 +81,50 @@ gcloud run deploy harmirecruit \
   --add-cloudsql-instances harmoviajobs:us-central1:harmoviajobs-db-us1
 ```
 
+## WhatsApp integration (persisted across deploys)
+
+`--set-env-vars` replaces the whole env list on each deploy, so WhatsApp config
+must live in Secret Manager and be re-applied by the deploy. The GitHub Actions
+workflow does this automatically once these three secrets exist (guarded on
+`harmirecruit-whatsapp-token`, so deploys still work in simulated mode before
+they are created):
+
+| Secret | Env var | Source |
+|--------|---------|--------|
+| `harmirecruit-whatsapp-token` | `WHATSAPP_ACCESS_TOKEN` | Meta System User token |
+| `harmirecruit-whatsapp-verify` | `WHATSAPP_VERIFY_TOKEN` | Any random string (also set in Meta webhook) |
+| `harmirecruit-whatsapp-phone-id` | `WHATSAPP_PHONE_NUMBER_ID` | Meta → WhatsApp → API Setup |
+
+Create/rotate them once via the setup script:
+
+```bash
+WHATSAPP_ACCESS_TOKEN='EAAG...' \
+WHATSAPP_VERIFY_TOKEN='harmirecruit-wa-verify-2026' \
+WHATSAPP_PHONE_NUMBER_ID='123456789012345' \
+./scripts/gcp-setup.sh
+```
+
+Or directly with `gcloud`:
+
+```bash
+echo -n 'EAAG...' | gcloud secrets create harmirecruit-whatsapp-token \
+  --data-file=- --project=aiosrecruitment
+echo -n 'harmirecruit-wa-verify-2026' | gcloud secrets create harmirecruit-whatsapp-verify \
+  --data-file=- --project=aiosrecruitment
+echo -n '123456789012345' | gcloud secrets create harmirecruit-whatsapp-phone-id \
+  --data-file=- --project=aiosrecruitment
+
+for S in harmirecruit-whatsapp-token harmirecruit-whatsapp-verify harmirecruit-whatsapp-phone-id; do
+  gcloud secrets add-iam-policy-binding "$S" \
+    --member="serviceAccount:cloud-run-harmirecruit-sa@aiosrecruitment.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor" --project=aiosrecruitment
+done
+```
+
+After the secrets exist, every deploy (push to `main` or manual dispatch) keeps
+WhatsApp in **Live** mode. To rotate a value, add a new secret version — the
+workflow always reads `:latest`.
+
 ## CI/CD (GitHub Actions)
 
 Workflow: `.github/workflows/deploy-cloud-run.yml`

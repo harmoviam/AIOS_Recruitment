@@ -22,6 +22,9 @@ CLOUDSQL_INSTANCE="harmoviajobs-db-us1"
 CLOUDSQL_CONNECTION="${DB_PROJECT_ID}:${REGION}:${CLOUDSQL_INSTANCE}"
 DB_SECRET="harmirecruit-db-url"
 JWT_SECRET="harmirecruit-jwt-secret"
+WA_TOKEN_SECRET="harmirecruit-whatsapp-token"
+WA_VERIFY_SECRET="harmirecruit-whatsapp-verify"
+WA_PHONE_SECRET="harmirecruit-whatsapp-phone-id"
 
 DB_USER="${DB_USER:-app_user}"
 DB_PASSWORD="${DB_PASSWORD:?Set DB_PASSWORD to the Cloud SQL app_user password}"
@@ -109,8 +112,40 @@ else
   echo "Secret '${JWT_SECRET}' already exists"
 fi
 
-# Grant SA access to secrets
-for SECRET in "${DB_SECRET}" "${JWT_SECRET}"; do
+# --- WhatsApp secrets (optional) ---
+# Provide WHATSAPP_ACCESS_TOKEN / WHATSAPP_VERIFY_TOKEN / WHATSAPP_PHONE_NUMBER_ID
+# in the environment to create or rotate them. Skipped otherwise. Once all three
+# exist, the GitHub Actions deploy re-applies them on every deploy so live mode
+# is never wiped by a redeploy.
+upsert_secret() {
+  local name="$1" value="$2"
+  [[ -z "${value}" ]] && return 0
+  if ! gcloud secrets describe "${name}" --project="${APP_PROJECT_ID}" &>/dev/null; then
+    echo "Creating secret: ${name}"
+    echo -n "${value}" | gcloud secrets create "${name}" \
+      --data-file=- \
+      --project="${APP_PROJECT_ID}"
+  else
+    echo "Updating secret: ${name}"
+    echo -n "${value}" | gcloud secrets versions add "${name}" \
+      --data-file=- \
+      --project="${APP_PROJECT_ID}"
+  fi
+}
+
+upsert_secret "${WA_TOKEN_SECRET}"  "${WHATSAPP_ACCESS_TOKEN:-}"
+upsert_secret "${WA_VERIFY_SECRET}" "${WHATSAPP_VERIFY_TOKEN:-}"
+upsert_secret "${WA_PHONE_SECRET}"  "${WHATSAPP_PHONE_NUMBER_ID:-}"
+
+# Grant SA access to secrets (WhatsApp ones only if they exist)
+SECRETS_TO_GRANT=("${DB_SECRET}" "${JWT_SECRET}")
+for WA_SECRET in "${WA_TOKEN_SECRET}" "${WA_VERIFY_SECRET}" "${WA_PHONE_SECRET}"; do
+  if gcloud secrets describe "${WA_SECRET}" --project="${APP_PROJECT_ID}" &>/dev/null; then
+    SECRETS_TO_GRANT+=("${WA_SECRET}")
+  fi
+done
+
+for SECRET in "${SECRETS_TO_GRANT[@]}"; do
   gcloud secrets add-iam-policy-binding "${SECRET}" \
     --project="${APP_PROJECT_ID}" \
     --member="serviceAccount:${SA_EMAIL}" \
@@ -151,6 +186,13 @@ if [[ "${DEPLOY}" =~ ^([Yy]|1|true|yes)$ ]]; then
 
   IMAGE="us-central1-docker.pkg.dev/${APP_PROJECT_ID}/${GAR_REPO}/${SERVICE_NAME}:initial"
 
+  DEPLOY_ENV_VARS="NODE_ENV=production"
+  DEPLOY_SECRETS="DATABASE_URL=${DB_SECRET}:latest,JWT_SECRET=${JWT_SECRET}:latest"
+  if gcloud secrets describe "${WA_TOKEN_SECRET}" --project="${APP_PROJECT_ID}" &>/dev/null; then
+    DEPLOY_ENV_VARS="${DEPLOY_ENV_VARS},WHATSAPP_ENABLED=true,WHATSAPP_API_URL=https://graph.facebook.com/v20.0,WHATSAPP_DEFAULT_COUNTRY_CODE=91"
+    DEPLOY_SECRETS="${DEPLOY_SECRETS},WHATSAPP_ACCESS_TOKEN=${WA_TOKEN_SECRET}:latest,WHATSAPP_VERIFY_TOKEN=${WA_VERIFY_SECRET}:latest,WHATSAPP_PHONE_NUMBER_ID=${WA_PHONE_SECRET}:latest"
+  fi
+
   echo "Deploying Cloud Run service..."
   gcloud run deploy "${SERVICE_NAME}" \
     --image "${IMAGE}" \
@@ -158,8 +200,8 @@ if [[ "${DEPLOY}" =~ ^([Yy]|1|true|yes)$ ]]; then
     --project "${APP_PROJECT_ID}" \
     --service-account "${SA_EMAIL}" \
     --add-cloudsql-instances "${CLOUDSQL_CONNECTION}" \
-    --set-env-vars "NODE_ENV=production" \
-    --set-secrets "DATABASE_URL=${DB_SECRET}:latest,JWT_SECRET=${JWT_SECRET}:latest" \
+    --set-env-vars "${DEPLOY_ENV_VARS}" \
+    --set-secrets "${DEPLOY_SECRETS}" \
     --memory 512Mi \
     --cpu 1 \
     --timeout 120 \

@@ -82,14 +82,31 @@ jobs:
         run: |
           SA_EMAIL="cloud-run-harmirecruit-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
+          # --set-env-vars replaces the whole env list on each deploy, so any
+          # WhatsApp config must be re-applied here or it is wiped. Secrets live
+          # in Secret Manager and are restored via --update-secrets. Everything
+          # is guarded on the token secret so deploys still work before WhatsApp
+          # is configured.
+          ENV_VARS="NODE_ENV=production"
+          SECRETS="DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest"
+
+          if gcloud secrets describe harmirecruit-whatsapp-token \
+              --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            echo "WhatsApp secrets found — enabling live WhatsApp integration."
+            ENV_VARS="${ENV_VARS},WHATSAPP_ENABLED=true,WHATSAPP_API_URL=https://graph.facebook.com/v20.0,WHATSAPP_DEFAULT_COUNTRY_CODE=91"
+            SECRETS="${SECRETS},WHATSAPP_ACCESS_TOKEN=harmirecruit-whatsapp-token:latest,WHATSAPP_VERIFY_TOKEN=harmirecruit-whatsapp-verify:latest,WHATSAPP_PHONE_NUMBER_ID=harmirecruit-whatsapp-phone-id:latest"
+          else
+            echo "WhatsApp secrets not found — deploying in simulated WhatsApp mode."
+          fi
+
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image ${IMAGE}:${{ github.sha }} \
             --region ${{ env.REGION }} \
             --project ${PROJECT_ID} \
             --service-account "${SA_EMAIL}" \
             --add-cloudsql-instances "${CLOUDSQL_CONNECTION}" \
-            --set-env-vars "NODE_ENV=production" \
-            --update-secrets "DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest" \
+            --set-env-vars "${ENV_VARS}" \
+            --update-secrets "${SECRETS}" \
             --memory 512Mi \
             --cpu 1 \
             --timeout 120 \
