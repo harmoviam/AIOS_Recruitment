@@ -1,7 +1,7 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { DB_SCHEMA, pool, useSchema } from './dbConfig.js';
-import { normalizeMeetingLink } from './services/livekit.js';
+import { candidateJoinPath, extractJoinToken, generateJoinCode, normalizeMeetingLink } from './services/livekit.js';
 
 export { pool, DB_SCHEMA };
 
@@ -185,6 +185,7 @@ export async function initDb() {
     await migrateFollowUpEngine(client);
     await migrateInterviewEvaluation(client);
     await migrateWhatsAppDelivery(client);
+    await migrateJoinCodes(client);
     await fixStaleMeetingLinks(client);
     await migrateMultiTenant(client);
     if (allowDemoSeed) {
@@ -293,6 +294,46 @@ async function migrateWhatsAppDelivery(client: pg.PoolClient) {
 async function migrateInterviewEvaluation(client: pg.PoolClient) {
   // Structured BPO/CRM screening questions scored 1–5 during the interview call.
   await client.query(`ALTER TABLE interviews ADD COLUMN IF NOT EXISTS evaluation JSONB`);
+}
+
+async function migrateJoinCodes(client: pg.PoolClient) {
+  await client.query(`ALTER TABLE interviews ADD COLUMN IF NOT EXISTS join_code TEXT`);
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS interviews_join_code_uidx ON interviews (join_code) WHERE join_code IS NOT NULL`
+  );
+
+  const base = (process.env.APP_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  const linkBase = base && !base.includes('localhost') ? base : 'http://localhost:5174';
+
+  const { rows } = await client.query<{ id: number; join_code: string | null; meeting_link: string | null }>(
+    `SELECT id, join_code, meeting_link FROM interviews`
+  );
+
+  for (const row of rows) {
+    const token = row.meeting_link ? extractJoinToken(row.meeting_link) : null;
+    const hasJwtLink = Boolean(token?.includes('.'));
+    if (row.join_code && !hasJwtLink) continue;
+
+    const joinCode = row.join_code || generateJoinCode();
+    let meetingLink = row.meeting_link;
+
+    if (row.meeting_link) {
+      try {
+        const origin = new URL(row.meeting_link).origin;
+        meetingLink = candidateJoinPath(joinCode, origin);
+      } catch {
+        meetingLink = candidateJoinPath(joinCode, linkBase);
+      }
+    } else {
+      meetingLink = candidateJoinPath(joinCode, linkBase);
+    }
+
+    await client.query('UPDATE interviews SET join_code = $1, meeting_link = $2 WHERE id = $3', [
+      joinCode,
+      meetingLink,
+      row.id,
+    ]);
+  }
 }
 
 async function fixStaleMeetingLinks(client: pg.PoolClient) {

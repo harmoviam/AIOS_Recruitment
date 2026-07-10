@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
 import { AccessToken } from 'livekit-server-sdk';
@@ -98,6 +99,20 @@ export function verifyInterviewJoinToken(token: string): InterviewJoinPayload | 
 export function interviewJoinExpiry(scheduledAt: string | Date, durationMinutes = 60): Date {
   const start = new Date(scheduledAt);
   return new Date(start.getTime() + (durationMinutes + 30) * 60 * 1000);
+}
+
+/** Short URL-safe code for candidate join links (no dots — WhatsApp truncates JWT URLs at `.`). */
+export function generateJoinCode(): string {
+  return crypto.randomBytes(12).toString('base64url');
+}
+
+/** Whether a candidate may open the join page for this interview. */
+export function isJoinWindowOpen(scheduledAt: string | Date, durationMinutes = 60): boolean {
+  const start = new Date(scheduledAt).getTime();
+  const now = Date.now();
+  const earliest = start - 2 * 60 * 60 * 1000;
+  const latest = start + (durationMinutes + 90) * 60 * 1000;
+  return now >= earliest && now <= latest;
 }
 
 export async function createLiveKitToken(

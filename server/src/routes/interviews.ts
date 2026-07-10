@@ -13,9 +13,8 @@ import { interviewScheduledMessage } from '../services/messageTemplates.js';
 import {
   appPublicUrl,
   candidateJoinPath,
-  createInterviewJoinToken,
   createLiveKitToken,
-  interviewJoinExpiry,
+  generateJoinCode,
   interviewRoomName,
   isLiveKitConfigured,
   liveKitServerUrl,
@@ -239,15 +238,11 @@ router.post('/', async (req, res) => {
 
   const interview = rows[0];
   if (!meeting_link) {
-    const joinToken = createInterviewJoinToken(
-      interview.id,
-      tid(req),
-      interviewJoinExpiry(scheduled_at, duration)
-    );
-    const link = candidateJoinPath(joinToken, appPublicUrl(req));
+    const joinCode = generateJoinCode();
+    const link = candidateJoinPath(joinCode, appPublicUrl(req));
     const { rows: updated } = await pool.query(
-      'UPDATE interviews SET meeting_link = $1 WHERE id = $2 RETURNING *',
-      [link, interview.id]
+      'UPDATE interviews SET meeting_link = $1, join_code = $2 WHERE id = $3 RETURNING *',
+      [link, joinCode, interview.id]
     );
     Object.assign(interview, updated[0]);
   }

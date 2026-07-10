@@ -37,7 +37,7 @@ export function interviewScheduledMessage(
   joinLink?: string | null
 ): string {
   const linkBlock = joinLink
-    ? `\n\nJoin the video interview here:\n${joinLink}`
+    ? `\n\nJoin the video interview here: ${joinLink}`
     : '';
 
   return `Hi ${firstName(name)},

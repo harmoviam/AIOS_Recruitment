@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import {
   createLiveKitToken,
   interviewRoomName,
+  isJoinWindowOpen,
   isLiveKitConfigured,
   liveKitServerUrl,
   verifyInterviewJoinToken,
@@ -10,8 +11,44 @@ import {
 
 const router = Router();
 
+type JoinPayload = { interviewId: number; tenantId: number };
+
+function decodeJoinToken(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+async function resolveJoinToken(token: string): Promise<JoinPayload | null> {
+  const decoded = decodeJoinToken(token);
+
+  // Short opaque codes have no dots — avoids WhatsApp breaking JWT links at `.`.
+  if (!decoded.includes('.')) {
+    const { rows } = await pool.query<{
+      id: number;
+      scheduled_at: string;
+      duration_minutes: number | null;
+      tenant_id: number;
+    }>(
+      `SELECT i.id, i.scheduled_at, i.duration_minutes, c.tenant_id
+       FROM interviews i
+       JOIN candidates c ON c.id = i.candidate_id
+       WHERE i.join_code = $1`,
+      [decoded]
+    );
+    if (!rows[0]) return null;
+    const iv = rows[0];
+    if (!isJoinWindowOpen(iv.scheduled_at, iv.duration_minutes ?? 60)) return null;
+    return { interviewId: iv.id, tenantId: iv.tenant_id };
+  }
+
+  return verifyInterviewJoinToken(decoded);
+}
+
 router.get('/:joinToken', async (req, res) => {
-  const payload = verifyInterviewJoinToken(req.params.joinToken);
+  const payload = await resolveJoinToken(req.params.joinToken);
   if (!payload) return res.status(401).json({ error: 'Invalid or expired interview link' });
 
   const { rows } = await pool.query(
@@ -39,7 +76,7 @@ router.get('/:joinToken', async (req, res) => {
 });
 
 router.post('/:joinToken/token', async (req, res) => {
-  const payload = verifyInterviewJoinToken(req.params.joinToken);
+  const payload = await resolveJoinToken(req.params.joinToken);
   if (!payload) return res.status(401).json({ error: 'Invalid or expired interview link' });
 
   const participantName = String(req.body.participantName || '').trim();
