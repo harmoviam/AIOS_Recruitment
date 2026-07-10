@@ -3294,6 +3294,34 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     min-height: 0;
 }
 
+.interview-video-prejoin {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    min-height: calc(100vh - 72px);
+}
+
+.interview-video-prejoin .lk-prejoin {
+    width: min(520px, 100%);
+}
+
+.interview-video-prejoin-tip,
+.join-interview-tip {
+    margin: 1rem 0 0;
+    max-width: 520px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.65);
+    line-height: 1.45;
+}
+
+.join-interview-tip {
+    color: var(--text-secondary);
+    text-align: left;
+}
+
 .interview-video-stage .lk-video-conference {
     height: calc(100vh - 72px);
 }

@@ -100,13 +100,17 @@ export default function JoinInterviewPage() {
                   autoFocus
                 />
                 {error && <p className="interview-video-error">{error}</p>}
+                <p className="join-interview-tip">
+                  For reliable audio, open this link in Chrome or Safari — not inside the WhatsApp or other in-app
+                  browser.
+                </p>
                 <button
                   type="submit"
                   className="button-pill button-primary"
                   style={{ marginTop: '1rem', width: '100%' }}
                   disabled={joining || !name.trim()}
                 >
-                  {joining ? 'Joining…' : 'Join video call'}
+                  {joining ? 'Joining…' : 'Continue to video call'}
                 </button>
               </form>
             )}
