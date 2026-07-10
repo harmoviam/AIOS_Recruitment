@@ -93,7 +93,11 @@ export function withSenderSignature(text: string, senderName: string, companyNam
 }
 
 /** Send a free-form text message (allowed inside the 24h customer window). */
-export async function sendWhatsAppText(toPhone: string | null, text: string): Promise<WaSendResult> {
+export async function sendWhatsAppText(
+  toPhone: string | null,
+  text: string,
+  options?: { previewUrl?: boolean }
+): Promise<WaSendResult> {
   if (whatsappMode() === 'simulated') return { simulated: true, delivered: false };
   if (!toPhone) return { simulated: false, delivered: false, error: 'Candidate has no phone number' };
 
@@ -109,7 +113,7 @@ export async function sendWhatsAppText(toPhone: string | null, text: string): Pr
         messaging_product: 'whatsapp',
         to: normalizePhone(toPhone),
         type: 'text',
-        text: { preview_url: false, body: text },
+        text: { preview_url: options?.previewUrl ?? false, body: text },
       }),
     });
     const data = (await res.json()) as {

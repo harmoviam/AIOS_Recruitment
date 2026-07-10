@@ -120,6 +120,30 @@ export interface Job {
   match_percent?: number;
 }
 
+export interface InterviewVideoTokenResponse {
+  serverUrl: string;
+  token: string;
+  roomName: string;
+  participantName: string;
+  interview: {
+    id: number;
+    candidateName: string;
+    scheduledAt: string;
+    roundType: string;
+    meetingLink?: string;
+  };
+}
+
+export interface InterviewJoinPreview {
+  interviewId: number;
+  candidateName: string;
+  tenantName: string;
+  scheduledAt: string;
+  roundType: string;
+  status: string;
+  livekitConfigured: boolean;
+}
+
 export interface Interview {
   id: number;
   candidate_id: number;

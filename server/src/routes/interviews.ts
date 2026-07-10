@@ -8,6 +8,17 @@ import {
   tenantMiddleware,
 } from '../middleware/tenant.js';
 import { promoteToInterviewStage } from '../services/candidateStage.js';
+import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
+import { interviewScheduledMessage } from '../services/messageTemplates.js';
+import {
+  candidateJoinPath,
+  createInterviewJoinToken,
+  createLiveKitToken,
+  interviewJoinExpiry,
+  interviewRoomName,
+  isLiveKitConfigured,
+  liveKitServerUrl,
+} from '../services/livekit.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -65,13 +76,14 @@ router.post('/', async (req, res) => {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 
+  const duration = duration_minutes || 60;
   const { rows } = await pool.query(
     `INSERT INTO interviews (candidate_id, scheduled_at, duration_minutes, round_type, status, meeting_link, notes, created_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
     [
       candidate_id,
       scheduled_at,
-      duration_minutes || 60,
+      duration,
       round_type || 'Technical',
       status || 'pending',
       meeting_link || null,
@@ -80,6 +92,21 @@ router.post('/', async (req, res) => {
     ]
   );
 
+  const interview = rows[0];
+  if (!meeting_link) {
+    const joinToken = createInterviewJoinToken(
+      interview.id,
+      tid(req),
+      interviewJoinExpiry(scheduled_at, duration)
+    );
+    const link = candidateJoinPath(joinToken);
+    const { rows: updated } = await pool.query(
+      'UPDATE interviews SET meeting_link = $1 WHERE id = $2 RETURNING *',
+      [link, interview.id]
+    );
+    Object.assign(interview, updated[0]);
+  }
+
   await pool.query(
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
     ['interview', `Interview scheduled for candidate #${candidate_id}`, req.user!.id, candidate_id, tid(req)]
@@ -87,7 +114,89 @@ router.post('/', async (req, res) => {
 
   await promoteToInterviewStage(Number(candidate_id), tid(req));
 
-  res.status(201).json(rows[0]);
+  const { rows: candidateRows } = await pool.query(
+    `SELECT c.name, c.phone, j.title AS job_title
+     FROM candidates c
+     LEFT JOIN jobs j ON j.id = c.job_id
+     WHERE c.id = $1`,
+    [candidate_id]
+  );
+  const candidate = candidateRows[0];
+  let whatsapp: { status: 'simulated' | 'sent' | 'failed'; error?: string } | undefined;
+
+  if (candidate && interview.meeting_link) {
+    const body = interviewScheduledMessage(
+      candidate.name,
+      candidate.job_title,
+      new Date(scheduled_at),
+      interview.meeting_link
+    );
+    const result = await storeAndSendCandidateWhatsApp({
+      candidateId: Number(candidate_id),
+      tenantId: tid(req),
+      userId: req.user!.id,
+      senderName: req.user!.name,
+      content: body,
+    });
+    whatsapp = { status: result.waStatus, error: result.wa.error };
+  }
+
+  res.status(201).json({ ...interview, whatsapp });
+});
+
+router.get('/:id/video-token', async (req, res) => {
+  if (!isLiveKitConfigured()) {
+    return res.status(503).json({
+      error: 'Video calling is not configured. Set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET.',
+    });
+  }
+
+  const interviewId = Number(req.params.id);
+  if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
+
+  const t = tenantClause(tid(req), 'c', 1);
+  let sql = `
+    SELECT i.*, c.name AS candidate_name
+    FROM interviews i
+    JOIN candidates c ON i.candidate_id = c.id
+    WHERE i.id = $${t.nextIndex} AND ${t.sql}
+  `;
+  const params: unknown[] = [t.param, interviewId];
+  let idx = t.nextIndex + 1;
+
+  if (req.user!.role === 'recruiter') {
+    sql += ` AND c.recruiter_id = $${idx++}`;
+    params.push(req.user!.id);
+  } else if (req.user!.role === 'hiring_manager') {
+    sql += ` AND c.recruiter_id IN (
+      SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
+      AND (r.managed_by_id = $${idx + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1}))
+    )`;
+    params.push(tid(req), req.user!.id);
+  }
+
+  const { rows } = await pool.query(sql, params);
+  if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
+
+  const iv = rows[0];
+  const roomName = interviewRoomName(iv.id);
+  const displayName = req.user!.name || req.user!.email;
+  const identity = `staff-${req.user!.id}`;
+  const token = await createLiveKitToken(roomName, identity, displayName);
+
+  res.json({
+    serverUrl: liveKitServerUrl(),
+    token,
+    roomName,
+    participantName: displayName,
+    interview: {
+      id: iv.id,
+      candidateName: iv.candidate_name,
+      scheduledAt: iv.scheduled_at,
+      roundType: iv.round_type,
+      meetingLink: iv.meeting_link,
+    },
+  });
 });
 
 router.patch('/:id', async (req, res) => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Candidate, Interview } from '../types';
 
@@ -24,6 +24,7 @@ function monthGridDays(year: number, month: number): Date[] {
 }
 
 export default function InterviewsPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -36,8 +37,8 @@ export default function InterviewsPage() {
     candidate_id: searchParams.get('candidate') || '',
     scheduled_at: '',
     round_type: 'Technical',
-    meeting_link: 'https://zoom.us/j/new',
   });
+  const [copyStatus, setCopyStatus] = useState<number | null>(null);
 
   const load = () => api.getInterviews().then(setInterviews);
 
@@ -95,7 +96,6 @@ export default function InterviewsPage() {
       candidate_id: Number(form.candidate_id),
       scheduled_at: new Date(form.scheduled_at).toISOString(),
       round_type: form.round_type,
-      meeting_link: form.meeting_link,
       status: 'pending',
     });
     setShowForm(false);
@@ -107,6 +107,13 @@ export default function InterviewsPage() {
     load();
   };
 
+  const copyCandidateLink = async (iv: Interview) => {
+    if (!iv.meeting_link) return;
+    await navigator.clipboard.writeText(iv.meeting_link);
+    setCopyStatus(iv.id);
+    window.setTimeout(() => setCopyStatus((current) => (current === iv.id ? null : current)), 2000);
+  };
+
   const slotRow = (iv: Interview) => (
     <div key={iv.id} className="schedule-slot">
       <div className="slot-info">
@@ -115,12 +122,19 @@ export default function InterviewsPage() {
           {iv.candidate_name} • {iv.round_type}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <span className={`slot-status ${iv.status === 'pending' ? 'pending' : ''}`}>{iv.status}</span>
+        <button
+          type="button"
+          className="button-pill button-primary"
+          onClick={() => navigate(`/interviews/${iv.id}/room`)}
+        >
+          Join call
+        </button>
         {iv.meeting_link && (
-          <a href={iv.meeting_link} target="_blank" rel="noreferrer" className="button-pill button-primary">
-            Join
-          </a>
+          <button type="button" className="button-pill button-secondary" onClick={() => copyCandidateLink(iv)}>
+            {copyStatus === iv.id ? 'Copied!' : 'Copy candidate link'}
+          </button>
         )}
         {iv.status === 'pending' && (
           <button type="button" className="button-pill button-secondary" onClick={() => updateStatus(iv.id, 'confirmed')}>
@@ -159,7 +173,7 @@ export default function InterviewsPage() {
       </div>
       <div className="page-content">
         <h1 className="section-title">Interview Scheduling</h1>
-        <p className="section-description">Calendar view with slots and meeting links.</p>
+        <p className="section-description">Calendar view with LiveKit video rooms and shareable candidate links.</p>
 
         {showForm && (
           <form className="card" style={{ marginBottom: '1.5rem' }} onSubmit={schedule}>
@@ -172,7 +186,9 @@ export default function InterviewsPage() {
               </select>
               <input type="datetime-local" className="input-field" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} required />
               <input className="input-field" placeholder="Round type" value={form.round_type} onChange={(e) => setForm({ ...form, round_type: e.target.value })} />
-              <input className="input-field" placeholder="Meeting link" value={form.meeting_link} onChange={(e) => setForm({ ...form, meeting_link: e.target.value })} />
+              <p className="text-muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.9rem' }}>
+                A secure candidate join link is created automatically when you save.
+              </p>
             </div>
             <button type="submit" className="button-pill button-primary" style={{ marginTop: '1rem' }}>Save interview</button>
           </form>

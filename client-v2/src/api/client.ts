@@ -8,6 +8,29 @@ function getTenantSlug() {
   return localStorage.getItem('aios_tenant_slug');
 }
 
+async function publicRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, { ...options, headers });
+  } catch {
+    throw new Error('API server unavailable — run npm run dev from the project root');
+  }
+  const text = await res.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  }
+  if (!res.ok) throw new Error((data.error as string) || `Request failed (${res.status})`);
+  return data as T;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -151,6 +174,18 @@ export const api = {
     request<import('../types').Interview>('/interviews', { method: 'POST', body: JSON.stringify(data) }),
   updateInterview: (id: number, data: Partial<import('../types').Interview>) =>
     request<import('../types').Interview>(`/interviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getInterviewVideoToken: (id: number) =>
+    request<import('../types').InterviewVideoTokenResponse>(`/interviews/${id}/video-token`),
+  getInterviewJoinPreview: (joinToken: string) =>
+    publicRequest<import('../types').InterviewJoinPreview>(`/interviews/join/${joinToken}`),
+  getInterviewGuestToken: (joinToken: string, participantName: string) =>
+    publicRequest<Pick<import('../types').InterviewVideoTokenResponse, 'serverUrl' | 'token' | 'roomName' | 'participantName'>>(
+      `/interviews/join/${joinToken}/token`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ participantName }),
+      }
+    ),
 
   getConversations: () => request<import('../types').Conversation[]>('/messages/conversations'),
   getMessagingIntegrationStatus: () =>

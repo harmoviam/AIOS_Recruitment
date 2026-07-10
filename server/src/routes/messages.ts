@@ -8,11 +8,10 @@ import {
   tenantMiddleware,
 } from '../middleware/tenant.js';
 import {
-  sendWhatsAppText,
   whatsappIntegrationStatus,
-  withSenderSignature,
 } from '../services/whatsapp.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
+import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
 import { aiMode, suggestMessages } from '../services/ai.js';
 
 const router = Router();
@@ -54,7 +53,7 @@ router.get('/:candidateId/suggestions', async (req, res) => {
   );
 
   const { rows: upcoming } = await pool.query(
-    `SELECT i.scheduled_at, c.name, c.stage, c.salary_expectation, j.title, j.location
+    `SELECT i.scheduled_at, i.meeting_link, c.name, c.stage, c.salary_expectation, j.title, j.location
      FROM candidates c
      LEFT JOIN interviews i ON i.candidate_id = c.id
        AND i.status IN ('pending', 'confirmed') AND i.scheduled_at > NOW()
@@ -68,7 +67,7 @@ router.get('/:candidateId/suggestions', async (req, res) => {
   // The interview confirmation template stays first when an interview is
   // pending — the webhook's "CONFIRMED" reply parsing depends on its wording.
   const confirmationFirst = c?.scheduled_at
-    ? [interviewScheduledMessage(c.name, c.title, new Date(c.scheduled_at))]
+    ? [interviewScheduledMessage(c.name, c.title, new Date(c.scheduled_at), c.meeting_link)]
     : [];
 
   if (aiMode() === 'live' && c) {
@@ -132,35 +131,15 @@ router.post('/:candidateId', async (req, res) => {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 
-  const { rows } = await pool.query(
-    `INSERT INTO messages (candidate_id, sender, content, is_outgoing)
-     VALUES ($1, $2, $3, TRUE) RETURNING *`,
-    [candidateId, req.user!.name, content.trim()]
-  );
+  const { message, waStatus, wa } = await storeAndSendCandidateWhatsApp({
+    candidateId,
+    tenantId: tid(req),
+    userId: req.user!.id,
+    senderName: req.user!.name,
+    content: content.trim(),
+  });
 
-  // Deliver via WhatsApp Cloud API when configured (simulated otherwise).
-  // All messages leave from the shared business number, so the wire text is
-  // prefixed with the recruiter's signature; the DB keeps the raw content.
-  const [{ rows: userRows }, { rows: brandRows }, { rows: cand }] = await Promise.all([
-    pool.query('SELECT wa_signature FROM users WHERE id = $1', [req.user!.id]),
-    pool.query(`SELECT value FROM settings WHERE tenant_id = $1 AND key = 'branding'`, [tid(req)]),
-    pool.query('SELECT phone FROM candidates WHERE id = $1', [candidateId]),
-  ]);
-  const signature = userRows[0]?.wa_signature || req.user!.name;
-  const companyName = brandRows[0]?.value?.companyName;
-  const wa = await sendWhatsAppText(
-    cand[0]?.phone ?? null,
-    withSenderSignature(content.trim(), signature, companyName)
-  );
-  const waStatus = wa.simulated ? 'simulated' : wa.delivered ? 'sent' : 'failed';
-  if (wa.error) console.warn(`WhatsApp delivery failed for candidate ${candidateId}: ${wa.error}`);
-
-  await pool.query(
-    'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
-    ['message', `${req.user!.name} sent WhatsApp message (${waStatus})`, req.user!.id, candidateId, tid(req)]
-  );
-
-  res.status(201).json({ ...rows[0], wa_status: waStatus, wa_error: wa.error });
+  res.status(201).json({ ...message, wa_status: waStatus, wa_error: wa.error });
 });
 
 export default router;

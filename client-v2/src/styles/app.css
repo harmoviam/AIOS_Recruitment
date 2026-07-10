@@ -3209,3 +3209,92 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── LiveKit interview video ───────────────────────────────────── */
+.interview-video-page,
+.join-interview-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: var(--bg-primary);
+}
+
+.interview-video-card,
+.join-interview-card {
+    width: min(480px, 100%);
+}
+
+.join-interview-badge {
+    display: inline-block;
+    margin-bottom: 0.5rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 12%, white);
+    color: var(--primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.join-interview-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.interview-video-loading {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    color: var(--text-secondary);
+}
+
+.interview-video-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #0f1117;
+    color: #fff;
+}
+
+.interview-video-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.interview-video-title {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.interview-video-subtitle {
+    margin: 0.25rem 0 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.interview-video-error {
+    margin: 0.75rem 1.25rem 0;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--danger) 18%, #1a1d24);
+    color: #ffb4b4;
+    font-size: 0.9rem;
+}
+
+.interview-video-stage {
+    flex: 1;
+    min-height: 0;
+}
+
+.interview-video-stage .lk-video-conference {
+    height: calc(100vh - 72px);
+}
+

@@ -3,12 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "concurrently -n livekit,server,client -c cyan,magenta,green \"npm run dev:livekit\" \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:livekit": "docker compose up livekit",
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client-v2",
     "build": "npm run build --prefix client-v2 && npm run build --prefix server",
     "start": "npm run start --prefix server",
     "db:up": "docker compose up -d postgres",
+    "livekit:up": "docker compose up -d livekit",
+    "livekit:down": "docker compose stop livekit",
     "db:init": "npm run db:init --prefix server",
     "setup": "npm install && npm install --prefix server && npm install --prefix client-v2 && cp -n .env.example .env 2>/dev/null || true"
   },

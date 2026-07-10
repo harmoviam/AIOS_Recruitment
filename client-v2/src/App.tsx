@@ -19,6 +19,8 @@ import HiringManagersPage from './pages/HiringManagersPage';
 import CompaniesPage from './pages/CompaniesPage';
 import MessagesPage from './pages/MessagesPage';
 import InterviewsPage from './pages/InterviewsPage';
+import InterviewRoomPage from './pages/InterviewRoomPage';
+import JoinInterviewPage from './pages/JoinInterviewPage';
 import ReportsPage from './pages/ReportsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -63,6 +65,17 @@ function AppRoutes() {
       <Route path="/walkthrough" element={<WalkthroughPage />} />
       <Route path="/walkthrough/:role" element={<WalkthroughPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/join/interview/:joinToken" element={<JoinInterviewPage />} />
+      <Route
+        path="/interviews/:id/room"
+        element={
+          <PrivateRoute>
+            <TenantProvider>
+              <InterviewRoomPage />
+            </TenantProvider>
+          </PrivateRoute>
+        }
+      />
       <Route
         path="/"
         element={

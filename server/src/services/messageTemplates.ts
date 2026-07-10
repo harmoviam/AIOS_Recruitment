@@ -29,17 +29,22 @@ const firstName = (name?: string | null) => (name || '').trim().split(/\s+/)[0] 
 /** "Customer Support" → "the Customer Support role"; missing → "the role". */
 const roleOf = (jobTitle?: string | null) => (jobTitle ? `the ${jobTitle} role` : 'the role');
 
-/** Step 1 — immediate reinforcement, sent right after the telephonic round. */
+/** Step 1 — immediate reinforcement, sent right after scheduling the interview. */
 export function interviewScheduledMessage(
   name: string | null | undefined,
   jobTitle: string | null | undefined,
-  interviewAt: Date
+  interviewAt: Date,
+  joinLink?: string | null
 ): string {
+  const linkBlock = joinLink
+    ? `\n\nJoin the video interview here:\n${joinLink}`
+    : '';
+
   return `Hi ${firstName(name)},
 
 Thank you for attending the telephonic call today for ${roleOf(jobTitle)}.
 
-As discussed, the next step is scheduled on ${fmtDateTime(interviewAt)}. We look forward to your participation.
+As discussed, the next step is scheduled on ${fmtDateTime(interviewAt)}. We look forward to your participation.${linkBlock}
 
 Please reply *CONFIRMED* once you receive this message.`;
 }

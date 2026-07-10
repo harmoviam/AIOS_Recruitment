@@ -10,5 +10,16 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev
+    restart: unless-stopped
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      LIVEKIT_KEYS: "devkey: secret"
+
 volumes:
   postgres_data:
