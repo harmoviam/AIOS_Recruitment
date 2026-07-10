@@ -661,17 +661,67 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const { stage, notes, skills, experience_years, salary_expectation, recruiter_id, job_id, offer_status, is_hot, expected_joining_at } = req.body;
+  const {
+    stage,
+    notes,
+    skills,
+    experience_years,
+    salary_expectation,
+    recruiter_id,
+    job_id,
+    offer_status,
+    is_hot,
+    expected_joining_at,
+    name,
+    email,
+    phone,
+  } = req.body;
 
   const { rows: existing } = await pool.query(
-    'SELECT id, name FROM candidates WHERE id = $1 AND tenant_id = $2',
+    'SELECT id, name, email, phone FROM candidates WHERE id = $1 AND tenant_id = $2',
     [req.params.id, tid(req)]
   );
   if (!existing[0]) return res.status(404).json({ error: 'Candidate not found' });
 
+  if (name !== undefined) {
+    const trimmed = String(name).trim();
+    if (!trimmed) return res.status(400).json({ error: 'Name required' });
+  }
+  if (phone !== undefined && phone) {
+    if (!/^\+?[\d\s-]{10,}$/.test(String(phone))) {
+      return res.status(400).json({ error: 'Invalid phone format' });
+    }
+  }
+  if (email !== undefined || phone !== undefined) {
+    const nextEmail =
+      email !== undefined ? (email ? String(email).trim().toLowerCase() : null) : existing[0].email;
+    const nextPhone =
+      phone !== undefined ? (phone ? String(phone).replace(/\s/g, '') : null) : existing[0].phone?.replace(/\s/g, '');
+    const { rows: dupes } = await pool.query(
+      'SELECT id FROM candidates WHERE tenant_id = $1 AND id != $2 AND (($3::text IS NOT NULL AND LOWER(email) = $3) OR ($4::text IS NOT NULL AND REPLACE(phone, \' \', \'\') = $4)) LIMIT 1',
+      [tid(req), req.params.id, nextEmail, nextPhone]
+    );
+    if (dupes[0]) {
+      return res.status(409).json({ error: 'Another candidate already uses this email or phone number' });
+    }
+  }
+
   const updates: string[] = [];
   const params: unknown[] = [];
   let i = 1;
+
+  if (name !== undefined) {
+    updates.push(`name = $${i++}`);
+    params.push(String(name).trim());
+  }
+  if (email !== undefined) {
+    updates.push(`email = $${i++}`);
+    params.push(email ? String(email).trim() : null);
+  }
+  if (phone !== undefined) {
+    updates.push(`phone = $${i++}`);
+    params.push(phone ? String(phone).trim() : null);
+  }
 
   if (stage !== undefined) {
     if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Invalid stage' });
@@ -786,6 +836,12 @@ router.patch('/:id', async (req, res) => {
         rows[0].id,
         tid(req),
       ]
+    );
+  }
+  if (name !== undefined || email !== undefined || phone !== undefined) {
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      ['profile', `${rows[0].name} contact details updated`, req.user!.id, rows[0].id, tid(req)]
     );
   }
   if (offer_status) {

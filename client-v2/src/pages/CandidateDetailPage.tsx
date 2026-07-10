@@ -48,6 +48,17 @@ export default function CandidateDetailPage() {
   const [notes, setNotes] = useState('');
   const [scores, setScores] = useState<Record<string, number | null>>({});
   const [screeningStatus, setScreeningStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    experience_years: 0,
+    salary_expectation: '',
+    skills: '',
+  });
+  const [profileError, setProfileError] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -102,6 +113,46 @@ export default function CandidateDetailPage() {
     setScreeningStatus('saved');
   };
 
+  const startEditProfile = () => {
+    setProfileForm({
+      name: candidate.name,
+      phone: candidate.phone || '',
+      email: candidate.email || '',
+      experience_years: candidate.experience_years,
+      salary_expectation: candidate.salary_expectation || '',
+      skills: skills.join(', '),
+    });
+    setProfileError('');
+    setEditingProfile(true);
+  };
+
+  const cancelEditProfile = () => {
+    setEditingProfile(false);
+    setProfileError('');
+  };
+
+  const saveProfile = async () => {
+    setProfileError('');
+    setProfileSaving(true);
+    try {
+      const skillsList = profileForm.skills.split(',').map((s) => s.trim()).filter(Boolean);
+      const updated = await api.updateCandidate(candidate.id, {
+        name: profileForm.name.trim(),
+        phone: profileForm.phone.trim(),
+        email: profileForm.email.trim() || undefined,
+        experience_years: profileForm.experience_years,
+        salary_expectation: profileForm.salary_expectation.trim() || undefined,
+        skills: skillsList,
+      });
+      setCandidate({ ...candidate, ...updated });
+      setEditingProfile(false);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save profile');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   return (
     <>
       <div className="topbar">
@@ -145,20 +196,108 @@ export default function CandidateDetailPage() {
           <div className="section-split">
             <div>
               <div className="card" style={{ marginBottom: '1rem' }}>
-                <div className="card-title">Contact</div>
-                <p>{candidate.email || '—'}</p>
-                <p>{candidate.phone || '—'}</p>
-                <p>Recruiter: {candidate.recruiter_name || '—'}</p>
-                <p>Salary: {candidate.salary_expectation || '—'}</p>
-              </div>
-              <div className="card">
-                <div className="card-title">Skills</div>
-                <div className="candidate-skills">
-                  {skills.map((s) => (
-                    <div key={s} className="skill-tag">{s}</div>
-                  ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <div className="card-title" style={{ margin: 0 }}>Contact</div>
+                  {!editingProfile && (
+                    <button type="button" className="button-pill button-secondary" onClick={startEditProfile}>
+                      Edit
+                    </button>
+                  )}
                 </div>
+                {editingProfile ? (
+                  <>
+                    {profileError && <div className="form-error" style={{ marginBottom: '0.75rem' }}>{profileError}</div>}
+                    <div className="form-grid">
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="edit-name">Full name</label>
+                        <input
+                          id="edit-name"
+                          className="input-field"
+                          value={profileForm.name}
+                          onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="edit-phone">Phone</label>
+                        <input
+                          id="edit-phone"
+                          className="input-field"
+                          value={profileForm.phone}
+                          onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                          placeholder="+91"
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="edit-email">Email</label>
+                        <input
+                          id="edit-email"
+                          type="email"
+                          className="input-field"
+                          value={profileForm.email}
+                          onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="edit-exp">Experience (years)</label>
+                        <input
+                          id="edit-exp"
+                          type="number"
+                          min={0}
+                          className="input-field"
+                          value={profileForm.experience_years}
+                          onChange={(e) => setProfileForm({ ...profileForm, experience_years: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="edit-salary">Salary expectation</label>
+                        <input
+                          id="edit-salary"
+                          className="input-field"
+                          value={profileForm.salary_expectation}
+                          onChange={(e) => setProfileForm({ ...profileForm, salary_expectation: e.target.value })}
+                          placeholder="e.g. 5 LPA"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="edit-skills">Skills (comma-separated)</label>
+                        <input
+                          id="edit-skills"
+                          className="input-field"
+                          value={profileForm.skills}
+                          onChange={(e) => setProfileForm({ ...profileForm, skills: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-actions" style={{ marginTop: '0.75rem' }}>
+                      <button type="button" className="button-pill button-secondary" onClick={cancelEditProfile} disabled={profileSaving}>
+                        Cancel
+                      </button>
+                      <button type="button" className="button-pill button-primary" onClick={saveProfile} disabled={profileSaving}>
+                        {profileSaving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p>{candidate.email || '—'}</p>
+                    <p>{candidate.phone || '—'}</p>
+                    <p>Recruiter: {candidate.recruiter_name || '—'}</p>
+                    <p>Salary: {candidate.salary_expectation || '—'}</p>
+                  </>
+                )}
               </div>
+              {!editingProfile && (
+                <div className="card">
+                  <div className="card-title">Skills</div>
+                  <div className="candidate-skills">
+                    {skills.map((s) => (
+                      <div key={s} className="skill-tag">{s}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="card">
               <div className="card-title">Stage</div>
