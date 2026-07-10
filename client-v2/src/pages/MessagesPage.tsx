@@ -66,6 +66,7 @@ export default function MessagesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(
     initialCandidate ? Number(initialCandidate) : null
   );
+  const [deepLinkCandidate, setDeepLinkCandidate] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   // Deep links (e.g. Follow-up Center templates) can prefill the composer.
@@ -89,6 +90,30 @@ export default function MessagesPage() {
     loadConversations();
     api.getMessagingIntegrationStatus().then(setIntegration).catch(() => setIntegration(null));
   }, []);
+
+  // Deep links (e.g. Candidates → WhatsApp) must resolve the candidate even when
+  // they have no message history yet — conversations only lists existing threads.
+  useEffect(() => {
+    const raw = searchParams.get('candidate');
+    if (!raw) {
+      setDeepLinkCandidate(null);
+      return;
+    }
+    const id = Number(raw);
+    if (!Number.isFinite(id)) return;
+    setSelectedId(id);
+    api
+      .getCandidate(id)
+      .then((c) =>
+        setDeepLinkCandidate({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          stage: c.stage,
+        })
+      )
+      .catch(() => setDeepLinkCandidate(null));
+  }, [searchParams]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -158,16 +183,39 @@ export default function MessagesPage() {
     });
   }, [conversations, stageFilter, search]);
 
+  const displayConversations = useMemo(() => {
+    if (!deepLinkCandidate || conversations.some((c) => c.id === deepLinkCandidate.id)) {
+      return filteredConversations;
+    }
+    if (selectedId !== deepLinkCandidate.id) return filteredConversations;
+
+    const q = search.trim().toLowerCase();
+    const matchesFilters =
+      (stageFilter === 'all' || deepLinkCandidate.stage === stageFilter) &&
+      (!q ||
+        deepLinkCandidate.name.toLowerCase().includes(q) ||
+        (deepLinkCandidate.phone || '').toLowerCase().includes(q));
+
+    if (!matchesFilters) return filteredConversations;
+
+    return [
+      { ...deepLinkCandidate, last_message: undefined, last_message_at: undefined, unread_hint: 0 },
+      ...filteredConversations,
+    ];
+  }, [filteredConversations, deepLinkCandidate, selectedId, stageFilter, search, conversations]);
+
   const totalUnread = useMemo(
     () => conversations.reduce((s, c) => s + (c.unread_hint || 0), 0),
     [conversations]
   );
 
-  const selected =
-    conversations.find((c) => c.id === selectedId) ||
-    (selectedId
-      ? candidates.find((c) => c.id === selectedId) &&
-        ({ id: selectedId, name: candidates.find((c) => c.id === selectedId)!.name, phone: candidates.find((c) => c.id === selectedId)!.phone, stage: candidates.find((c) => c.id === selectedId)!.stage } as Conversation)
+  const pickerMatch = selectedId ? candidates.find((c) => c.id === selectedId) : undefined;
+
+  const selected: Conversation | null =
+    conversations.find((c) => c.id === selectedId) ??
+    (deepLinkCandidate?.id === selectedId ? deepLinkCandidate : null) ??
+    (pickerMatch
+      ? { id: pickerMatch.id, name: pickerMatch.name, phone: pickerMatch.phone, stage: pickerMatch.stage }
       : null);
 
   const pickerCandidates = candidates.filter((c) =>
@@ -229,10 +277,10 @@ export default function MessagesPage() {
                 ))}
               </select>
             </div>
-            {filteredConversations.length === 0 ? (
+            {displayConversations.length === 0 ? (
               <p className="empty-inline" style={{ padding: '1rem 0' }}>No conversations found.</p>
             ) : (
-              filteredConversations.map((c) => (
+              displayConversations.map((c) => (
                 <button
                   key={c.id}
                   type="button"

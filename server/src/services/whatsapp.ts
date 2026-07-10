@@ -39,7 +39,11 @@ function cfg() {
 
 export function whatsappMode(): 'live' | 'simulated' {
   const c = cfg();
-  return c.enabled && c.phoneNumberId && c.accessToken ? 'live' : 'simulated';
+  // Explicit opt-out only — if phone + token are configured (e.g. via Secret
+  // Manager on Cloud Run), treat as live even when WHATSAPP_ENABLED was wiped
+  // from env vars by a manual gcloud update.
+  if (process.env.WHATSAPP_ENABLED === 'false') return 'simulated';
+  return c.phoneNumberId && c.accessToken ? 'live' : 'simulated';
 }
 
 /** Safe summary for Settings / inbox — never exposes tokens or secrets. */
@@ -57,10 +61,10 @@ export function whatsappIntegrationStatus() {
     },
     ready: mode === 'live' && Boolean(c.verifyToken),
     missing: [
-      !c.enabled ? 'WHATSAPP_ENABLED=true' : null,
+      process.env.WHATSAPP_ENABLED === 'false' ? 'WHATSAPP_ENABLED=false (disabled)' : null,
       !c.phoneNumberId ? 'WHATSAPP_PHONE_NUMBER_ID' : null,
       !c.accessToken ? 'WHATSAPP_ACCESS_TOKEN' : null,
-      !c.verifyToken ? 'WHATSAPP_VERIFY_TOKEN' : null,
+      !c.verifyToken ? 'WHATSAPP_VERIFY_TOKEN (needed for inbound webhook)' : null,
     ].filter(Boolean) as string[],
   };
 }

@@ -184,6 +184,7 @@ export async function initDb() {
     await migrateScreening(client);
     await migrateFollowUpEngine(client);
     await migrateInterviewEvaluation(client);
+    await migrateWhatsAppDelivery(client);
     await fixStaleMeetingLinks(client);
     await migrateMultiTenant(client);
     if (allowDemoSeed) {
@@ -282,6 +283,11 @@ async function migrateScreening(client: pg.PoolClient) {
   // Pre-screening scorecard filled by recruiters during the first call:
   // question scores, red-flag signal scores, computed totals and risk level.
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS screening JSONB`);
+}
+
+async function migrateWhatsAppDelivery(client: pg.PoolClient) {
+  await client.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_status TEXT`);
+  await client.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_error TEXT`);
 }
 
 async function migrateInterviewEvaluation(client: pg.PoolClient) {

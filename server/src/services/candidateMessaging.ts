@@ -41,10 +41,16 @@ export async function storeAndSendCandidateWhatsApp(params: {
   const waStatus = wa.simulated ? 'simulated' : wa.delivered ? 'sent' : 'failed';
   if (wa.error) console.warn(`WhatsApp delivery failed for candidate ${candidateId}: ${wa.error}`);
 
+  await pool.query('UPDATE messages SET wa_status = $1, wa_error = $2 WHERE id = $3', [
+    waStatus,
+    wa.error ?? null,
+    rows[0].id,
+  ]);
+
   await pool.query(
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
     ['message', `${senderName} sent WhatsApp message (${waStatus})`, userId, candidateId, tenantId]
   );
 
-  return { message: rows[0], wa, waStatus };
+  return { message: { ...rows[0], wa_status: waStatus, wa_error: wa.error ?? null }, wa, waStatus };
 }
