@@ -221,7 +221,7 @@ export default function CandidateDetailPage() {
                   <p className="text-muted">
                     {screeningBlocked
                       ? 'Blocked — 5+ red flags in the first 3 minutes.'
-                      : 'Score each answer 1 (weak) to 5 (strong).'}
+                      : 'First-call quick scorecard (not the full interview screening). Score each answer 1 (weak) to 5 (strong).'}
                   </p>
                 </div>
                 <div className="screening-total">
@@ -313,7 +313,12 @@ export default function CandidateDetailPage() {
         )}
 
         {tab === 'interviews' && (
-          <div className="card">
+          <div>
+            <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+              Open <strong>Interview Screening</strong> to rate the 19 BPO/CRM questions for each scheduled call.
+              The <strong>Screening</strong> tab above is the separate first-call pre-screen scorecard.
+            </p>
+            <div className="card">
             {interviews.length === 0 ? (
               <p className="text-muted">No interviews yet</p>
             ) : (
@@ -331,7 +336,7 @@ export default function CandidateDetailPage() {
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <Link to={`/interviews/${iv.id}/evaluate`} className="button-pill button-primary">
-                      Screen
+                      Interview Screening
                     </Link>
                     <Link to={`/interviews/${iv.id}/room`} className="button-pill button-secondary">
                       Join call
@@ -340,6 +345,7 @@ export default function CandidateDetailPage() {
                 </div>
               ))
             )}
+            </div>
           </div>
         )}
 

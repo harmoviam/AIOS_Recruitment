@@ -126,14 +126,14 @@ export default function InterviewsPage() {
         <span className={`slot-status ${iv.status === 'pending' ? 'pending' : ''}`}>{iv.status}</span>
         <button
           type="button"
-          className="button-pill button-secondary"
+          className="button-pill button-primary"
           onClick={() => navigate(`/interviews/${iv.id}/evaluate`)}
         >
-          Screen
+          Interview Screening
         </button>
         <button
           type="button"
-          className="button-pill button-primary"
+          className="button-pill button-secondary"
           onClick={() => navigate(`/interviews/${iv.id}/room`)}
         >
           Join call
@@ -180,7 +180,10 @@ export default function InterviewsPage() {
       </div>
       <div className="page-content">
         <h1 className="section-title">Interview Scheduling</h1>
-        <p className="section-description">Calendar view with LiveKit video rooms and shareable candidate links.</p>
+        <p className="section-description">
+          Schedule interviews, run the BPO screening scorecard, and join video calls. Use{' '}
+          <strong>Interview Screening</strong> on each slot to rate the 19 standard questions.
+        </p>
 
         {showForm && (
           <form className="card" style={{ marginBottom: '1.5rem' }} onSubmit={schedule}>
