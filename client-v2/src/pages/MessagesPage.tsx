@@ -254,6 +254,11 @@ export default function MessagesPage() {
               {integration.mode === 'live' ? 'Live' : 'Simulated'}
             </span>
           )}
+          {integration?.mode === 'live' && integration.tokenOk === false && (
+            <span className="inbox-unread-total" title={integration.authError}>
+              Token error
+            </span>
+          )}
           {totalUnread > 0 && <span className="inbox-unread-total">{totalUnread} new</span>}
         </div>
         <button type="button" className="button-pill button-primary" onClick={openPicker}>
@@ -342,6 +347,15 @@ export default function MessagesPage() {
                   <div ref={messagesEndRef} />
                 </div>
                 <div className="chat-input">
+                  {integration?.mode === 'live' && integration.tokenOk === false && (
+                    <div className="chat-send-error" role="alert">
+                      WhatsApp access token is invalid or expired. An admin must rotate{' '}
+                      <code>WHATSAPP_ACCESS_TOKEN</code> in GCP Secret Manager (secret:{' '}
+                      <code>harmirecruit-whatsapp-token</code>) with a new Meta System User token, then
+                      redeploy Cloud Run.
+                      {integration.authError ? ` (${integration.authError})` : ''}
+                    </div>
+                  )}
                   {lastSendError && (
                     <div className="chat-send-error" role="alert">
                       {lastSendError}

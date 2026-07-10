@@ -55,6 +55,13 @@ function OrgWorkspaceRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Organization admin settings — team, WhatsApp, billing, etc. */
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'admin') return <Navigate to="/settings/profile" replace />;
+  return <>{children}</>;
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -103,10 +110,10 @@ function AppRoutes() {
         <Route path="interviews/:id/evaluate" element={<OrgWorkspaceRoute><InterviewEvaluationPage /></OrgWorkspaceRoute>} />
         <Route path="reports" element={<OrgWorkspaceRoute><ReportsPage /></OrgWorkspaceRoute>} />
         <Route path="analytics" element={<OrgWorkspaceRoute><AnalyticsPage /></OrgWorkspaceRoute>} />
-        <Route path="settings" element={<OrgWorkspaceRoute><SettingsPage /></OrgWorkspaceRoute>} />
+        <Route path="settings" element={<OrgWorkspaceRoute><AdminRoute><SettingsPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="settings/profile" element={<ProfilePage />} />
-        <Route path="settings/organization" element={<OrgWorkspaceRoute><TenantSettingsPage /></OrgWorkspaceRoute>} />
-        <Route path="settings/billing" element={<OrgWorkspaceRoute><BillingPage /></OrgWorkspaceRoute>} />
+        <Route path="settings/organization" element={<OrgWorkspaceRoute><AdminRoute><TenantSettingsPage /></AdminRoute></OrgWorkspaceRoute>} />
+        <Route path="settings/billing" element={<OrgWorkspaceRoute><AdminRoute><BillingPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route
           path="platform"
           element={

@@ -11,6 +11,15 @@ router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
 
+function adminOnly(req: Request, res: import('express').Response, next: import('express').NextFunction) {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ error: 'Organization admin access required' });
+  }
+  next();
+}
+
+router.use(adminOnly);
+
 router.get('/', async (req, res) => {
   const { rows } = await pool.query('SELECT key, value FROM settings WHERE tenant_id = $1', [tid(req)]);
   const settings: Record<string, unknown> = {};

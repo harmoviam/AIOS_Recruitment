@@ -8,6 +8,7 @@ import {
   tenantMiddleware,
 } from '../middleware/tenant.js';
 import {
+  probeWhatsAppAuth,
   whatsappIntegrationStatus,
 } from '../services/whatsapp.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
@@ -37,8 +38,14 @@ router.get('/conversations', async (req, res) => {
   res.json(rows);
 });
 
-router.get('/status/integration', (_req, res) => {
-  res.json({ ...whatsappIntegrationStatus(), ai: aiMode() });
+router.get('/status/integration', async (_req, res) => {
+  const auth = await probeWhatsAppAuth();
+  res.json({
+    ...whatsappIntegrationStatus(),
+    ai: aiMode(),
+    tokenOk: auth.ok,
+    authError: auth.error,
+  });
 });
 
 router.get('/:candidateId/suggestions', async (req, res) => {

@@ -380,6 +380,9 @@ export interface MessagingIntegrationStatus {
   };
   ready: boolean;
   missing: string[];
+  /** False when live mode is on but Meta rejects the access token. */
+  tokenOk?: boolean;
+  authError?: string;
   ai: 'live' | 'disabled';
 }
 

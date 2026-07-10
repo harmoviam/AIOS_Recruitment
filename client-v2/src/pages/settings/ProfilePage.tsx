@@ -11,6 +11,7 @@ import type { RecruiterStat } from '../../types';
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
   const { tenant } = useTenant();
+  const isOrgAdmin = user?.role === 'admin';
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState('');
   const [timezone, setTimezone] = useState('Asia/Kolkata');
@@ -38,7 +39,7 @@ export default function ProfilePage() {
 
   return (
     <>
-      <TopBar breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Profile' }]} />
+      <TopBar breadcrumbs={isOrgAdmin ? [{ label: 'Settings', href: '/settings' }, { label: 'Profile' }] : [{ label: 'Profile' }]} />
       <div className="page-content">
         <PageHeader title="Your Profile" description={`${tenant.name} · ${user?.role}`} />
 
@@ -88,7 +89,9 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <p className="text-muted"><Link to="/settings">← All settings</Link></p>
+        {isOrgAdmin && (
+          <p className="text-muted"><Link to="/settings">← All settings</Link></p>
+        )}
       </div>
     </>
   );

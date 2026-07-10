@@ -118,6 +118,13 @@ export default function SettingsPage() {
                       ? 'Outbound messages are delivered through the Meta WhatsApp Cloud API. Inbound replies arrive via the webhook.'
                       : 'Messages are saved in the inbox only — nothing is sent to WhatsApp until server env vars are configured (see README).'}
                   </p>
+                  {integration && integration.mode === 'live' && integration.tokenOk === false && (
+                    <p className="wa-integration-missing" role="alert">
+                      <strong>Token invalid:</strong>{' '}
+                      {integration.authError ||
+                        'Meta rejected the access token. Generate a new System User permanent token and update the harmirecruit-whatsapp-token secret in GCP Secret Manager, then redeploy.'}
+                    </p>
+                  )}
                   {integration && integration.mode === 'simulated' && integration.missing.length > 0 && (
                     <p className="wa-integration-missing">
                       Set in <code>.env</code> and restart the API: {integration.missing.join(', ')}

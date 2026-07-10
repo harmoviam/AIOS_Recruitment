@@ -50,7 +50,7 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: 'System',
+    title: 'Account',
     items: [
       { to: '/settings', label: 'Settings', adminOnly: true, orgOnly: true },
       { to: '/settings/organization', label: 'Organization', adminOnly: true, orgOnly: true },

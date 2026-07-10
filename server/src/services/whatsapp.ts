@@ -74,6 +74,30 @@ export function verifyWebhookToken(token: string | undefined): boolean {
   return Boolean(c.verifyToken) && token === c.verifyToken;
 }
 
+function formatMetaError(error?: { message?: string; type?: string; code?: number }): string | undefined {
+  if (!error?.message) return undefined;
+  if (error.message.toLowerCase().includes('authentication')) {
+    return 'Authentication Error — regenerate a System User permanent token in Meta Business Manager and update WHATSAPP_ACCESS_TOKEN in Secret Manager.';
+  }
+  return error.code ? `${error.message} (code ${error.code})` : error.message;
+}
+
+/** Verify the configured access token can reach the WhatsApp phone-number API. */
+export async function probeWhatsAppAuth(): Promise<{ ok: boolean; error?: string }> {
+  if (whatsappMode() !== 'live') return { ok: true };
+  const c = cfg();
+  try {
+    const res = await fetch(`${c.apiUrl}/${c.phoneNumberId}?fields=display_phone_number`, {
+      headers: { Authorization: `Bearer ${c.accessToken}` },
+    });
+    const data = (await res.json()) as { error?: { message?: string; type?: string; code?: number } };
+    if (!res.ok) return { ok: false, error: formatMetaError(data.error) || `HTTP ${res.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 /** E.164-ish normalization: "+91 98765 43210" → "919876543210". */
 export function normalizePhone(phone: string): string {
   const digits = phone.replace(/[^\d]/g, '');
@@ -122,10 +146,12 @@ export async function sendWhatsAppText(
     });
     const data = (await res.json()) as {
       messages?: { id: string }[];
-      error?: { message?: string };
+      error?: { message?: string; type?: string; code?: number };
     };
     if (!res.ok) {
-      return { simulated: false, delivered: false, error: data.error?.message || `HTTP ${res.status}` };
+      const detail = formatMetaError(data.error) || `HTTP ${res.status}`;
+      console.warn(`WhatsApp API error (${res.status}): ${detail}`);
+      return { simulated: false, delivered: false, error: detail };
     }
     return { simulated: false, delivered: true, messageId: data.messages?.[0]?.id };
   } catch (err) {
@@ -169,10 +195,12 @@ export async function sendWhatsAppTemplate(
     });
     const data = (await res.json()) as {
       messages?: { id: string }[];
-      error?: { message?: string };
+      error?: { message?: string; type?: string; code?: number };
     };
     if (!res.ok) {
-      return { simulated: false, delivered: false, error: data.error?.message || `HTTP ${res.status}` };
+      const detail = formatMetaError(data.error) || `HTTP ${res.status}`;
+      console.warn(`WhatsApp API error (${res.status}): ${detail}`);
+      return { simulated: false, delivered: false, error: detail };
     }
     return { simulated: false, delivered: true, messageId: data.messages?.[0]?.id };
   } catch (err) {
