@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
+import InterviewEvaluationPanel from '../components/InterviewEvaluationPanel';
 import InterviewVideoRoom, { type VideoSession } from '../components/InterviewVideoRoom';
 import { useAuth } from '../context/AuthContext';
+import type { InterviewEvaluation } from '../types';
 
 export default function InterviewRoomPage() {
   const { id } = useParams<{ id: string }>();
@@ -11,11 +13,13 @@ export default function InterviewRoomPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<VideoSession | null>(null);
+  const [showScorecard, setShowScorecard] = useState(true);
   const [meta, setMeta] = useState<{
     candidateName: string;
     scheduledAt: string;
     roundType: string;
     meetingLink?: string;
+    evaluation?: InterviewEvaluation | null;
   } | null>(null);
 
   useEffect(() => {
@@ -35,6 +39,7 @@ export default function InterviewRoomPage() {
           scheduledAt: res.interview.scheduledAt,
           roundType: res.interview.roundType,
           meetingLink: res.interview.meetingLink,
+          evaluation: res.interview.evaluation,
         });
       })
       .catch((e: Error) => setError(e.message))
@@ -70,14 +75,38 @@ export default function InterviewRoomPage() {
     );
   }
 
-  if (!session || !meta) return null;
+  if (!session || !meta || !id) return null;
 
   return (
-    <InterviewVideoRoom
-      session={session}
-      title={`${meta.roundType} — ${meta.candidateName}`}
-      subtitle={`${new Date(meta.scheduledAt).toLocaleString()} · Host: ${user?.name || 'Recruiter'}`}
-      onLeave={() => navigate('/interviews')}
-    />
+    <div className={`interview-room-layout${showScorecard ? ' with-scorecard' : ''}`}>
+      <div className="interview-room-video">
+        <InterviewVideoRoom
+          session={session}
+          title={`${meta.roundType} — ${meta.candidateName}`}
+          subtitle={`${new Date(meta.scheduledAt).toLocaleString()} · Host: ${user?.name || 'Recruiter'}`}
+          onLeave={() => navigate('/interviews')}
+          headerExtra={
+            <button
+              type="button"
+              className={`button-pill ${showScorecard ? 'button-primary' : 'button-secondary'}`}
+              onClick={() => setShowScorecard((v) => !v)}
+            >
+              {showScorecard ? 'Hide scorecard' : 'Show scorecard'}
+            </button>
+          }
+        />
+      </div>
+      {showScorecard && (
+        <aside className="interview-room-scorecard">
+          <InterviewEvaluationPanel
+            interviewId={Number(id)}
+            candidateName={meta.candidateName}
+            initialEvaluation={meta.evaluation}
+            compact
+            onSaved={(evaluation) => setMeta((prev) => (prev ? { ...prev, evaluation } : prev))}
+          />
+        </aside>
+      )}
+    </div>
   );
 }

@@ -182,6 +182,7 @@ export async function initDb() {
     await migratePhase1Tables(client);
     await migrateScreening(client);
     await migrateFollowUpEngine(client);
+    await migrateInterviewEvaluation(client);
     await migrateMultiTenant(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
@@ -279,6 +280,11 @@ async function migrateScreening(client: pg.PoolClient) {
   // Pre-screening scorecard filled by recruiters during the first call:
   // question scores, red-flag signal scores, computed totals and risk level.
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS screening JSONB`);
+}
+
+async function migrateInterviewEvaluation(client: pg.PoolClient) {
+  // Structured BPO/CRM screening questions scored 1–5 during the interview call.
+  await client.query(`ALTER TABLE interviews ADD COLUMN IF NOT EXISTS evaluation JSONB`);
 }
 
 async function migrateFollowUpEngine(client: pg.PoolClient) {

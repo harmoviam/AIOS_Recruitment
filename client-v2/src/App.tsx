@@ -20,6 +20,7 @@ import CompaniesPage from './pages/CompaniesPage';
 import MessagesPage from './pages/MessagesPage';
 import InterviewsPage from './pages/InterviewsPage';
 import InterviewRoomPage from './pages/InterviewRoomPage';
+import InterviewEvaluationPage from './pages/InterviewEvaluationPage';
 import JoinInterviewPage from './pages/JoinInterviewPage';
 import ReportsPage from './pages/ReportsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
@@ -99,6 +100,7 @@ function AppRoutes() {
         <Route path="companies" element={<OrgWorkspaceRoute><CompaniesPage /></OrgWorkspaceRoute>} />
         <Route path="messages" element={<OrgWorkspaceRoute><MessagesPage /></OrgWorkspaceRoute>} />
         <Route path="interviews" element={<OrgWorkspaceRoute><InterviewsPage /></OrgWorkspaceRoute>} />
+        <Route path="interviews/:id/evaluate" element={<OrgWorkspaceRoute><InterviewEvaluationPage /></OrgWorkspaceRoute>} />
         <Route path="reports" element={<OrgWorkspaceRoute><ReportsPage /></OrgWorkspaceRoute>} />
         <Route path="analytics" element={<OrgWorkspaceRoute><AnalyticsPage /></OrgWorkspaceRoute>} />
         <Route path="settings" element={<OrgWorkspaceRoute><SettingsPage /></OrgWorkspaceRoute>} />

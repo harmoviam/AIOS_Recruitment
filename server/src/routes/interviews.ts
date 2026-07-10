@@ -27,6 +27,60 @@ router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
 
+const INTERVIEW_QUESTION_FIELDS = [
+  'self_intro',
+  'topic_5min',
+  'hobbies_elaborate',
+  'not_on_resume',
+  'family_background',
+  'work_life_balance',
+  'customer_service',
+  'strengths_elaborate',
+  'bpo_definition',
+  'why_bpo_career',
+  'handle_irate_customer',
+  'retain_disconnecting_customer',
+  'favourite_movie',
+  'short_term_goal',
+  'long_term_goal',
+  'five_year_vision',
+  'why_organization',
+  'why_hire_you',
+  'salary_expectation',
+] as const;
+
+function interviewAccessSql(req: Request, t: ReturnType<typeof tenantClause>, idx: number) {
+  let sql = '';
+  const params: unknown[] = [];
+  if (req.user!.role === 'recruiter') {
+    sql += ` AND c.recruiter_id = $${idx}`;
+    params.push(req.user!.id);
+  } else if (req.user!.role === 'hiring_manager') {
+    sql += ` AND c.recruiter_id IN (
+      SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
+      AND (r.managed_by_id = $${idx + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1}))
+    )`;
+    params.push(tid(req), req.user!.id);
+  }
+  return { sql, params };
+}
+
+async function fetchInterviewForTenant(req: Request, interviewId: number) {
+  const t = tenantClause(tid(req), 'c', 1);
+  let sql = `
+    SELECT i.*, c.name AS candidate_name, c.email AS candidate_email
+    FROM interviews i
+    JOIN candidates c ON i.candidate_id = c.id
+    WHERE i.id = $${t.nextIndex} AND ${t.sql}
+  `;
+  const params: unknown[] = [t.param, interviewId];
+  const access = interviewAccessSql(req, t, t.nextIndex + 1);
+  sql += access.sql;
+  params.push(...access.params);
+  const { rows } = await pool.query(sql, params);
+  return rows[0] ?? null;
+}
+
 router.get('/', async (req, res) => {
   const { date, candidate_id } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
@@ -63,6 +117,73 @@ router.get('/', async (req, res) => {
 
   const { rows } = await pool.query(sql, params);
   res.json(rows);
+});
+
+router.get('/:id', async (req, res) => {
+  const interviewId = Number(req.params.id);
+  if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
+  const row = await fetchInterviewForTenant(req, interviewId);
+  if (!row) return res.status(404).json({ error: 'Interview not found' });
+  res.json(row);
+});
+
+router.put('/:id/evaluation', async (req, res) => {
+  const interviewId = Number(req.params.id);
+  if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
+
+  const existing = await fetchInterviewForTenant(req, interviewId);
+  if (!existing) return res.status(404).json({ error: 'Interview not found' });
+
+  const scores: Record<string, number | null> = {};
+  for (const f of INTERVIEW_QUESTION_FIELDS) {
+    const v = req.body[f];
+    if (v === null || v === undefined || v === '') {
+      scores[f] = null;
+    } else {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 1 || n > 5) {
+        return res.status(400).json({ error: `Invalid score for ${f}: must be 1–5` });
+      }
+      scores[f] = n;
+    }
+  }
+
+  const scored = INTERVIEW_QUESTION_FIELDS.filter((f) => scores[f] != null);
+  const totalScore = scored.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
+  const maxScore = INTERVIEW_QUESTION_FIELDS.length * 5;
+  const overallScore = scored.length > 0 ? Math.round((totalScore / maxScore) * 100) / 10 : null;
+
+  const evaluation = {
+    ...scores,
+    total_score: totalScore,
+    questions_scored: scored.length,
+    max_score: maxScore,
+    overall_score: overallScore,
+    notes: typeof req.body.notes === 'string' ? req.body.notes : existing.evaluation?.notes ?? null,
+    updated_by: req.user!.id,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { rows } = await pool.query(
+    `UPDATE interviews i SET evaluation = $1::jsonb, score = $2, status = CASE WHEN $2 IS NOT NULL THEN 'completed' ELSE i.status END
+     FROM candidates c
+     WHERE i.id = $3 AND i.candidate_id = c.id AND c.tenant_id = $4
+     RETURNING i.*, c.name AS candidate_name`,
+    [JSON.stringify(evaluation), overallScore, interviewId, tid(req)]
+  );
+
+  await pool.query(
+    'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+    [
+      'interview',
+      `${existing.candidate_name} interview screened ${totalScore}/${maxScore}${overallScore != null ? ` — ${overallScore}/10` : ''}`,
+      req.user!.id,
+      existing.candidate_id,
+      tid(req),
+    ]
+  );
+
+  res.json(rows[0]);
 });
 
 router.post('/', async (req, res) => {
@@ -154,31 +275,9 @@ router.get('/:id/video-token', async (req, res) => {
   const interviewId = Number(req.params.id);
   if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
 
-  const t = tenantClause(tid(req), 'c', 1);
-  let sql = `
-    SELECT i.*, c.name AS candidate_name
-    FROM interviews i
-    JOIN candidates c ON i.candidate_id = c.id
-    WHERE i.id = $${t.nextIndex} AND ${t.sql}
-  `;
-  const params: unknown[] = [t.param, interviewId];
-  let idx = t.nextIndex + 1;
+  const iv = await fetchInterviewForTenant(req, interviewId);
+  if (!iv) return res.status(404).json({ error: 'Interview not found' });
 
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${idx++}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    sql += ` AND c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${idx + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1}))
-    )`;
-    params.push(tid(req), req.user!.id);
-  }
-
-  const { rows } = await pool.query(sql, params);
-  if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
-
-  const iv = rows[0];
   const roomName = interviewRoomName(iv.id);
   const displayName = req.user!.name || req.user!.email;
   const identity = `staff-${req.user!.id}`;
@@ -195,6 +294,7 @@ router.get('/:id/video-token', async (req, res) => {
       scheduledAt: iv.scheduled_at,
       roundType: iv.round_type,
       meetingLink: iv.meeting_link,
+      evaluation: iv.evaluation ?? null,
     },
   });
 });

@@ -122,8 +122,15 @@ export default function InterviewsPage() {
           {iv.candidate_name} • {iv.round_type}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <span className={`slot-status ${iv.status === 'pending' ? 'pending' : ''}`}>{iv.status}</span>
+        <button
+          type="button"
+          className="button-pill button-secondary"
+          onClick={() => navigate(`/interviews/${iv.id}/evaluate`)}
+        >
+          Screen
+        </button>
         <button
           type="button"
           className="button-pill button-primary"

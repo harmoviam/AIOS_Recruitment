@@ -3298,3 +3298,218 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     height: calc(100vh - 72px);
 }
 
+/* ── Interview room with live scorecard ─────────────────────────── */
+.interview-room-layout {
+    display: flex;
+    min-height: 100vh;
+    background: #0f1117;
+}
+
+.interview-room-video {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.interview-room-layout.with-scorecard .interview-room-video {
+    flex: 1 1 58%;
+}
+
+.interview-room-layout.with-scorecard .interview-video-shell {
+    min-height: 100vh;
+}
+
+.interview-room-layout.with-scorecard .interview-video-stage .lk-video-conference {
+    height: calc(100vh - 72px);
+}
+
+.interview-room-scorecard {
+    flex: 0 0 min(420px, 42%);
+    max-width: 480px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-primary);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+@media (max-width: 1100px) {
+    .interview-room-layout.with-scorecard {
+        flex-direction: column;
+    }
+    .interview-room-scorecard {
+        flex: 0 0 auto;
+        max-width: none;
+        max-height: 45vh;
+        border-left: none;
+        border-top: 1px solid var(--border);
+    }
+    .interview-room-layout.with-scorecard .interview-video-stage .lk-video-conference {
+        height: 55vh;
+    }
+}
+
+/* ── Interview screening scorecard ──────────────────────────────── */
+.iv-eval-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.iv-eval-panel-compact {
+    padding: 0.85rem 1rem 1rem;
+}
+
+.iv-eval-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 0.5rem;
+}
+
+.iv-eval-title {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.iv-eval-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+.iv-eval-totals {
+    text-align: right;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.iv-eval-totals strong {
+    color: var(--primary);
+    font-size: 1rem;
+}
+
+.iv-eval-overall {
+    margin-top: 0.15rem;
+}
+
+.iv-eval-guide {
+    font-size: 0.82rem;
+    margin: 0 0 0.75rem;
+    line-height: 1.45;
+}
+
+.iv-eval-questions {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 0.25rem;
+}
+
+.iv-eval-category {
+    margin-bottom: 1rem;
+}
+
+.iv-eval-category-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--primary);
+}
+
+.iv-eval-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.iv-eval-row:last-child {
+    border-bottom: none;
+}
+
+.iv-eval-row-info {
+    min-width: 0;
+    flex: 1 1 12rem;
+}
+
+.iv-eval-row-label {
+    font-weight: 600;
+    font-size: 0.86rem;
+    line-height: 1.35;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.iv-eval-row-hint {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    margin-top: 0.2rem;
+    line-height: 1.4;
+}
+
+.iv-eval-timer-btn {
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.iv-eval-timer-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.iv-eval-timer.active {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.iv-eval-timer.done {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+.iv-eval-notes {
+    margin-top: 0.75rem;
+}
+
+.iv-eval-notes-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+}
+
+.iv-eval-error {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--danger) 10%, white);
+    color: var(--danger);
+    font-size: 0.85rem;
+}
+
+.iv-eval-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+

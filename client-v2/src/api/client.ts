@@ -170,10 +170,16 @@ export const api = {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
     return request<import('../types').Interview[]>(`/interviews${q}`);
   },
+  getInterview: (id: number) => request<import('../types').Interview>(`/interviews/${id}`),
   createInterview: (data: Partial<import('../types').Interview>) =>
     request<import('../types').Interview>('/interviews', { method: 'POST', body: JSON.stringify(data) }),
   updateInterview: (id: number, data: Partial<import('../types').Interview>) =>
     request<import('../types').Interview>(`/interviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  saveInterviewEvaluation: (id: number, scores: Record<string, number | string | null>) =>
+    request<import('../types').Interview>(`/interviews/${id}/evaluation`, {
+      method: 'PUT',
+      body: JSON.stringify(scores),
+    }),
   getInterviewVideoToken: (id: number) =>
     request<import('../types').InterviewVideoTokenResponse>(`/interviews/${id}/video-token`),
   getInterviewJoinPreview: (joinToken: string) =>

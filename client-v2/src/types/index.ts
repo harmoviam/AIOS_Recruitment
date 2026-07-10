@@ -131,6 +131,7 @@ export interface InterviewVideoTokenResponse {
     scheduledAt: string;
     roundType: string;
     meetingLink?: string;
+    evaluation?: InterviewEvaluation | null;
   };
 }
 
@@ -144,6 +145,203 @@ export interface InterviewJoinPreview {
   livekitConfigured: boolean;
 }
 
+/** BPO/CRM screening scorecard filled during the live interview call. */
+export interface InterviewEvaluation {
+  self_intro?: number | null;
+  topic_5min?: number | null;
+  hobbies_elaborate?: number | null;
+  not_on_resume?: number | null;
+  family_background?: number | null;
+  work_life_balance?: number | null;
+  customer_service?: number | null;
+  strengths_elaborate?: number | null;
+  bpo_definition?: number | null;
+  why_bpo_career?: number | null;
+  handle_irate_customer?: number | null;
+  retain_disconnecting_customer?: number | null;
+  favourite_movie?: number | null;
+  short_term_goal?: number | null;
+  long_term_goal?: number | null;
+  five_year_vision?: number | null;
+  why_organization?: number | null;
+  why_hire_you?: number | null;
+  salary_expectation?: number | null;
+  total_score: number;
+  questions_scored: number;
+  max_score: number;
+  overall_score?: number | null;
+  notes?: string | null;
+  updated_by?: number;
+  updated_at?: string;
+}
+
+export type InterviewQuestionId = keyof Omit<
+  InterviewEvaluation,
+  'total_score' | 'questions_scored' | 'max_score' | 'overall_score' | 'notes' | 'updated_by' | 'updated_at'
+>;
+
+export interface InterviewScreeningQuestion {
+  id: InterviewQuestionId;
+  label: string;
+  hint: string;
+  timeSeconds?: number;
+  category: 'introduction' | 'domain' | 'behavioral' | 'goals';
+}
+
+export const INTERVIEW_SCREENING_CATEGORIES: {
+  id: InterviewScreeningQuestion['category'];
+  label: string;
+}[] = [
+  { id: 'introduction', label: 'Introduction & Personal' },
+  { id: 'domain', label: 'BPO / Customer Service' },
+  { id: 'behavioral', label: 'Behavioral & Communication' },
+  { id: 'goals', label: 'Goals & Fit' },
+];
+
+export const INTERVIEW_SCREENING_QUESTIONS: InterviewScreeningQuestion[] = [
+  {
+    id: 'self_intro',
+    label: 'Introduce Yourself',
+    category: 'introduction',
+    timeSeconds: 120,
+    hint: 'GM/GA/GE, name, hometown, current location, family, education, strengths, hobbies. Example: "Team-Player, Respect and Hardworking."',
+  },
+  {
+    id: 'topic_5min',
+    label: 'Pick a topic of your choice and speak for 5 minutes',
+    category: 'introduction',
+    timeSeconds: 300,
+    hint: 'Hometown (geography, culture, economy) or About Bangalore (festivals, IT companies, sightseeing spots like Lalbagh, Nandi Hills).',
+  },
+  {
+    id: 'hobbies_elaborate',
+    label: 'Hobbies (Elaborate)',
+    category: 'introduction',
+    timeSeconds: 120,
+    hint: 'Cooking new dishes (share a recipe) or exploring new places (e.g. Mysore Palace, Chamundi Hills, local food).',
+  },
+  {
+    id: 'not_on_resume',
+    label: 'Share something not on your resume',
+    category: 'introduction',
+    timeSeconds: 90,
+    hint: 'Short-term objective, long-term goals, strengths, and weaknesses (e.g. shy, stage fear — working on it).',
+  },
+  {
+    id: 'family_background',
+    label: 'Family background in brief',
+    category: 'introduction',
+    timeSeconds: 90,
+    hint: 'Family size, parents\' occupation, siblings\' work. Example: father farmer, mother housemaker, elder sister MIS Analyst.',
+  },
+  {
+    id: 'work_life_balance',
+    label: 'What do you understand by work-life balance? How do you manage it?',
+    category: 'domain',
+    timeSeconds: 90,
+    hint: 'Balance between professional responsibilities and personal life without sacrificing well-being. Manage time, prioritize self-care and leisure.',
+  },
+  {
+    id: 'customer_service',
+    label: 'What is Customer Service?',
+    category: 'domain',
+    timeSeconds: 90,
+    hint: 'Assistance before/after purchase: product suggestions, troubleshooting, complaints, general questions.',
+  },
+  {
+    id: 'strengths_elaborate',
+    label: 'What are your strengths? (Elaborate)',
+    category: 'domain',
+    timeSeconds: 120,
+    hint: 'Team-Player (helped teammate in debate), Respect (active listening in lectures), Hardworking (Hindi medium → CRM prep).',
+  },
+  {
+    id: 'bpo_definition',
+    label: 'What is BPO?',
+    category: 'domain',
+    timeSeconds: 90,
+    hint: 'Business Process Outsourcing — non-primary activities (customer care, back office, technical support) outsourced to another company.',
+  },
+  {
+    id: 'why_bpo_career',
+    label: 'Why start your career in the BPO industry?',
+    category: 'domain',
+    timeSeconds: 90,
+    hint: 'Leading international industry, best place to build career as fresher, matches educational qualification.',
+  },
+  {
+    id: 'handle_irate_customer',
+    label: 'How to handle an irate customer?',
+    category: 'domain',
+    timeSeconds: 90,
+    hint: 'Stay calm, listen without interrupting, empathize, apologize sincerely, take ownership, focus on quick solution. Escalate to manager if needed.',
+  },
+  {
+    id: 'retain_disconnecting_customer',
+    label: 'How would you convince a customer to stay when they want to disconnect?',
+    category: 'domain',
+    timeSeconds: 120,
+    hint: 'Apologize, address root cause, take ownership with clear roadmap solution, offer goodwill as temporary fix.',
+  },
+  {
+    id: 'favourite_movie',
+    label: 'Narrate your favourite movie',
+    category: 'behavioral',
+    timeSeconds: 300,
+    hint: '5-minute narration — plot, characters, why it resonates, communication clarity and engagement.',
+  },
+  {
+    id: 'short_term_goal',
+    label: 'What is your short-term goal?',
+    category: 'goals',
+    timeSeconds: 120,
+    hint: 'Getting into a good MNC company, clearing CRM Associate interview.',
+  },
+  {
+    id: 'long_term_goal',
+    label: 'What is your long-term goal?',
+    category: 'goals',
+    timeSeconds: 120,
+    hint: 'Gain experience in Customer Care Management, build L&D skills to become a mentor.',
+  },
+  {
+    id: 'five_year_vision',
+    label: 'Where do you see yourself in the next 5 years?',
+    category: 'goals',
+    timeSeconds: 90,
+    hint: 'A good challenging profile, personally and financially satisfied.',
+  },
+  {
+    id: 'why_organization',
+    label: 'Why this organization? Why work with us?',
+    category: 'goals',
+    timeSeconds: 90,
+    hint: 'Leading international MNC, best place to build career as fresher.',
+  },
+  {
+    id: 'why_hire_you',
+    label: 'Why should we hire you?',
+    category: 'goals',
+    timeSeconds: 90,
+    hint: 'Strengths, education and interest match requirements — suitable candidate for the role.',
+  },
+  {
+    id: 'salary_expectation',
+    label: 'What is your salary expectation?',
+    category: 'goals',
+    timeSeconds: 60,
+    hint: 'As per company market standards.',
+  },
+];
+
+export const INTERVIEW_QUESTION_IDS = INTERVIEW_SCREENING_QUESTIONS.map((q) => q.id);
+
+export function interviewEvaluationSummary(evaluation?: InterviewEvaluation | null): string | null {
+  if (!evaluation || evaluation.questions_scored === 0) return null;
+  const overall = evaluation.overall_score != null ? `${evaluation.overall_score}/10` : `${evaluation.total_score}/${evaluation.max_score}`;
+  return `${overall} · ${evaluation.questions_scored}/${INTERVIEW_SCREENING_QUESTIONS.length} questions`;
+}
+
 export interface Interview {
   id: number;
   candidate_id: number;
@@ -155,6 +353,7 @@ export interface Interview {
   meeting_link?: string;
   notes?: string;
   score?: number;
+  evaluation?: InterviewEvaluation | null;
 }
 
 export interface Message {

@@ -18,9 +18,10 @@ interface InterviewVideoRoomProps {
   title: string;
   subtitle?: string;
   onLeave: () => void;
+  headerExtra?: React.ReactNode;
 }
 
-export default function InterviewVideoRoom({ session, title, subtitle, onLeave }: InterviewVideoRoomProps) {
+export default function InterviewVideoRoom({ session, title, subtitle, onLeave, headerExtra }: InterviewVideoRoomProps) {
   const [error, setError] = useState<string | null>(null);
 
   const handleDisconnected = useCallback(() => {
@@ -38,9 +39,12 @@ export default function InterviewVideoRoom({ session, title, subtitle, onLeave }
           <h1 className="interview-video-title">{title}</h1>
           {subtitle && <p className="interview-video-subtitle">{subtitle}</p>}
         </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="button-pill button-secondary" onClick={onLeave}>
           Leave call
         </button>
+        {headerExtra}
+        </div>
       </header>
 
       {error && <div className="interview-video-error">{error}</div>}

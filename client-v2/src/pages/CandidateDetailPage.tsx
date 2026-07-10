@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import Tabs from '../components/ui/Tabs';
-import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, riskBadgeClass, screeningRiskLevel } from '../types';
+import ScorePicker from '../components/ui/ScorePicker';
+import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel } from '../types';
 import type { Candidate, Interview, Message, TimelineEvent } from '../types';
 
 const DETAIL_TABS = [
@@ -16,36 +17,6 @@ const DETAIL_TABS = [
 ];
 
 const SCORE_FIELDS = [...SCREENING_QUESTIONS, ...RED_FLAG_SIGNALS].map((q) => q.id);
-
-function ScorePicker({
-  value,
-  onChange,
-  label,
-  disabled = false,
-}: {
-  value: number | null;
-  onChange: (v: number | null) => void;
-  label: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="score-picker" role="radiogroup" aria-label={`${label} score`}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          type="button"
-          role="radio"
-          aria-checked={value === n}
-          className={`score-dot${value === n ? ' active' : ''}`}
-          onClick={() => onChange(value === n ? null : n)}
-          disabled={disabled}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 const TIMELINE_SOURCE_LABELS: Record<TimelineEvent['source'], string> = {
   activity: 'Activity',
@@ -353,7 +324,18 @@ export default function CandidateDetailPage() {
                     <div className="slot-candidate">
                       {iv.round_type} • {iv.status}
                       {iv.score != null ? ` • Score ${iv.score}/10` : ''}
+                      {interviewEvaluationSummary(iv.evaluation) && (
+                        <> • Screening: {interviewEvaluationSummary(iv.evaluation)}</>
+                      )}
                     </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <Link to={`/interviews/${iv.id}/evaluate`} className="button-pill button-primary">
+                      Screen
+                    </Link>
+                    <Link to={`/interviews/${iv.id}/room`} className="button-pill button-secondary">
+                      Join call
+                    </Link>
                   </div>
                 </div>
               ))

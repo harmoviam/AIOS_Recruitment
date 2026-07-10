@@ -196,6 +196,7 @@ ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS escalated BOOLEAN NOT NULL DEFAU
 
 -- Interviews
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS evaluation JSONB;
 
 -- ---------------------------------------------------------------------------
 -- 4. Legacy settings table → tenant-scoped (only if old shape detected)
