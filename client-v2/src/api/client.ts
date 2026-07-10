@@ -8,6 +8,23 @@ function getTenantSlug() {
   return localStorage.getItem('aios_tenant_slug');
 }
 
+function parseApiError(res: Response, data: Record<string, unknown>, text: string): string {
+  if (data.error && typeof data.error === 'string') return data.error;
+  if (res.status === 401) return 'Session expired — please sign in again and retry.';
+  if (res.status === 403) return 'You do not have permission to perform this action.';
+  if (res.status === 502 || res.status === 503) return 'Server temporarily unavailable — please try again in a moment.';
+  if (res.status === 504) return 'Request timed out — please try again.';
+  if (!res.ok) return `Request failed (${res.status})`;
+  if (text && !text.startsWith('{')) return `Unexpected server response (${res.status})`;
+  return 'Request failed';
+}
+
+function networkErrorMessage(): string {
+  return import.meta.env.PROD
+    ? 'Network error — check your connection and try again.'
+    : 'API server unavailable — run npm run dev from the project root';
+}
+
 async function publicRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -18,16 +35,16 @@ async function publicRequest<T>(path: string, options: RequestInit = {}): Promis
   try {
     res = await fetch(`${API}${path}`, { ...options, headers });
   } catch {
-    throw new Error('API server unavailable — run npm run dev from the project root');
+    throw new Error(networkErrorMessage());
   }
   const text = await res.text();
   let data: Record<string, unknown> = {};
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    if (!res.ok) throw new Error(parseApiError(res, data, text));
   }
-  if (!res.ok) throw new Error((data.error as string) || `Request failed (${res.status})`);
+  if (!res.ok) throw new Error(parseApiError(res, data, text));
   return data as T;
 }
 
@@ -45,7 +62,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     res = await fetch(`${API}${path}`, { ...options, headers });
   } catch {
-    throw new Error('API server unavailable — run npm run dev from the project root');
+    throw new Error(networkErrorMessage());
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -53,15 +70,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    if (!res.ok) {
-      throw new Error(
-        res.status === 502 || res.status === 503
-          ? 'API server unavailable — run npm run dev from the project root'
-          : `Request failed (${res.status})`
-      );
-    }
+    if (!res.ok) throw new Error(parseApiError(res, data, text));
   }
-  if (!res.ok) throw new Error((data.error as string) || `Request failed (${res.status})`);
+  if (!res.ok) throw new Error(parseApiError(res, data, text));
   return data as T;
 }
 

@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -78,6 +78,13 @@ if (process.env.NODE_ENV === 'production') {
     });
   });
 }
+
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('Unhandled API error:', err.message);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error — please try again' });
+  }
+});
 
 async function start() {
   await initDb();

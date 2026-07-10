@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 import {
   assertCandidateInTenant,
   requireTenant,
@@ -151,7 +152,7 @@ router.get('/:id', async (req, res) => {
   res.json(normalized);
 });
 
-router.put('/:id/evaluation', async (req, res) => {
+router.put('/:id/evaluation', asyncHandler(async (req, res) => {
   const interviewId = Number(req.params.id);
   if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
 
@@ -195,6 +196,7 @@ router.put('/:id/evaluation', async (req, res) => {
      RETURNING i.*, c.name AS candidate_name`,
     [JSON.stringify(evaluation), overallScore, interviewId, tid(req)]
   );
+  if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
 
   await pool.query(
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
@@ -207,8 +209,8 @@ router.put('/:id/evaluation', async (req, res) => {
     ]
   );
 
-  res.json((await withNormalizedMeetingLinks(req, rows))[0]);
-});
+  res.json({ ...rows[0], evaluation, candidate_name: rows[0].candidate_name ?? existing.candidate_name });
+}));
 
 router.post('/', async (req, res) => {
   const { candidate_id, scheduled_at, duration_minutes, round_type, status, meeting_link, notes } =

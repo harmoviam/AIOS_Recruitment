@@ -50,34 +50,39 @@ export async function loadTenantById(id: number): Promise<TenantRecord | null> {
 
 /** Resolve tenant after auth. Sets req.tenant for tenant-scoped routes. */
 export async function tenantMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const headerSlug = (req.headers['x-tenant-slug'] as string | undefined)?.trim().toLowerCase();
-  const isPlatformRoute = req.baseUrl.startsWith('/platform') || req.path.startsWith('/platform');
+    const headerSlug = (req.headers['x-tenant-slug'] as string | undefined)?.trim().toLowerCase();
+    const isPlatformRoute = req.baseUrl.startsWith('/platform') || req.path.startsWith('/platform');
 
-  if (req.user.role === 'super_admin') {
-    if (headerSlug) {
-      const tenant = await loadTenantBySlug(headerSlug);
-      if (!tenant) return res.status(404).json({ error: 'Workspace not found' });
-      req.tenant = tenant;
-    } else if (!isPlatformRoute) {
-      return res.status(400).json({ error: 'X-Tenant-Slug header required for super admin' });
+    if (req.user.role === 'super_admin') {
+      if (headerSlug) {
+        const tenant = await loadTenantBySlug(headerSlug);
+        if (!tenant) return res.status(404).json({ error: 'Workspace not found' });
+        req.tenant = tenant;
+      } else if (!isPlatformRoute) {
+        return res.status(400).json({ error: 'X-Tenant-Slug header required for super admin' });
+      }
+      return next();
     }
-    return next();
+
+    // Regular tenant user — always scoped to their tenant (ignore spoofed slug)
+    if (req.user.tenant_id == null) {
+      return res.status(403).json({ error: 'User is not assigned to a workspace' });
+    }
+
+    const tenant = await loadTenantById(req.user.tenant_id);
+    if (!tenant) return res.status(404).json({ error: 'Workspace not found' });
+
+    // Regular users are always scoped to JWT tenant_id — a stale X-Tenant-Slug from
+    // localStorage must not block API access after switching org login URLs.
+    req.tenant = tenant;
+    next();
+  } catch (err) {
+    console.error('tenantMiddleware failed:', (err as Error).message);
+    next(err);
   }
-
-  // Regular tenant user — always scoped to their tenant (ignore spoofed slug)
-  if (req.user.tenant_id == null) {
-    return res.status(403).json({ error: 'User is not assigned to a workspace' });
-  }
-
-  const tenant = await loadTenantById(req.user.tenant_id);
-  if (!tenant) return res.status(404).json({ error: 'Workspace not found' });
-
-  // Regular users are always scoped to JWT tenant_id — a stale X-Tenant-Slug from
-  // localStorage must not block API access after switching org login URLs.
-  req.tenant = tenant;
-  next();
 }
 
 /** Ensures req.tenant is set — use on all tenant-data routes. */

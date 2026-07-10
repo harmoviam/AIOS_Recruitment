@@ -96,14 +96,21 @@ export default function InterviewEvaluationPanel({
   const save = async () => {
     setStatus('saving');
     setError(null);
-    try {
-      const updated = await api.saveInterviewEvaluation(interviewId, { ...scores, notes });
-      setStatus('saved');
-      onSaved?.(updated.evaluation!);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed');
-      setStatus('idle');
+    const payload = { ...scores, notes };
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const updated = await api.saveInterviewEvaluation(interviewId, payload);
+        setStatus('saved');
+        onSaved?.(updated.evaluation!);
+        return;
+      } catch (e) {
+        lastError = e;
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+      }
     }
+    setError(lastError instanceof Error ? lastError.message : 'Save failed');
+    setStatus('idle');
   };
 
   return (

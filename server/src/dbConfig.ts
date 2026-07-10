@@ -43,6 +43,10 @@ export const DB_SCHEMA = getDbSchema();
 export const pool = new Pool({
   connectionString: getConnectionString(),
   options: `-c search_path=${DB_SCHEMA},public`,
+  max: 10,
+  idleTimeoutMillis: 60_000,
+  connectionTimeoutMillis: 15_000,
+  keepAlive: true,
 });
 
 /** Ensure schema exists and search_path is set for this connection. */
