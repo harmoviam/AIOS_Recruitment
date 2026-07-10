@@ -190,11 +190,11 @@ router.put('/:id/evaluation', asyncHandler(async (req, res) => {
   };
 
   const { rows } = await pool.query(
-    `UPDATE interviews i SET evaluation = $1::jsonb, score = $2, status = CASE WHEN $2 IS NOT NULL THEN 'completed' ELSE i.status END
+    `UPDATE interviews i SET evaluation = $1::jsonb, score = $2::double precision, status = CASE WHEN $2::double precision IS NOT NULL THEN 'completed' ELSE i.status END
      FROM candidates c
      WHERE i.id = $3 AND i.candidate_id = c.id AND c.tenant_id = $4
      RETURNING i.*, c.name AS candidate_name`,
-    [JSON.stringify(evaluation), overallScore, interviewId, tid(req)]
+    [evaluation, overallScore, interviewId, tid(req)]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Interview not found' });
 
