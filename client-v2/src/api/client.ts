@@ -94,6 +94,30 @@ async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+async function uploadRequest<T>(path: string, formData: FormData, method = 'POST'): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const tenantSlug = getTenantSlug();
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, { method, headers, body: formData });
+  } catch {
+    throw new Error(networkErrorMessage());
+  }
+  const text = await res.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    if (!res.ok) throw new Error(parseApiError(res, data, text));
+  }
+  if (!res.ok) throw new Error(parseApiError(res, data, text));
+  return data as T;
+}
+
 export const api = {
   login: (email: string, password: string, workspace?: string) =>
     request<{ token: string; user: import('../types').User }>('/auth/login', {
@@ -164,6 +188,23 @@ export const api = {
     request<{ suggestions: string[]; ai_score: number; salary_expectation?: string }>(
       `/candidates/${id}/suggestions`
     ),
+  parseResumePreview: (file: File) => {
+    const form = new FormData();
+    form.append('resume', file);
+    return uploadRequest<import('../types').ResumeParseResponse>('/candidates/parse-resume', form);
+  },
+  reparseResume: (candidateId: number, file?: File) => {
+    const form = new FormData();
+    if (file) form.append('resume', file);
+    return uploadRequest<{
+      candidate: import('../types').Candidate;
+      parsed_profile: import('../types').ParsedProfile;
+      ai_confidence: number;
+      source: string;
+    }>(`/candidates/${candidateId}/reparse-resume`, form);
+  },
+  downloadResume: (candidateId: number, filename?: string) =>
+    download(`/candidates/${candidateId}/resume/download`, filename || 'resume'),
 
   getJobs: () => request<import('../types').Job[]>('/jobs'),
   generateJobDescription: (data: { title: string; client?: string; location?: string; open_positions?: number }) =>

@@ -12,6 +12,7 @@ client-v2/dist/
 
 # Data
 server/data/
+server/uploads/
 
 # OS
 .DS_Store

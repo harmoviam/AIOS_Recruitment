@@ -59,6 +59,8 @@ export default function CandidateDetailPage() {
   });
   const [profileError, setProfileError] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
+  const [reparseLoading, setReparseLoading] = useState(false);
+  const [reparseError, setReparseError] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -150,6 +152,29 @@ export default function CandidateDetailPage() {
       setProfileError(err instanceof Error ? err.message : 'Failed to save profile');
     } finally {
       setProfileSaving(false);
+    }
+  };
+
+  const handleReparseResume = async (file?: File) => {
+    if (!candidate) return;
+    setReparseError('');
+    setReparseLoading(true);
+    try {
+      const result = await api.reparseResume(candidate.id, file);
+      setCandidate(result.candidate);
+    } catch (err) {
+      setReparseError(err instanceof Error ? err.message : 'Failed to reparse resume');
+    } finally {
+      setReparseLoading(false);
+    }
+  };
+
+  const handleDownloadResume = async () => {
+    if (!candidate?.resume_meta?.original_filename) return;
+    try {
+      await api.downloadResume(candidate.id, candidate.resume_meta.original_filename);
+    } catch (err) {
+      setReparseError(err instanceof Error ? err.message : 'Download failed');
     }
   };
 
@@ -298,6 +323,91 @@ export default function CandidateDetailPage() {
                   </div>
                 </div>
               )}
+              <div className="card" style={{ marginTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <div className="card-title" style={{ margin: 0 }}>Resume</div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {candidate.resume_meta?.storage_path && (
+                      <>
+                        <button type="button" className="button-pill button-secondary btn-sm" onClick={() => void handleDownloadResume()}>
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          className="button-pill button-secondary btn-sm"
+                          disabled={reparseLoading}
+                          onClick={() => void handleReparseResume()}
+                        >
+                          {reparseLoading ? 'Reparsing…' : 'Reparse Resume'}
+                        </button>
+                      </>
+                    )}
+                    <label className="button-pill button-primary btn-sm" style={{ cursor: reparseLoading ? 'wait' : 'pointer' }}>
+                      Upload New
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        hidden
+                        disabled={reparseLoading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleReparseResume(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+                {reparseError && <div className="form-error" style={{ marginBottom: '0.5rem' }}>{reparseError}</div>}
+                {candidate.resume_meta?.ai_confidence != null && (
+                  <p className="text-muted">
+                    AI confidence: <span className="ai-chip">{Math.round(candidate.resume_meta.ai_confidence * 100)}%</span>
+                    {candidate.resume_meta.original_filename && <> · {candidate.resume_meta.original_filename}</>}
+                  </p>
+                )}
+                {!candidate.resume_meta?.storage_path && (
+                  <p className="text-muted">No resume on file. Upload one via Reparse Resume.</p>
+                )}
+                {candidate.professional_summary && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <strong>Summary</strong>
+                    <p>{candidate.professional_summary}</p>
+                  </div>
+                )}
+                {(candidate.experience?.length ?? 0) > 0 && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <strong>Experience</strong>
+                    <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+                      {candidate.experience!.map((exp, i) => (
+                        <li key={`${exp.company}-${i}`}>
+                          {exp.title} at {exp.company}
+                          {exp.start_date || exp.end_date ? ` (${exp.start_date || '?'} – ${exp.end_date || 'Present'})` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(candidate.education?.length ?? 0) > 0 && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <strong>Education</strong>
+                    <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+                      {candidate.education!.map((ed, i) => (
+                        <li key={`${ed.institution}-${i}`}>{ed.degree} — {ed.institution}{ed.year ? ` (${ed.year})` : ''}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(candidate.linkedin || candidate.github || candidate.portfolio) && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <strong>Links</strong>
+                    <p className="text-muted">
+                      {candidate.linkedin && <>LinkedIn: {candidate.linkedin}<br /></>}
+                      {candidate.github && <>GitHub: {candidate.github}<br /></>}
+                      {candidate.portfolio && <>Portfolio: {candidate.portfolio}</>}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="card">
               <div className="card-title">Stage</div>

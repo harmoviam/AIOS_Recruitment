@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import multer from 'multer';
 import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
@@ -10,12 +11,32 @@ import {
 } from '../middleware/tenant.js';
 import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { closeOpenFollowUps, onCandidateJoined } from '../services/followUpEngine.js';
-import { aiMode, rescoreCandidate, suggestMessages } from '../services/ai.js';
+import {
+  aiMode,
+  parseResume,
+  type ParsedProfile,
+  rescoreCandidate,
+  suggestMessages,
+} from '../services/ai.js';
+import {
+  extractResumeText,
+  finalizePendingResume,
+  isAllowedMimeType,
+  readResumeFile,
+  RESUME_MAX_BYTES,
+  saveCandidateResume,
+  savePendingResume,
+} from '../services/fileStorage.js';
 
 const router = Router();
 router.use(authMiddleware);
 router.use(tenantMiddleware);
 router.use(requireTenant);
+
+const resumeUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: RESUME_MAX_BYTES },
+});
 
 const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
 // Pre-screening scorecard: each question is scored 1-5 by the recruiter.
@@ -445,6 +466,52 @@ router.patch('/bulk', async (req, res) => {
   res.json({ updated: rowCount });
 });
 
+/** Upload a resume, extract text, and return AI-parsed profile preview (no DB write). */
+router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Resume file required' });
+  if (!isAllowedMimeType(req.file.mimetype)) {
+    return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOC, or DOCX.' });
+  }
+  if (aiMode() === 'disabled') {
+    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
+  }
+
+  try {
+    const text = await extractResumeText(req.file.buffer, req.file.mimetype);
+    if (!text.trim()) {
+      return res.status(422).json({
+        error: 'Could not extract text from this file. Try a different format or enter details manually.',
+      });
+    }
+
+    const parsed = await parseResume(text, req.file.originalname);
+    if (!parsed) {
+      return res.status(422).json({ error: 'AI could not parse this resume. Enter details manually.' });
+    }
+
+    const { pendingId, ext } = await savePendingResume(
+      tid(req),
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype
+    );
+
+    res.json({
+      parsed_profile: parsed,
+      ai_confidence: parsed.confidence,
+      pending_resume_id: pendingId,
+      pending_ext: ext,
+      original_filename: req.file.originalname,
+      mime_type: req.file.mimetype,
+      file_size_bytes: req.file.size,
+      source: 'ai',
+    });
+  } catch (err) {
+    console.warn('Resume parse failed:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to parse resume' });
+  }
+});
+
 router.get('/:id/timeline', async (req, res) => {
   const candidateId = Number(req.params.id);
   if (!(await assertCandidateInTenant(candidateId, tid(req)))) {
@@ -553,6 +620,175 @@ router.get('/:id/suggestions', async (req, res) => {
   res.json({ suggestions, ai_score: c.ai_score, salary_expectation: c.salary_expectation, source: 'template' });
 });
 
+/** Download the original resume file stored for a candidate. */
+router.get('/:id/resume/download', async (req, res) => {
+  const candidateId = Number(req.params.id);
+  const { rows } = await pool.query(
+    'SELECT resume_meta, name FROM candidates WHERE id = $1 AND tenant_id = $2',
+    [candidateId, tid(req)]
+  );
+  const c = rows[0];
+  if (!c) return res.status(404).json({ error: 'Candidate not found' });
+
+  const meta = c.resume_meta as { storage_path?: string; original_filename?: string; mime_type?: string } | null;
+  if (!meta?.storage_path) {
+    return res.status(404).json({ error: 'No resume on file for this candidate' });
+  }
+
+  try {
+    const buffer = await readResumeFile(meta.storage_path);
+    const filename = meta.original_filename || `${c.name}-resume`;
+    res.setHeader('Content-Type', meta.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`);
+    res.send(buffer);
+  } catch {
+    res.status(404).json({ error: 'Resume file not found on server' });
+  }
+});
+
+/** Re-parse stored resume or a newly uploaded file; updates candidate on save via PATCH. */
+router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, res) => {
+  const candidateId = Number(req.params.id);
+  const { rows } = await pool.query(
+    'SELECT id, name, resume_meta FROM candidates WHERE id = $1 AND tenant_id = $2',
+    [candidateId, tid(req)]
+  );
+  const c = rows[0];
+  if (!c) return res.status(404).json({ error: 'Candidate not found' });
+
+  if (aiMode() === 'disabled') {
+    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
+  }
+
+  let buffer: Buffer;
+  let mimeType: string;
+  let originalFilename: string;
+
+  if (req.file) {
+    if (!isAllowedMimeType(req.file.mimetype)) {
+      return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOC, or DOCX.' });
+    }
+    buffer = req.file.buffer;
+    mimeType = req.file.mimetype;
+    originalFilename = req.file.originalname;
+  } else {
+    const meta = c.resume_meta as { storage_path?: string; mime_type?: string; original_filename?: string } | null;
+    if (!meta?.storage_path) {
+      return res.status(400).json({ error: 'Upload a resume file or save one on the candidate first' });
+    }
+    try {
+      buffer = await readResumeFile(meta.storage_path);
+      mimeType = meta.mime_type || 'application/pdf';
+      originalFilename = meta.original_filename || `${c.name}-resume`;
+    } catch {
+      return res.status(404).json({ error: 'Stored resume file not found' });
+    }
+  }
+
+  try {
+    const text = await extractResumeText(buffer, mimeType);
+    if (!text.trim()) {
+      return res.status(422).json({ error: 'Could not extract text from this file.' });
+    }
+
+    const parsed = await parseResume(text, originalFilename);
+    if (!parsed) {
+      return res.status(422).json({ error: 'AI could not parse this resume.' });
+    }
+
+    const ext = mimeType === 'application/pdf' ? '.pdf' : mimeType.includes('wordprocessingml') ? '.docx' : '.doc';
+    const storagePath = await saveCandidateResume(tid(req), candidateId, buffer, ext);
+    const resumeMeta = buildResumeMeta({
+      storage_path: storagePath,
+      original_filename: originalFilename,
+      mime_type: mimeType,
+      file_size_bytes: buffer.length,
+      ai_confidence: parsed.confidence,
+    });
+
+    const mapped = mapParsedProfileToBody(parsed);
+    const { rows: updated } = await pool.query(
+      `UPDATE candidates SET
+        parsed_profile = $1::jsonb,
+        resume_meta = $2::jsonb,
+        linkedin = COALESCE($3, linkedin),
+        github = COALESCE($4, github),
+        portfolio = COALESCE($5, portfolio),
+        current_company = COALESCE($6, current_company),
+        current_location = COALESCE($7, current_location),
+        preferred_location = COALESCE($8, preferred_location),
+        notice_period = COALESCE($9, notice_period),
+        current_salary = COALESCE($10, current_salary),
+        professional_summary = COALESCE($11, professional_summary),
+        education = $12::jsonb,
+        experience = $13::jsonb,
+        projects = $14::jsonb,
+        certifications = $15::jsonb,
+        languages = $16::jsonb,
+        technical_skills = $17::jsonb,
+        soft_skills = $18::jsonb,
+        skills = $19::jsonb,
+        experience_years = COALESCE($20, experience_years),
+        salary_expectation = COALESCE($21, salary_expectation),
+        email = COALESCE($22, email),
+        phone = COALESCE($23, phone),
+        updated_at = NOW()
+      WHERE id = $24 AND tenant_id = $25
+      RETURNING *`,
+      [
+        JSON.stringify(parsed),
+        JSON.stringify(resumeMeta),
+        mapped.linkedin,
+        mapped.github,
+        mapped.portfolio,
+        mapped.current_company,
+        mapped.current_location,
+        mapped.preferred_location,
+        mapped.notice_period,
+        mapped.current_salary,
+        mapped.professional_summary,
+        JSON.stringify(mapped.education),
+        JSON.stringify(mapped.experience),
+        JSON.stringify(mapped.projects),
+        JSON.stringify(mapped.certifications),
+        JSON.stringify(mapped.languages),
+        JSON.stringify(mapped.technical_skills),
+        JSON.stringify(mapped.soft_skills),
+        JSON.stringify(mapped.skills),
+        mapped.experience_years,
+        mapped.salary_expectation,
+        mapped.email,
+        mapped.phone,
+        candidateId,
+        tid(req),
+      ]
+    );
+
+    await pool.query(
+      'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
+      [
+        'profile',
+        `${updated[0].name} resume re-parsed (confidence ${Math.round(parsed.confidence * 100)}%)`,
+        req.user!.id,
+        candidateId,
+        tid(req),
+      ]
+    );
+
+    void rescoreCandidate(tid(req), candidateId);
+
+    res.json({
+      candidate: updated[0],
+      parsed_profile: parsed,
+      ai_confidence: parsed.confidence,
+      source: 'ai',
+    });
+  } catch (err) {
+    console.warn('Resume reparse failed:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to reparse resume' });
+  }
+});
+
 router.put('/:id/screening', async (req, res) => {
   const candidateId = Number(req.params.id);
   const { rows: existing } = await pool.query(
@@ -621,23 +857,67 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { name, email, phone, skills, experience_years, job_id, recruiter_id, notes, salary_expectation } =
-    req.body;
+  const {
+    name,
+    email,
+    phone,
+    skills,
+    experience_years,
+    job_id,
+    recruiter_id,
+    notes,
+    salary_expectation,
+    pending_resume_id,
+    pending_ext,
+    original_filename,
+    mime_type,
+    file_size_bytes,
+    ai_confidence,
+    parsed_profile,
+    linkedin,
+    github,
+    portfolio,
+    current_company,
+    current_location,
+    preferred_location,
+    notice_period,
+    current_salary,
+    professional_summary,
+    education,
+    experience,
+    projects,
+    certifications,
+    languages,
+    technical_skills,
+    soft_skills,
+  } = req.body;
+
   if (!name) return res.status(400).json({ error: 'Name required' });
 
   if (job_id && !(await assertJobInTenant(Number(job_id), tid(req)))) {
     return res.status(400).json({ error: 'Invalid job for this workspace' });
   }
 
-  const ai_score = computeAiScore(skills || [], experience_years || 0);
+  const skillList = Array.isArray(skills) ? skills : [];
+  const ai_score = computeAiScore(skillList, experience_years || 0);
+  const fromResume = Boolean(pending_resume_id || parsed_profile);
+
   const { rows } = await pool.query(
-    `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, job_id, recruiter_id, notes, salary_expectation, tenant_id)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    `INSERT INTO candidates (
+      name, email, phone, skills, experience_years, ai_score, job_id, recruiter_id, notes, salary_expectation, tenant_id,
+      source, parsed_profile, linkedin, github, portfolio, current_company, current_location, preferred_location,
+      notice_period, current_salary, professional_summary, education, experience, projects, certifications, languages,
+      technical_skills, soft_skills
+    ) VALUES (
+      $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11,
+      $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+      $23::jsonb, $24::jsonb, $25::jsonb, $26::jsonb, $27::jsonb, $28::jsonb, $29::jsonb
+    ) RETURNING *`,
     [
       name,
       email || null,
       phone || null,
-      JSON.stringify(skills || []),
+      JSON.stringify(skillList),
       experience_years || 0,
       ai_score,
       job_id || null,
@@ -645,16 +925,60 @@ router.post('/', async (req, res) => {
       notes || null,
       salary_expectation || null,
       tid(req),
+      fromResume ? 'resume' : 'manual',
+      parsed_profile ? JSON.stringify(parsed_profile) : null,
+      linkedin || null,
+      github || null,
+      portfolio || null,
+      current_company || null,
+      current_location || null,
+      preferred_location || null,
+      notice_period || null,
+      current_salary || null,
+      professional_summary || null,
+      JSON.stringify(education || []),
+      JSON.stringify(experience || []),
+      JSON.stringify(projects || []),
+      JSON.stringify(certifications || []),
+      JSON.stringify(languages || []),
+      JSON.stringify(technical_skills || []),
+      JSON.stringify(soft_skills || []),
     ]
   );
 
+  if (pending_resume_id && pending_ext) {
+    try {
+      const finalPath = await finalizePendingResume(
+        tid(req),
+        String(pending_resume_id),
+        rows[0].id,
+        String(pending_ext)
+      );
+      const resumeMeta = buildResumeMeta({
+        storage_path: finalPath,
+        original_filename: original_filename || 'resume',
+        mime_type: mime_type || 'application/pdf',
+        file_size_bytes: Number(file_size_bytes) || 0,
+        ai_confidence: Number(ai_confidence) || 0,
+      });
+      await pool.query(
+        'UPDATE candidates SET resume_meta = $1::jsonb WHERE id = $2 AND tenant_id = $3',
+        [JSON.stringify(resumeMeta), rows[0].id, tid(req)]
+      );
+      rows[0].resume_meta = resumeMeta;
+    } catch (err) {
+      console.warn('Failed to finalize resume file:', (err as Error).message);
+    }
+  }
+
+  const activityDesc = fromResume
+    ? `${name} added from resume parse`
+    : `${name} added to pipeline`;
   await pool.query(
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
-    ['pipeline', `${name} added to pipeline`, req.user!.id, rows[0].id, tid(req)]
+    ['pipeline', activityDesc, req.user!.id, rows[0].id, tid(req)]
   );
 
-  // Heuristic score is returned immediately; the AI fit score (vs the job
-  // description) replaces it in the background and logs to the timeline.
   void rescoreCandidate(tid(req), rows[0].id);
 
   res.status(201).json(rows[0]);
@@ -675,6 +999,16 @@ router.patch('/:id', async (req, res) => {
     name,
     email,
     phone,
+    linkedin,
+    github,
+    portfolio,
+    current_company,
+    current_location,
+    preferred_location,
+    notice_period,
+    current_salary,
+    professional_summary,
+    parsed_profile,
   } = req.body;
 
   const { rows: existing } = await pool.query(
@@ -781,6 +1115,46 @@ router.patch('/:id', async (req, res) => {
     }
     updates.push(`expected_joining_at = $${i++}`);
     params.push(expected_joining_at);
+  }
+  if (linkedin !== undefined) {
+    updates.push(`linkedin = $${i++}`);
+    params.push(linkedin || null);
+  }
+  if (github !== undefined) {
+    updates.push(`github = $${i++}`);
+    params.push(github || null);
+  }
+  if (portfolio !== undefined) {
+    updates.push(`portfolio = $${i++}`);
+    params.push(portfolio || null);
+  }
+  if (current_company !== undefined) {
+    updates.push(`current_company = $${i++}`);
+    params.push(current_company || null);
+  }
+  if (current_location !== undefined) {
+    updates.push(`current_location = $${i++}`);
+    params.push(current_location || null);
+  }
+  if (preferred_location !== undefined) {
+    updates.push(`preferred_location = $${i++}`);
+    params.push(preferred_location || null);
+  }
+  if (notice_period !== undefined) {
+    updates.push(`notice_period = $${i++}`);
+    params.push(notice_period || null);
+  }
+  if (current_salary !== undefined) {
+    updates.push(`current_salary = $${i++}`);
+    params.push(current_salary || null);
+  }
+  if (professional_summary !== undefined) {
+    updates.push(`professional_summary = $${i++}`);
+    params.push(professional_summary || null);
+  }
+  if (parsed_profile !== undefined) {
+    updates.push(`parsed_profile = $${i++}::jsonb`);
+    params.push(JSON.stringify(parsed_profile));
   }
 
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
@@ -1003,6 +1377,50 @@ function resolveJobId(
 function computeAiScore(skills: string[], years: number): number {
   const base = Math.min(10, 5 + years * 0.4 + skills.length * 0.3);
   return Math.round(base * 10) / 10;
+}
+
+function buildResumeMeta(opts: {
+  storage_path: string;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  ai_confidence: number;
+}) {
+  return {
+    ...opts,
+    parsed_at: new Date().toISOString(),
+  };
+}
+
+function mergeSkillsFromParsed(parsed: ParsedProfile): string[] {
+  const all = [...(parsed.skills || []), ...(parsed.technical_skills || [])];
+  return [...new Set(all.map((s) => s.trim()).filter(Boolean))];
+}
+
+function mapParsedProfileToBody(parsed: ParsedProfile) {
+  return {
+    linkedin: parsed.linkedin || null,
+    github: parsed.github || null,
+    portfolio: parsed.portfolio || null,
+    current_company: parsed.current_company || null,
+    current_location: parsed.current_location || null,
+    preferred_location: parsed.preferred_location || null,
+    notice_period: parsed.notice_period || null,
+    current_salary: parsed.current_salary || null,
+    salary_expectation: parsed.expected_salary || null,
+    professional_summary: parsed.professional_summary || null,
+    education: parsed.education || [],
+    experience: parsed.experience || [],
+    projects: parsed.projects || [],
+    certifications: parsed.certifications || [],
+    languages: parsed.languages || [],
+    technical_skills: parsed.technical_skills || [],
+    soft_skills: parsed.soft_skills || [],
+    skills: mergeSkillsFromParsed(parsed),
+    experience_years: parsed.total_experience_years ?? null,
+    email: parsed.email || null,
+    phone: parsed.phone || null,
+  };
 }
 
 export default router;

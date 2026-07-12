@@ -188,6 +188,7 @@ export async function initDb() {
     await migrateJoinCodes(client);
     await fixStaleMeetingLinks(client);
     await migrateMultiTenant(client);
+    await migrateAiResumeParser(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 
@@ -630,6 +631,28 @@ async function dedupeJobsByTitle(client: pg.PoolClient) {
     ) d
     WHERE j.tenant_id = d.tenant_id AND j.title = d.title AND j.id != d.keep_id
   `);
+}
+
+/** AI resume parser — structured profile fields and resume file metadata on candidates. */
+async function migrateAiResumeParser(client: pg.PoolClient) {
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS parsed_profile JSONB`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS resume_meta JSONB`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS github TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS portfolio TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS current_company TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS current_location TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferred_location TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS notice_period TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS current_salary TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS professional_summary TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS education JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS experience JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS projects JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS certifications JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS languages JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS technical_skills JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS soft_skills JSONB DEFAULT '[]'`);
 }
 
 async function ensureAllTenantsSeeded(client: pg.PoolClient) {

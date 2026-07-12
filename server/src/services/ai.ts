@@ -336,3 +336,188 @@ export async function generateJobDescription(input: JobDescriptionInput): Promis
 
   return textCall(system, prompt, 'medium');
 }
+
+// ── Resume parsing ─────────────────────────────────────────────────────
+
+export interface ParsedExperience {
+  title: string;
+  company: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  description?: string | null;
+}
+
+export interface ParsedEducation {
+  degree: string;
+  institution: string;
+  year?: string | null;
+}
+
+export interface ParsedProject {
+  name: string;
+  description?: string | null;
+  technologies?: string[];
+}
+
+export interface ParsedCertification {
+  name: string;
+  issuer?: string | null;
+  date?: string | null;
+}
+
+export interface ParsedProfile {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  linkedin?: string | null;
+  github?: string | null;
+  portfolio?: string | null;
+  current_company?: string | null;
+  previous_companies?: string[];
+  experience?: ParsedExperience[];
+  education?: ParsedEducation[];
+  projects?: ParsedProject[];
+  skills?: string[];
+  technical_skills?: string[];
+  soft_skills?: string[];
+  certifications?: ParsedCertification[];
+  current_salary?: string | null;
+  expected_salary?: string | null;
+  notice_period?: string | null;
+  current_location?: string | null;
+  preferred_location?: string | null;
+  languages?: string[];
+  professional_summary?: string | null;
+  total_experience_years?: number | null;
+  confidence: number;
+}
+
+const PARSED_EXPERIENCE_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    company: { type: 'string' },
+    start_date: { type: ['string', 'null'] },
+    end_date: { type: ['string', 'null'] },
+    description: { type: ['string', 'null'] },
+  },
+  required: ['title', 'company'],
+  additionalProperties: false,
+} as const;
+
+const PARSED_EDUCATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    degree: { type: 'string' },
+    institution: { type: 'string' },
+    year: { type: ['string', 'null'] },
+  },
+  required: ['degree', 'institution'],
+  additionalProperties: false,
+} as const;
+
+const PARSED_PROJECT_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    description: { type: ['string', 'null'] },
+    technologies: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['name'],
+  additionalProperties: false,
+} as const;
+
+const PARSED_CERTIFICATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    issuer: { type: ['string', 'null'] },
+    date: { type: ['string', 'null'] },
+  },
+  required: ['name'],
+  additionalProperties: false,
+} as const;
+
+const PARSE_RESUME_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    email: { type: ['string', 'null'] },
+    phone: { type: ['string', 'null'] },
+    linkedin: { type: ['string', 'null'] },
+    github: { type: ['string', 'null'] },
+    portfolio: { type: ['string', 'null'] },
+    current_company: { type: ['string', 'null'] },
+    previous_companies: { type: 'array', items: { type: 'string' } },
+    experience: { type: 'array', items: PARSED_EXPERIENCE_SCHEMA },
+    education: { type: 'array', items: PARSED_EDUCATION_SCHEMA },
+    projects: { type: 'array', items: PARSED_PROJECT_SCHEMA },
+    skills: { type: 'array', items: { type: 'string' } },
+    technical_skills: { type: 'array', items: { type: 'string' } },
+    soft_skills: { type: 'array', items: { type: 'string' } },
+    certifications: { type: 'array', items: PARSED_CERTIFICATION_SCHEMA },
+    current_salary: { type: ['string', 'null'] },
+    expected_salary: { type: ['string', 'null'] },
+    notice_period: { type: ['string', 'null'] },
+    current_location: { type: ['string', 'null'] },
+    preferred_location: { type: ['string', 'null'] },
+    languages: { type: 'array', items: { type: 'string' } },
+    professional_summary: { type: ['string', 'null'] },
+    total_experience_years: { type: ['number', 'null'] },
+    confidence: {
+      type: 'number',
+      description: 'Self-assessed extraction confidence from 0.0 to 1.0',
+    },
+  },
+  required: ['name', 'confidence'],
+  additionalProperties: false,
+} as const;
+
+/** Derive a confidence score from field completeness when AI self-score is missing. */
+export function computeParseConfidence(profile: ParsedProfile): number {
+  const checks = [
+    profile.name,
+    profile.email,
+    profile.phone,
+    profile.skills?.length,
+    profile.experience?.length,
+    profile.education?.length,
+    profile.professional_summary,
+  ];
+  const filled = checks.filter((v) => (Array.isArray(v) ? v.length > 0 : Boolean(v))).length;
+  const heuristic = Math.min(1, filled / checks.length);
+  const raw = typeof profile.confidence === 'number' && !Number.isNaN(profile.confidence)
+    ? profile.confidence
+    : heuristic;
+  return Math.round(Math.min(1, Math.max(0, raw)) * 100) / 100;
+}
+
+export async function parseResume(text: string, filename: string): Promise<ParsedProfile | null> {
+  if (!text.trim()) return null;
+
+  const system =
+    'You extract structured candidate profile data from resume text for a recruitment ATS. ' +
+    'Only include information explicitly present or clearly inferable from the resume. ' +
+    'Use null for missing scalar fields and empty arrays for missing lists. ' +
+    'Normalize phone numbers with country code when possible. ' +
+    'Split skills into general skills, technical_skills, and soft_skills when distinguishable. ' +
+    'Set confidence (0.0–1.0) based on how complete and unambiguous the extraction is.';
+
+  const prompt = [
+    `Resume filename: ${filename}`,
+    'Resume text:',
+    text.slice(0, 120_000),
+    'Extract all available profile fields.',
+  ].join('\n\n');
+
+  const result = await jsonCall<ParsedProfile>(system, prompt, PARSE_RESUME_SCHEMA, 'high');
+  if (!result?.name?.trim()) return null;
+
+  result.confidence = computeParseConfidence(result);
+  if (result.total_experience_years != null) {
+    result.total_experience_years =
+      Math.round(Math.max(0, Number(result.total_experience_years)) * 10) / 10;
+  }
+
+  return result;
+}

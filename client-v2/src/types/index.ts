@@ -80,6 +80,79 @@ export function riskBadgeClass(riskLevel: string): string {
   return 'risk-badge risk-ghosting';
 }
 
+export interface ParsedExperience {
+  title: string;
+  company: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  description?: string | null;
+}
+
+export interface ParsedEducation {
+  degree: string;
+  institution: string;
+  year?: string | null;
+}
+
+export interface ParsedProject {
+  name: string;
+  description?: string | null;
+  technologies?: string[];
+}
+
+export interface ParsedCertification {
+  name: string;
+  issuer?: string | null;
+  date?: string | null;
+}
+
+export interface ParsedProfile {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  linkedin?: string | null;
+  github?: string | null;
+  portfolio?: string | null;
+  current_company?: string | null;
+  previous_companies?: string[];
+  experience?: ParsedExperience[];
+  education?: ParsedEducation[];
+  projects?: ParsedProject[];
+  skills?: string[];
+  technical_skills?: string[];
+  soft_skills?: string[];
+  certifications?: ParsedCertification[];
+  current_salary?: string | null;
+  expected_salary?: string | null;
+  notice_period?: string | null;
+  current_location?: string | null;
+  preferred_location?: string | null;
+  languages?: string[];
+  professional_summary?: string | null;
+  total_experience_years?: number | null;
+  confidence: number;
+}
+
+export interface ResumeMeta {
+  storage_path?: string;
+  original_filename?: string;
+  mime_type?: string;
+  file_size_bytes?: number;
+  ai_confidence?: number;
+  parsed_at?: string;
+}
+
+export interface ResumeParseResponse {
+  parsed_profile: ParsedProfile;
+  ai_confidence: number;
+  pending_resume_id: string;
+  pending_ext: string;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  source: string;
+}
+
 export interface Candidate {
   id: number;
   name: string;
@@ -101,6 +174,24 @@ export interface Candidate {
   recruiter_name?: string;
   notes?: string;
   salary_expectation?: string;
+  parsed_profile?: ParsedProfile | null;
+  resume_meta?: ResumeMeta | null;
+  linkedin?: string | null;
+  github?: string | null;
+  portfolio?: string | null;
+  current_company?: string | null;
+  current_location?: string | null;
+  preferred_location?: string | null;
+  notice_period?: string | null;
+  current_salary?: string | null;
+  professional_summary?: string | null;
+  education?: ParsedEducation[];
+  experience?: ParsedExperience[];
+  projects?: ParsedProject[];
+  certifications?: ParsedCertification[];
+  languages?: string[];
+  technical_skills?: string[];
+  soft_skills?: string[];
   created_at: string;
   updated_at: string;
 }

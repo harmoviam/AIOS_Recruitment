@@ -378,6 +378,28 @@ USING (
 ) d
 WHERE j.tenant_id = d.tenant_id AND j.title = d.title AND j.id != d.keep_id;
 
+-- ---------------------------------------------------------------------------
+-- 7. AI resume parser (Module 1)
+-- ---------------------------------------------------------------------------
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS parsed_profile JSONB;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS resume_meta JSONB;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS github TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS portfolio TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS current_company TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS current_location TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferred_location TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS notice_period TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS current_salary TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS professional_summary TEXT;
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS education JSONB DEFAULT '[]';
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS experience JSONB DEFAULT '[]';
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS projects JSONB DEFAULT '[]';
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS certifications JSONB DEFAULT '[]';
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS languages JSONB DEFAULT '[]';
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS technical_skills JSONB DEFAULT '[]';
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS soft_skills JSONB DEFAULT '[]';
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------
