@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../utils/useRefetchOnFocus';
 import type { Job } from '../types';
 
@@ -32,12 +33,18 @@ function statusMeta(status: string): { label: string; className: string } {
   return { label: 'Inactive', className: 'job-status inactive' };
 }
 
+const EMPTY_FORM = { title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' };
+
 export default function JobsPage() {
+  const { user } = useAuth();
+  // Only org admins and hiring managers can add or edit jobs.
+  const canManageJobs = user?.role === 'admin' || user?.role === 'hiring_manager';
   const [jobs, setJobs] = useState<Job[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState({ title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [generating, setGenerating] = useState(false);
   const [viewingJd, setViewingJd] = useState<Job | null>(null);
 
@@ -59,11 +66,45 @@ export default function JobsPage() {
   }, [load]);
   useRefetchOnFocus(load);
 
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await api.createJob({ ...form, tenure_days: form.tenure_days ? Number(form.tenure_days) : null });
-    setForm({ title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' });
+  const openCreateForm = () => {
+    if (showForm && !editingJob) {
+      setShowForm(false);
+      return;
+    }
+    setEditingJob(null);
+    setForm(EMPTY_FORM);
+    setShowForm(true);
+  };
+
+  const openEditForm = (job: Job) => {
+    setEditingJob(job);
+    setForm({
+      title: job.title,
+      client: job.client,
+      location: job.location,
+      open_positions: job.open_positions ?? 1,
+      description: job.description || '',
+      tenure_days: job.tenure_days != null ? String(job.tenure_days) : '',
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const closeForm = () => {
     setShowForm(false);
+    setEditingJob(null);
+    setForm(EMPTY_FORM);
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = { ...form, tenure_days: form.tenure_days ? Number(form.tenure_days) : null };
+    if (editingJob) {
+      await api.updateJob(editingJob.id, payload);
+    } else {
+      await api.createJob(payload);
+    }
+    closeForm();
     load();
   };
 
@@ -132,9 +173,11 @@ export default function JobsPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button type="button" className="button-pill button-primary" onClick={() => setShowForm(!showForm)}>
-          + New Opening
-        </button>
+        {canManageJobs && (
+          <button type="button" className="button-pill button-primary" onClick={openCreateForm}>
+            + New Opening
+          </button>
+        )}
       </div>
       <div className="page-content">
         <h1 className="section-title">Job Openings</h1>
@@ -154,8 +197,13 @@ export default function JobsPage() {
           ))}
         </div>
 
-        {showForm && (
-          <form className="card" style={{ marginBottom: '1.5rem' }} onSubmit={create}>
+        {canManageJobs && showForm && (
+          <form className="card" style={{ marginBottom: '1.5rem' }} onSubmit={save}>
+            {editingJob && (
+              <h3 className="card-heading" style={{ marginBottom: '1rem' }}>
+                Editing: {editingJob.title}
+              </h3>
+            )}
             <div className="grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
               <input className="input-field" placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
               <input className="input-field" placeholder="Client" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} required />
@@ -178,7 +226,7 @@ export default function JobsPage() {
             />
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
               <button type="submit" className="button-pill button-primary">
-                Create job
+                {editingJob ? 'Save changes' : 'Create job'}
               </button>
               <button
                 type="button"
@@ -188,6 +236,9 @@ export default function JobsPage() {
                 onClick={generateDescription}
               >
                 {generating ? '… Drafting' : '✨ Draft with AI'}
+              </button>
+              <button type="button" className="button-pill button-secondary" onClick={closeForm}>
+                Cancel
               </button>
             </div>
           </form>
@@ -230,13 +281,24 @@ export default function JobsPage() {
                   <Link to={`/pipeline?job_id=${job.id}`} className="button-pill button-secondary btn-sm">
                     View pipeline
                   </Link>
-                  <button
-                    type="button"
-                    className={`button-pill btn-sm ${active ? 'button-secondary' : 'button-primary'}`}
-                    onClick={() => toggleStatus(job)}
-                  >
-                    {active ? 'Deactivate' : 'Activate'}
-                  </button>
+                  {canManageJobs && (
+                    <>
+                      <button
+                        type="button"
+                        className="button-pill button-secondary btn-sm"
+                        onClick={() => openEditForm(job)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={`button-pill btn-sm ${active ? 'button-secondary' : 'button-primary'}`}
+                        onClick={() => toggleStatus(job)}
+                      >
+                        {active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );

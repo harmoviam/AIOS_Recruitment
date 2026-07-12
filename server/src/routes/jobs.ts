@@ -1,4 +1,4 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantClause, tenantMiddleware } from '../middleware/tenant.js';
@@ -14,6 +14,15 @@ const tid = (req: Request) => req.tenant!.id;
 
 // Placement tenure options; drives the post-joining check-in schedule per job.
 const TENURE_OPTIONS = [30, 45, 60, 90];
+
+// Only org admins and hiring managers may create, edit, or delete jobs.
+function canManageJobs(req: Request, res: Response, next: NextFunction) {
+  const role = req.user!.role;
+  if (role !== 'admin' && role !== 'hiring_manager') {
+    return res.status(403).json({ error: 'Only organization admins and hiring managers can manage jobs' });
+  }
+  next();
+}
 
 /** Match candidate list scoping — recruiters/HMs only see their own team's counts. */
 function candidateScopeSql(req: Request, paramStart: number) {
@@ -101,7 +110,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', canManageJobs, async (req, res) => {
   const { title, client, location, status, assigned_to, open_positions, description, tenure_days } = req.body;
   if (!title || !client || !location) {
     return res.status(400).json({ error: 'Title, client, and location required' });
@@ -128,7 +137,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', canManageJobs, async (req, res) => {
   const fields = ['title', 'client', 'location', 'status', 'assigned_to', 'open_positions', 'description', 'tenure_days'] as const;
   if (
     req.body.tenure_days !== undefined &&
@@ -161,7 +170,7 @@ router.patch('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', canManageJobs, async (req, res) => {
   const { rowCount } = await pool.query('DELETE FROM jobs WHERE id = $1 AND tenant_id = $2', [
     req.params.id,
     tid(req),
