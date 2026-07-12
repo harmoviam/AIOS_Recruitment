@@ -10,12 +10,14 @@ on:
       - 'cloudbuild.yaml'
       - 'server/**'
       - 'client-v2/**'
+      - 'parser-service/**'
       - '.github/workflows/deploy-cloud-run.yml'
   workflow_dispatch:
 
 env:
   REGION: us-central1
   SERVICE_NAME: harmirecruit
+  PARSER_SERVICE_NAME: harmirecruit-parser
   # Cross-project: DB lives in harmoviajobs
   DB_PROJECT_ID: harmoviajobs
   CLOUDSQL_INSTANCE: harmoviajobs-db-us1
@@ -42,11 +44,13 @@ jobs:
           DB_PROJECT="${DB_PROJECT_ID_SECRET:-harmoviajobs}"
           GAR_REPO="${GAR_REPO_SECRET:-platform-repo}"
           IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}/harmirecruit"
+          PARSER_IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}/harmirecruit-parser"
           CLOUDSQL="${DB_PROJECT}:${{ env.REGION }}:${{ env.CLOUDSQL_INSTANCE }}"
           echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
           echo "DB_PROJECT_ID=${DB_PROJECT}" >> $GITHUB_ENV
           echo "GAR_REPO=${GAR_REPO}" >> $GITHUB_ENV
           echo "IMAGE=${IMAGE}" >> $GITHUB_ENV
+          echo "PARSER_IMAGE=${PARSER_IMAGE}" >> $GITHUB_ENV
           echo "CLOUDSQL_CONNECTION=${CLOUDSQL}" >> $GITHUB_ENV
 
       - name: Authenticate to Google Cloud
@@ -78,6 +82,52 @@ jobs:
           docker push ${IMAGE}:latest
           docker push ${IMAGE}:${{ github.sha }}
 
+      - name: Build & push parser service image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker pull ${PARSER_IMAGE}:latest || true
+          docker build \
+            --cache-from ${PARSER_IMAGE}:latest \
+            -t ${PARSER_IMAGE}:latest \
+            -t ${PARSER_IMAGE}:${{ github.sha }} \
+            parser-service
+          docker push ${PARSER_IMAGE}:latest
+          docker push ${PARSER_IMAGE}:${{ github.sha }}
+
+      - name: Deploy parser service to Cloud Run
+        run: |
+          SA_EMAIL="cloud-run-harmirecruit-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+
+          # Private service: only the main app's service account may invoke it.
+          gcloud run deploy ${{ env.PARSER_SERVICE_NAME }} \
+            --image ${PARSER_IMAGE}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --project ${PROJECT_ID} \
+            --service-account "${SA_EMAIL}" \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 60 \
+            --concurrency 20 \
+            --min-instances 0 \
+            --max-instances 3 \
+            --no-allow-unauthenticated \
+            --port 8080 \
+            --execution-environment gen2 \
+            --platform managed
+
+          gcloud run services add-iam-policy-binding ${{ env.PARSER_SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${PROJECT_ID} \
+            --member "serviceAccount:${SA_EMAIL}" \
+            --role roles/run.invoker
+
+          PARSER_URL=$(gcloud run services describe ${{ env.PARSER_SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${PROJECT_ID} \
+            --format='value(status.url)')
+          echo "RESUME_PARSER_URL=${PARSER_URL}" >> $GITHUB_ENV
+
       - name: Deploy to Cloud Run
         run: |
           SA_EMAIL="cloud-run-harmirecruit-sa@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -87,7 +137,7 @@ jobs:
           # in Secret Manager and are restored via --update-secrets. Everything
           # is guarded on the token secret so deploys still work before WhatsApp
           # is configured.
-          ENV_VARS="NODE_ENV=production"
+          ENV_VARS="NODE_ENV=production,RESUME_PARSER_URL=${RESUME_PARSER_URL}"
           SECRETS="DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest"
 
           APP_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
@@ -144,5 +194,6 @@ jobs:
           echo "## HarmiRecruit deployed" >> $GITHUB_STEP_SUMMARY
           echo "**App project:** ${PROJECT_ID}" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** ${URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Parser service (private):** ${RESUME_PARSER_URL}" >> $GITHUB_STEP_SUMMARY
           echo "**Cloud SQL (cross-project):** ${CLOUDSQL_CONNECTION}" >> $GITHUB_STEP_SUMMARY
           echo "**Schema:** harmirecruit" >> $GITHUB_STEP_SUMMARY

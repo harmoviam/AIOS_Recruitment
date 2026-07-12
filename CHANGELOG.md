@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Deployment
+
+**Added**
+- Parser service deployed to Cloud Run as private service `harmirecruit-parser` (`parser-service/Dockerfile`); deploy workflow builds it and sets `RESUME_PARSER_URL` on the main service
+- Node parser client authenticates to the private service with an IAM identity token (`google-auth-library`)
+
 ### Module 1 — AI Resume Parser
 
 **Added**

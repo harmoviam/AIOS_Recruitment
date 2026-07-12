@@ -1,3 +1,4 @@
+import { GoogleAuth } from 'google-auth-library';
 import { aiMode, parseResume, type ParsedProfile } from './ai.js';
 import { extractResumeText } from './fileStorage.js';
 
@@ -9,6 +10,25 @@ import { extractResumeText } from './fileStorage.js';
 
 const PARSER_URL = process.env.RESUME_PARSER_URL || 'http://localhost:8020';
 const PARSER_TIMEOUT_MS = Number(process.env.RESUME_PARSER_TIMEOUT_MS) || 30_000;
+
+const googleAuth = new GoogleAuth();
+
+/**
+ * On Cloud Run the parser service is private (IAM-protected), so requests need
+ * an identity token minted for its URL. Locally (http://localhost) no auth is
+ * used; if token minting fails we still try the request unauthenticated.
+ */
+async function parserAuthHeaders(): Promise<Record<string, string>> {
+  if (!/^https:/i.test(PARSER_URL)) return {};
+  try {
+    const client = await googleAuth.getIdTokenClient(PARSER_URL);
+    const token = await client.idTokenProvider.fetchIdToken(PARSER_URL);
+    return { Authorization: `Bearer ${token}` };
+  } catch (err) {
+    console.warn('Could not mint parser service ID token:', (err as Error).message);
+    return {};
+  }
+}
 
 export interface ParserServiceResult {
   text: string;
@@ -32,6 +52,7 @@ export async function parseWithPythonService(
 
     const res = await fetch(`${PARSER_URL}/parse`, {
       method: 'POST',
+      headers: await parserAuthHeaders(),
       body: form,
       signal: AbortSignal.timeout(PARSER_TIMEOUT_MS),
     });
@@ -65,7 +86,7 @@ export async function generateJdWithPythonService(
   try {
     const res = await fetch(`${PARSER_URL}/generate-jd`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await parserAuthHeaders()) },
       body: JSON.stringify({
         title: input.title,
         client: input.client || null,

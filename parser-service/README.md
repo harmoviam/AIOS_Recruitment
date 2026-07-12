@@ -32,3 +32,7 @@ Or from the repo root: `npm run dev:parser` (also started by `npm run dev`).
 - `POST /generate-jd` — JSON `{ title, client?, location?, open_positions?, notes? }` → `{ description, engine }`. Used by `POST /api/jobs/generate-description` on the Node server; Anthropic is only used as a fallback when this service is down.
 
 The Node server calls this service when `RESUME_PARSER_URL` is set (default `http://localhost:8020`). If the service is down, the server falls back to the built-in `pdf-parse`/`mammoth` extraction, and — when Anthropic is configured — Claude still refines the structured profile. Legacy `.doc` files always use the Node fallback.
+
+## Cloud deployment
+
+The deploy workflow (`.github/workflows/deploy-cloud-run.yml`) builds `parser-service/Dockerfile` and deploys it as the private Cloud Run service `harmirecruit-parser` (no unauthenticated access; only the main app's service account holds `roles/run.invoker`). The main service gets `RESUME_PARSER_URL` set to the parser's URL and authenticates each request with an IAM identity token (see `parserAuthHeaders` in `server/src/services/parserService.ts`).
