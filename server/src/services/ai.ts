@@ -30,6 +30,21 @@ export function aiMode(): 'live' | 'disabled' {
   return c.enabled && c.apiKey ? 'live' : 'disabled';
 }
 
+/** Map Anthropic API errors to recruiter-friendly messages. */
+export function humanizeAnthropicError(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/credit balance is too low/i.test(msg)) {
+    return 'Anthropic API credits exhausted. Add credits at platform.claude.com → Plans & Billing, then retry.';
+  }
+  if (/invalid x-api-key|authentication/i.test(msg)) {
+    return 'Invalid Anthropic API key. Check ANTHROPIC_API_KEY in .env and restart the server.';
+  }
+  if (/rate limit/i.test(msg)) {
+    return 'Anthropic API rate limit reached. Wait a moment and retry.';
+  }
+  return null;
+}
+
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!client) {
@@ -47,7 +62,20 @@ async function jsonCall<T>(
   schema: Record<string, unknown>,
   effort: 'low' | 'medium' | 'high' = 'low'
 ): Promise<T | null> {
-  if (aiMode() === 'disabled') return null;
+  const result = await jsonCallResult<T>(system, prompt, schema, effort);
+  return result.data;
+}
+
+/** Like jsonCall but surfaces API errors (billing, auth) for user-facing endpoints. */
+async function jsonCallResult<T>(
+  system: string,
+  prompt: string,
+  schema: Record<string, unknown>,
+  effort: 'low' | 'medium' | 'high' = 'low'
+): Promise<{ data: T | null; error?: string }> {
+  if (aiMode() === 'disabled') {
+    return { data: null, error: 'AI not configured — set ANTHROPIC_API_KEY on the server' };
+  }
   try {
     const response = await getClient().messages.create({
       model: cfg().model,
@@ -60,12 +88,12 @@ async function jsonCall<T>(
       system,
       messages: [{ role: 'user', content: prompt }],
     });
-    if (response.stop_reason === 'refusal') return null;
+    if (response.stop_reason === 'refusal') return { data: null };
     const text = response.content.find((b) => b.type === 'text')?.text;
-    return text ? (JSON.parse(text) as T) : null;
+    return { data: text ? (JSON.parse(text) as T) : null };
   } catch (err) {
     console.warn('AI call failed:', (err as Error).message);
-    return null;
+    return { data: null, error: humanizeAnthropicError(err) ?? undefined };
   }
 }
 
@@ -492,8 +520,13 @@ export function computeParseConfidence(profile: ParsedProfile): number {
   return Math.round(Math.min(1, Math.max(0, raw)) * 100) / 100;
 }
 
-export async function parseResume(text: string, filename: string): Promise<ParsedProfile | null> {
-  if (!text.trim()) return null;
+export async function parseResume(
+  text: string,
+  filename: string
+): Promise<{ profile: ParsedProfile | null; error?: string }> {
+  if (!text.trim()) {
+    return { profile: null, error: 'Resume text is empty after extraction.' };
+  }
 
   const system =
     'You extract structured candidate profile data from resume text for a recruitment ATS. ' +
@@ -510,8 +543,16 @@ export async function parseResume(text: string, filename: string): Promise<Parse
     'Extract all available profile fields.',
   ].join('\n\n');
 
-  const result = await jsonCall<ParsedProfile>(system, prompt, PARSE_RESUME_SCHEMA, 'high');
-  if (!result?.name?.trim()) return null;
+  const { data: result, error } = await jsonCallResult<ParsedProfile>(
+    system,
+    prompt,
+    PARSE_RESUME_SCHEMA,
+    'high'
+  );
+  if (error) return { profile: null, error };
+  if (!result?.name?.trim()) {
+    return { profile: null, error: 'AI could not extract a candidate name from this resume.' };
+  }
 
   result.confidence = computeParseConfidence(result);
   if (result.total_experience_years != null) {
@@ -519,5 +560,5 @@ export async function parseResume(text: string, filename: string): Promise<Parse
       Math.round(Math.max(0, Number(result.total_experience_years)) * 10) / 10;
   }
 
-  return result;
+  return { profile: result };
 }

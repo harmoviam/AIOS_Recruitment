@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantClause, tenantMiddleware } from '../middleware/tenant.js';
 import { aiMode, generateJobDescription } from '../services/ai.js';
+import { generateJdWithPythonService } from '../services/parserService.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -65,21 +66,27 @@ router.get('/', async (req, res) => {
 });
 
 // Draft a job description from the basics typed into the add-job form.
+// Primary: the Python parser-service template engine (no API key needed).
+// Fallback: Anthropic, only when configured and the Python service is down.
 router.post('/generate-description', async (req, res) => {
-  if (aiMode() === 'disabled') {
-    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
-  }
   const { title, client, location, open_positions, notes } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
 
-  const description = await generateJobDescription({
+  const input = {
     title,
     client,
     location,
     openPositions: open_positions ? Number(open_positions) : null,
     notes,
-  });
-  if (!description) return res.status(502).json({ error: 'AI generation failed — try again' });
+  };
+
+  let description = await generateJdWithPythonService(input);
+  if (!description && aiMode() === 'live') {
+    description = await generateJobDescription(input);
+  }
+  if (!description) {
+    return res.status(502).json({ error: 'JD generation failed — is the parser service running?' });
+  }
   res.json({ description });
 });
 

@@ -39,6 +39,7 @@ export default function JobsPage() {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({ title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' });
   const [generating, setGenerating] = useState(false);
+  const [viewingJd, setViewingJd] = useState<Job | null>(null);
 
   const load = useCallback(
     () =>
@@ -168,7 +169,13 @@ export default function JobsPage() {
                 <option value="90">90 days</option>
               </select>
             </div>
-            <textarea className="input-field" style={{ marginTop: '1rem' }} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <textarea
+              className="input-field"
+              style={{ marginTop: '1rem', minHeight: '320px', resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
+              placeholder="Description — type it in or draft it with AI below"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
               <button type="submit" className="button-pill button-primary">
                 Create job
@@ -212,6 +219,14 @@ export default function JobsPage() {
                   <div>In pipeline: <strong>{job.pipeline_count ?? 0}</strong></div>
                 </div>
                 <div className="job-card-actions">
+                  <button
+                    type="button"
+                    className="button-pill button-secondary btn-sm"
+                    title={job.description ? 'View the full job description' : 'No description added for this job yet'}
+                    onClick={() => setViewingJd(job)}
+                  >
+                    View JD
+                  </button>
                   <Link to={`/pipeline?job_id=${job.id}`} className="button-pill button-secondary btn-sm">
                     View pipeline
                   </Link>
@@ -229,6 +244,34 @@ export default function JobsPage() {
           {visibleJobs.length === 0 && <p className="empty-inline">No job openings in this view.</p>}
         </div>
       </div>
+
+      {viewingJd && (
+        <div className="modal-overlay" onClick={() => setViewingJd(null)}>
+          <div className="modal-card jd-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="card-heading">{viewingJd.title}</h3>
+            <p className="text-muted" style={{ marginBottom: '1rem' }}>
+              {viewingJd.client} • {viewingJd.location} • {viewingJd.open_positions} open position{viewingJd.open_positions === 1 ? '' : 's'}
+            </p>
+            <div className="jd-modal-body">
+              {viewingJd.description?.trim() || 'No description has been added for this job yet. Edit the job or draft one with AI.'}
+            </div>
+            <div className="modal-actions">
+              {viewingJd.description?.trim() && (
+                <button
+                  type="button"
+                  className="button-pill button-secondary"
+                  onClick={() => navigator.clipboard.writeText(viewingJd.description || '')}
+                >
+                  Copy JD
+                </button>
+              )}
+              <button type="button" className="button-pill button-primary" onClick={() => setViewingJd(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 1206 >>
+stream
+BT /F1 11 Tf 50 780 Td (Priya Sharma) Tj ET
+BT /F1 11 Tf 50 762 Td (Bengaluru, India | priya.sharma@example.com | +91 98765 43210) Tj ET
+BT /F1 11 Tf 50 744 Td (linkedin.com/in/priyasharma | github.com/priyasharma) Tj ET
+BT /F1 11 Tf 50 726 Td (Summary) Tj ET
+BT /F1 11 Tf 50 708 Td (Senior software engineer with 6+ years of experience building backend services.) Tj ET
+BT /F1 11 Tf 50 690 Td (Experience) Tj ET
+BT /F1 11 Tf 50 672 Td (Senior Software Engineer at Acme Corp | Jan 2022 - Present) Tj ET
+BT /F1 11 Tf 50 654 Td (Built payment microservices in Python and Go serving 2M users.) Tj ET
+BT /F1 11 Tf 50 636 Td (Software Engineer at Initech | Jun 2019 - Dec 2021) Tj ET
+BT /F1 11 Tf 50 618 Td (Developed REST APIs with Django and PostgreSQL.) Tj ET
+BT /F1 11 Tf 50 600 Td (Education) Tj ET
+BT /F1 11 Tf 50 582 Td (B.Tech Computer Science, IIT Delhi, 2019) Tj ET
+BT /F1 11 Tf 50 564 Td (Skills) Tj ET
+BT /F1 11 Tf 50 546 Td (Python, Go, Django, PostgreSQL, Docker, Kubernetes, AWS, Kafka) Tj ET
+BT /F1 11 Tf 50 528 Td (Certifications) Tj ET
+BT /F1 11 Tf 50 510 Td (AWS Certified Solutions Architect, 2023) Tj ET
+BT /F1 11 Tf 50 492 Td (Languages) Tj ET
+BT /F1 11 Tf 50 474 Td (English, Hindi) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001499 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1569
+%%EOF

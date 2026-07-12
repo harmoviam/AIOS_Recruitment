@@ -90,10 +90,14 @@ export async function fileExists(storagePath: string): Promise<boolean> {
 /** Extract plain text from PDF, DOC, or DOCX buffer. */
 export async function extractResumeText(buffer: Buffer, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf') {
-    const mod = await import('pdf-parse');
-    const pdfParse = (mod as { default?: (b: Buffer) => Promise<{ text?: string }> }).default ?? mod;
-    const data = await (pdfParse as (b: Buffer) => Promise<{ text?: string }>)(buffer);
-    return data.text?.trim() || '';
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const data = await parser.getText();
+      return data.text?.trim() || '';
+    } finally {
+      await parser.destroy();
+    }
   }
 
   if (

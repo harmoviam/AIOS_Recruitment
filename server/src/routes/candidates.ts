@@ -13,13 +13,12 @@ import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { closeOpenFollowUps, onCandidateJoined } from '../services/followUpEngine.js';
 import {
   aiMode,
-  parseResume,
   type ParsedProfile,
   rescoreCandidate,
   suggestMessages,
 } from '../services/ai.js';
+import { extractAndParseResume } from '../services/parserService.js';
 import {
-  extractResumeText,
   finalizePendingResume,
   isAllowedMimeType,
   readResumeFile,
@@ -472,21 +471,17 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
   if (!isAllowedMimeType(req.file.mimetype)) {
     return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOC, or DOCX.' });
   }
-  if (aiMode() === 'disabled') {
-    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
-  }
 
   try {
-    const text = await extractResumeText(req.file.buffer, req.file.mimetype);
-    if (!text.trim()) {
-      return res.status(422).json({
-        error: 'Could not extract text from this file. Try a different format or enter details manually.',
-      });
-    }
-
-    const parsed = await parseResume(text, req.file.originalname);
+    const { profile: parsed, source, error: parseError } = await extractAndParseResume(
+      req.file.buffer,
+      req.file.mimetype,
+      req.file.originalname
+    );
     if (!parsed) {
-      return res.status(422).json({ error: 'AI could not parse this resume. Enter details manually.' });
+      return res.status(422).json({
+        error: parseError || 'Could not parse this resume. Enter details manually.',
+      });
     }
 
     const { pendingId, ext } = await savePendingResume(
@@ -504,7 +499,7 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
       original_filename: req.file.originalname,
       mime_type: req.file.mimetype,
       file_size_bytes: req.file.size,
-      source: 'ai',
+      source,
     });
   } catch (err) {
     console.warn('Resume parse failed:', (err as Error).message);
@@ -656,10 +651,6 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
   const c = rows[0];
   if (!c) return res.status(404).json({ error: 'Candidate not found' });
 
-  if (aiMode() === 'disabled') {
-    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
-  }
-
   let buffer: Buffer;
   let mimeType: string;
   let originalFilename: string;
@@ -686,14 +677,13 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
   }
 
   try {
-    const text = await extractResumeText(buffer, mimeType);
-    if (!text.trim()) {
-      return res.status(422).json({ error: 'Could not extract text from this file.' });
-    }
-
-    const parsed = await parseResume(text, originalFilename);
+    const { profile: parsed, source, error: parseError } = await extractAndParseResume(
+      buffer,
+      mimeType,
+      originalFilename
+    );
     if (!parsed) {
-      return res.status(422).json({ error: 'AI could not parse this resume.' });
+      return res.status(422).json({ error: parseError || 'Could not parse this resume.' });
     }
 
     const ext = mimeType === 'application/pdf' ? '.pdf' : mimeType.includes('wordprocessingml') ? '.docx' : '.doc';
@@ -781,7 +771,7 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
       candidate: updated[0],
       parsed_profile: parsed,
       ai_confidence: parsed.confidence,
-      source: 'ai',
+      source,
     });
   } catch (err) {
     console.warn('Resume reparse failed:', (err as Error).message);
