@@ -44,6 +44,7 @@ export default function AdminDashboard() {
               <h3 className="card-heading">Hiring Managers & Teams</h3>
               <Link to="/hiring-managers" className="link-button">Manage HMs →</Link>
             </div>
+            <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
@@ -68,6 +69,7 @@ export default function AdminDashboard() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div className="card">
@@ -88,6 +90,7 @@ export default function AdminDashboard() {
             <h3 className="card-heading">All Recruiters — Performance</h3>
             <Link to="/recruiters" className="link-button">Manage recruiters →</Link>
           </div>
+          <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
@@ -112,6 +115,7 @@ export default function AdminDashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="quick-link-grid" style={{ marginTop: '1rem' }}>

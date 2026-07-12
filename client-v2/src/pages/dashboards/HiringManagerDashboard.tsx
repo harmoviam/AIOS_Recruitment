@@ -39,26 +39,26 @@ export default function HiringManagerDashboard() {
           <KpiCard title="Team Joinings MTD" value={team?.team.joiningsMtd ?? data?.joiningsMtd ?? '—'} />
         </div>
 
-        <div className="dashboard-grid">
-          <div className="card">
-            <div className="card-header-row">
-              <h3 className="card-heading">Recruiter Performance (My Team)</h3>
-              <Link to="/recruiters" className="button-pill button-primary btn-sm">+ Add Recruiter</Link>
-            </div>
-            {(team?.recruiters.length ?? 0) === 0 ? (
-              <p className="text-muted">No recruiters yet. Add recruiters to start building your team.</p>
-            ) : (
-              <>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={team!.recruiters}>
-                    <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip />
-                    <Bar dataKey="joiningsMtd" name="Joinings MTD" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="candidates" name="Candidates" fill="#94A3B8" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-                <table className="data-table" style={{ marginTop: '1rem' }}>
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <div className="card-header-row">
+            <h3 className="card-heading">Recruiter Performance (My Team)</h3>
+            <Link to="/recruiters" className="button-pill button-primary btn-sm">+ Add Recruiter</Link>
+          </div>
+          {(team?.recruiters.length ?? 0) === 0 ? (
+            <p className="text-muted">No recruiters yet. Add recruiters to start building your team.</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={team!.recruiters}>
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="joiningsMtd" name="Joinings MTD" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="candidates" name="Candidates" fill="#94A3B8" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="table-wrap" style={{ marginTop: '1rem' }}>
+                <table className="data-table">
                   <thead>
                     <tr>
                       <th>Rank</th>
@@ -86,15 +86,17 @@ export default function HiringManagerDashboard() {
                     ))}
                   </tbody>
                 </table>
-                <div className="perf-stats" style={{ marginTop: '1rem' }}>
-                  <div><span className="perf-value">{team!.team.candidates}</span><span className="perf-label">Team Candidates</span></div>
-                  <div><span className="perf-value">{team!.team.joiningsMtd}</span><span className="perf-label">Team Joinings</span></div>
-                  <div><span className="perf-value">{team!.team.pendingFollowups}</span><span className="perf-label">Open Follow-ups</span></div>
-                </div>
-              </>
-            )}
-          </div>
+              </div>
+              <div className="perf-stats" style={{ marginTop: '1rem' }}>
+                <div><span className="perf-value">{team!.team.candidates}</span><span className="perf-label">Team Candidates</span></div>
+                <div><span className="perf-value">{team!.team.joiningsMtd}</span><span className="perf-label">Team Joinings</span></div>
+                <div><span className="perf-value">{team!.team.pendingFollowups}</span><span className="perf-label">Open Follow-ups</span></div>
+              </div>
+            </>
+          )}
+        </div>
 
+        <div className="dashboard-grid">
           <div className="card">
             <div className="card-header-row">
               <h3 className="card-heading">🔥 Hot Candidates</h3>
@@ -117,19 +119,19 @@ export default function HiringManagerDashboard() {
             {(data?.pendingApprovals?.length ?? 0) === 0 ? (
               <p className="text-muted">No pending approvals.</p>
             ) : (
-              <table className="data-table compact">
-                <thead><tr><th>Candidate</th><th>Job</th><th>Recruiter</th><th></th></tr></thead>
-                <tbody>
-                  {data!.pendingApprovals.map((p) => (
-                    <tr key={p.id}>
-                      <td><Link to={`/candidates/${p.id}`}>{p.name}</Link></td>
-                      <td>{p.job_title || '—'}</td>
-                      <td>{p.recruiter_name || '—'}</td>
-                      <td><Link to={`/candidates/${p.id}`} className="button-pill button-primary btn-sm">Review</Link></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="approval-list">
+                {data!.pendingApprovals.map((p) => (
+                  <div key={p.id} className="approval-item">
+                    <div className="approval-info">
+                      <Link to={`/candidates/${p.id}`}><strong>{p.name}</strong></Link>
+                      <span className="approval-meta" title={p.job_title || undefined}>
+                        {p.job_title || '—'}{p.recruiter_name ? ` · ${p.recruiter_name}` : ''}
+                      </span>
+                    </div>
+                    <Link to={`/candidates/${p.id}`} className="button-pill button-primary btn-sm">Review</Link>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
