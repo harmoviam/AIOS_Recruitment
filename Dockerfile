@@ -30,6 +30,9 @@ COPY --from=server-builder /app/server/dist ./server/dist
 COPY --from=server-builder /app/server/package.json ./server/package.json
 COPY --from=client-builder /app/client/dist ./client-v2/dist
 
+# Resume uploads land here (fileStorage.ts); must be writable by the nodejs user.
+RUN mkdir -p /app/server/uploads && chown -R nodejs:nodejs /app/server/uploads
+
 ENV NODE_ENV=production
 ENV PORT=8080
 
