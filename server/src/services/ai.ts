@@ -703,7 +703,7 @@ export async function parseResume(
   const prompt = [
     `Resume filename: ${filename}`,
     'Resume text:',
-    text.slice(0, 120_000),
+    text.slice(0, 24_000),
     'Extract all available profile fields.',
   ].join('\n\n');
 

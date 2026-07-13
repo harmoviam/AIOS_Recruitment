@@ -32,9 +32,10 @@ export default function ResumeUploadZone({ onParsed, onError, disabled }: Resume
   return (
     <div className="card" style={{ marginBottom: '1rem' }}>
       <h3 className="card-heading">Upload Resume</h3>
-      <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-        PDF, DOC, or DOCX — AI extracts profile fields for you to review before saving.
-      </p>
+        <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+          PDF, DOC, or DOCX — fields are extracted for you to review before saving.
+          {parsing ? ' Large files may take up to a minute on local AI.' : ''}
+        </p>
       <div
         className="drop-zone"
         onDragOver={(e) => e.preventDefault()}

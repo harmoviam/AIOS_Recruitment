@@ -1,5 +1,5 @@
 import { GoogleAuth } from 'google-auth-library';
-import { aiMode, parseResume, refineResumeText, type ParsedProfile } from './ai.js';
+import { aiMode, heuristicCandidateScore, parseResume, refineResumeText, type ParsedProfile } from './ai.js';
 import { extractResumeText } from './fileStorage.js';
 
 /**
@@ -146,6 +146,11 @@ export async function extractAndParseResume(
     if (text.length < 200) {
       const refined = await refineResumeText(text, filename);
       if (refined?.trim()) text = refined.trim();
+    }
+    // Fast preview: Python/spaCy extraction is instant; use it when available so
+    // the add-candidate form fills quickly. Ollama still scores on save (background).
+    if (py?.profile?.name?.trim()) {
+      return { text, profile: py.profile, source: 'spacy' };
     }
     const { profile, error } = await parseResume(text, filename);
     if (profile) return { text, profile, source: 'ai' };

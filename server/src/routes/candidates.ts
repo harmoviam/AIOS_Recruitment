@@ -13,9 +13,9 @@ import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { closeOpenFollowUps, onCandidateJoined } from '../services/followUpEngine.js';
 import {
   aiMode,
+  heuristicCandidateScore,
   MESSAGE_SUGGESTION_COUNT,
   type ParsedProfile,
-  resolveCandidateAiScore,
   rescoreCandidate,
   suggestMessages,
 } from '../services/ai.js';
@@ -361,14 +361,7 @@ router.post('/import', async (req, res) => {
       continue;
     }
 
-    const ai_score = await resolveCandidateAiScore(tenantId, {
-      name: parsed.name,
-      skills: parsed.skills,
-      experienceYears: parsed.experience_years,
-      notes: parsed.notes,
-      salaryExpectation: parsed.salary_expectation,
-      jobId,
-    });
+    const ai_score = heuristicCandidateScore(parsed.skills, parsed.experience_years);
     const createdAt = parsed.applied_at || new Date().toISOString();
     const { rows: inserted } = await pool.query(
       `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, job_id, recruiter_id, notes, salary_expectation, tenant_id, source, created_at, updated_at)
@@ -399,6 +392,7 @@ router.post('/import', async (req, res) => {
       await promoteToInterviewStage(inserted[0].id, tenantId);
     }
 
+    void rescoreCandidate(tenantId, inserted[0].id);
     imported++;
   }
 
@@ -912,14 +906,7 @@ router.post('/', async (req, res) => {
   const skillList = Array.isArray(skills) ? skills : [];
   const fromResume = Boolean(pending_resume_id || parsed_profile);
 
-  const ai_score = await resolveCandidateAiScore(tid(req), {
-    name,
-    skills: skillList,
-    experienceYears: experience_years || 0,
-    notes,
-    salaryExpectation: salary_expectation,
-    jobId: job_id ? Number(job_id) : null,
-  });
+  const ai_score = heuristicCandidateScore(skillList, experience_years || 0);
 
   const { rows } = await pool.query(
     `INSERT INTO candidates (
@@ -1105,23 +1092,12 @@ router.patch('/:id', async (req, res) => {
     params.push(JSON.stringify(skills));
     updates.push(`ai_score = $${i++}`);
     params.push(
-      await resolveCandidateAiScore(tid(req), {
-        name: existing[0].name,
+      heuristicCandidateScore(
         skills,
-        experienceYears:
-          experience_years !== undefined
-            ? Number(experience_years) || 0
-            : Number(existing[0].experience_years) || 0,
-        notes: notes !== undefined ? notes : existing[0].notes,
-        salaryExpectation:
-          salary_expectation !== undefined ? salary_expectation : existing[0].salary_expectation,
-        jobId:
-          job_id !== undefined
-            ? job_id
-              ? Number(job_id)
-              : null
-            : existing[0].job_id,
-      })
+        experience_years !== undefined
+          ? Number(experience_years) || 0
+          : Number(existing[0].experience_years) || 0
+      )
     );
   }
   if (experience_years !== undefined) {
