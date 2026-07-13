@@ -111,7 +111,7 @@ export async function generateJdWithPythonService(
 export interface HybridParseResult {
   text: string;
   profile: ParsedProfile | null;
-  /** 'ai' = Claude, 'spacy' = Python service heuristics */
+  /** 'ai' = AI model, 'spacy' = Python service heuristics */
   source: 'ai' | 'spacy';
   error?: string;
 }
@@ -119,7 +119,7 @@ export interface HybridParseResult {
 /**
  * Full extraction + parsing pipeline:
  * 1. Text: Python service (pdfplumber/python-docx), falling back to pdf-parse/mammoth.
- * 2. Profile: Claude when configured, falling back to the spaCy profile.
+ * 2. Profile: the AI model when configured, falling back to the spaCy profile.
  */
 export async function extractAndParseResume(
   buffer: Buffer,

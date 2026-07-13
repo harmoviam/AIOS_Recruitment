@@ -13,7 +13,7 @@ import {
   syncFollowUps,
 } from '../services/followUpEngine.js';
 import { followUpMessageTemplate } from '../services/messageTemplates.js';
-import { aiMode, generateFollowUpScript } from '../services/ai.js';
+import { AI_NOT_CONFIGURED, aiMode, generateFollowUpScript } from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -160,7 +160,7 @@ router.post('/', async (req, res) => {
 // ai_suggestion (replacing the rules engine's generic template text).
 router.post('/:id/ai-script', async (req, res) => {
   if (aiMode() === 'disabled') {
-    return res.status(503).json({ error: 'AI not configured — set ANTHROPIC_API_KEY on the server' });
+    return res.status(503).json({ error: AI_NOT_CONFIGURED });
   }
 
   const { rows } = await pool.query(
