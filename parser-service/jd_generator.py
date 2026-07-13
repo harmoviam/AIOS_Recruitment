@@ -206,7 +206,7 @@ ROLE_FAMILIES: list[dict] = [
     },
     {
         "name": "frontend",
-        "keywords": ["frontend", "front-end", "front end", "react", "angular", "vue", "ui developer", "ui engineer", "web developer"],
+        "keywords": ["frontend", "front-end", "front end", "javascript", "typescript", "react", "angular", "vue", "ui developer", "ui engineer", "web developer"],
         "summary": "building responsive, high-quality user interfaces and delightful web experiences",
         "responsibilities": [
             "Build and maintain responsive, accessible user interfaces using modern JavaScript frameworks",
@@ -224,7 +224,15 @@ ROLE_FAMILIES: list[dict] = [
     },
     {
         "name": "backend",
-        "keywords": ["backend", "back-end", "back end", "api developer", "node", "django", "spring", "golang developer", "php developer", ".net developer"],
+        "keywords": [
+            "backend", "back-end", "back end", "api developer",
+            "java developer", "java ", "j2ee", "spring boot", "spring developer", "hibernate",
+            "python developer", "python ", "django", "flask",
+            "node", "node.js", "nodejs",
+            "golang developer", "go developer", "go ",
+            "php developer", ".net developer", "c# developer",
+            "ruby developer", "rails developer",
+        ],
         "summary": "designing and building robust, scalable server-side systems and APIs",
         "responsibilities": [
             "Design, build, and maintain scalable APIs and backend services",
@@ -578,6 +586,39 @@ def generate_jd(
 
     responsibilities = family["responsibilities"][:5]
     requirements = list(family["requirements"][:4])
+
+    # Title-specific tweaks for common tech stacks (backend family is broad).
+    title_lower = f" {title.lower()} "
+    if family["name"] == "backend":
+        if " java " in title_lower or "j2ee" in title_lower or "spring" in title_lower:
+            responsibilities = [
+                "Design, build, and maintain Java-based backend services and RESTful APIs",
+                "Work with Spring Boot, Hibernate, and relational databases (MySQL/PostgreSQL)",
+                "Write clean, testable code and participate in code reviews",
+                "Collaborate with frontend teams and product owners on feature delivery",
+                "Troubleshoot production issues and optimize application performance",
+            ]
+            requirements = [
+                "Strong hands-on experience with Core Java and object-oriented design",
+                "Practical knowledge of Spring Boot, Spring MVC, and JPA/Hibernate",
+                "Experience with SQL databases, REST APIs, and version control (Git)",
+                "Good problem-solving skills and ability to work in an agile team",
+            ]
+        elif " python " in title_lower or "django" in title_lower or "flask" in title_lower:
+            responsibilities = [
+                "Build and maintain Python backend services, APIs, and data-processing workflows",
+                "Design database schemas and write efficient queries",
+                "Integrate third-party services and internal systems",
+                "Write unit tests and participate in code reviews",
+                "Collaborate with product and frontend teams to ship features on schedule",
+            ]
+            requirements = [
+                "Strong Python programming skills and familiarity with a web framework (Django/Flask/FastAPI)",
+                "Experience with SQL databases and REST API design",
+                "Comfort with Git, testing, and debugging production issues",
+                "Clear communication and ownership of assigned modules",
+            ]
+
     # Family-specific experience (e.g. "0–2 years, freshers welcome" for
     # telecallers) beats the generic mid-level default, but explicit seniority
     # in the title ("Senior Telecaller") still wins.
