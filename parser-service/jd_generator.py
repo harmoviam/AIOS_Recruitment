@@ -150,6 +150,44 @@ ROLE_FAMILIES: list[dict] = [
         ],
     },
     {
+        "name": "admissions_counselor",
+        "keywords": [
+            "admission counselor", "admissions counselor", "admission counsellor", "admissions counsellor",
+            "admission officer", "admissions officer", "admission executive", "admissions executive",
+            "admission coordinator", "admissions coordinator", "enrollment counselor", "enrolment counsellor",
+            "academic counselor", "academic counsellor", "education counselor", "education counsellor",
+            "student counselor", "student counsellor", "career counselor", "career counsellor",
+            "study abroad counselor", "study abroad counsellor", "overseas education", "education consultant",
+            "student advisor", "student adviser", "admission consultant", "admissions consultant",
+        ],
+        "summary": "guiding prospective students and parents through admissions, counseling, and enrollment",
+        "experience": "0–4 years (freshers with strong communication skills are welcome)",
+        "responsibilities": [
+            "Counsel prospective students and parents on courses, eligibility, fees, and admission process",
+            "Handle inbound and outbound enquiries via phone, walk-ins, email, and social channels",
+            "Conduct follow-ups, schedule campus visits or counseling sessions, and convert leads to enrollments",
+            "Collect and verify application documents and maintain accurate records in the CRM/ERP",
+            "Coordinate with academics, finance, and operations teams to ensure smooth onboarding",
+        ],
+        "requirements": [
+            "Excellent verbal communication and interpersonal skills",
+            "Comfortable explaining academic programs, career outcomes, and admission requirements clearly",
+            "Target-driven mindset with experience in counseling, inside sales, or customer-facing roles",
+            "Basic computer skills — CRM entry, MS Office, and email follow-ups",
+        ],
+        "extras": [
+            ("Shift Timings", [
+                "Day shift: 9:30 AM – 6:30 PM, 6 days a week (may include weekend counseling drives)",
+            ]),
+            ("Languages", [
+                "Fluency in English and Hindi required; regional language skills are an advantage",
+            ]),
+            ("Eligibility", [
+                "Graduate preferred; candidates with prior education-sector experience will be preferred",
+            ]),
+        ],
+    },
+    {
         "name": "data_entry",
         "keywords": ["data entry", "back office", "computer operator", "mis executive", "typist"],
         "summary": "keeping business data accurate, complete, and up to date",
@@ -202,6 +240,30 @@ ROLE_FAMILIES: list[dict] = [
                 "Age: 21–45 years",
                 "Minimum height and fitness criteria as per site norms",
             ]),
+        ],
+    },
+    {
+        "name": "banking_lending",
+        "keywords": [
+            "mortgage", "home loan", "housing loan", "loan manager", "loan officer",
+            "relationship manager", "credit manager", "credit officer", "personal loan",
+            "business loan", "lending", "banking", "nbfc", "microfinance",
+            "collection officer", "recovery officer", "wealth manager",
+        ],
+        "summary": "helping customers access the right loan products while meeting business and compliance goals",
+        "experience": "2–6 years in retail lending, mortgages, or banking sales",
+        "responsibilities": [
+            "Source and convert loan leads through branch walk-ins, referrals, DSAs, and partner channels",
+            "Assess customer eligibility, explain loan products, and guide applicants through documentation",
+            "Coordinate with credit, operations, and legal teams to process files and meet TAT targets",
+            "Maintain accurate pipeline data in the LOS/CRM and follow up until disbursement",
+            "Ensure adherence to KYC, AML, and internal policy guidelines on every file",
+        ],
+        "requirements": [
+            "Hands-on experience in home loans, mortgages, personal loans, or retail banking sales",
+            "Strong interpersonal skills with a target-driven approach to conversions",
+            "Working knowledge of loan documentation, CIBIL checks, and basic underwriting criteria",
+            "Comfort using CRM/LOS systems and MS Office for reporting",
         ],
     },
     {
@@ -519,6 +581,16 @@ SENIORITY_LEVELS = [
 
 DEFAULT_EXPERIENCE = "2–5 years"
 
+# Titles ending in "Manager" that are usually IC roles, not people managers.
+_IC_MANAGER_PHRASES = (
+    "relationship manager", "account manager", "service manager",
+    "portfolio manager", "product manager", "project manager",
+)
+_LEADERSHIP_PREFIXES = (
+    "area ", "regional ", "zonal ", "cluster ", "branch ", "senior ", "deputy ",
+    "assistant general", "general ", "national ",
+)
+
 WHAT_WE_OFFER = [
     "Competitive compensation aligned with your experience",
     "A collaborative team and a culture of learning and growth",
@@ -538,6 +610,9 @@ def detect_family(title: str) -> dict:
 def detect_seniority(title: str) -> tuple[str, Optional[str], Optional[str]]:
     """Return (level_name, experience_line, extra_note)."""
     lower = f" {title.lower()} "
+    if any(p in lower for p in _IC_MANAGER_PHRASES):
+        if not any(p in lower for p in _LEADERSHIP_PREFIXES):
+            return "mid", DEFAULT_EXPERIENCE, None
     for name, keywords, exp, note in SENIORITY_LEVELS:
         for kw in keywords:
             if kw in lower:
@@ -567,28 +642,15 @@ def generate_jd(
     title = re.sub(r"\s+", " ", title).strip()
     family = detect_family(title)
     level, experience, level_note = detect_seniority(title)
+    title_lower = f" {title.lower()} "
 
     company = (client or "").strip() or "Our client"
     where = (location or "").strip()
-
-    # Role summary
-    summary_bits = [
-        f"{company} is looking for {indefinite_article(title)} {title}"
-        + (f" based in {where}" if where else "")
-        + f" to join the team, {family['summary']}."
-    ]
-    if open_positions and int(open_positions) > 1:
-        summary_bits.append(f"We are hiring for {int(open_positions)} open positions.")
-    if level_note:
-        summary_bits.append(level_note)
-    if notes and notes.strip():
-        summary_bits.append(notes.strip().rstrip(".") + ".")
 
     responsibilities = family["responsibilities"][:5]
     requirements = list(family["requirements"][:4])
 
     # Title-specific tweaks for common tech stacks (backend family is broad).
-    title_lower = f" {title.lower()} "
     if family["name"] == "backend":
         if " java " in title_lower or "j2ee" in title_lower or "spring" in title_lower:
             responsibilities = [
@@ -618,6 +680,54 @@ def generate_jd(
                 "Comfort with Git, testing, and debugging production issues",
                 "Clear communication and ownership of assigned modules",
             ]
+
+    if family["name"] == "banking_lending":
+        if level == "manager":
+            level_note = (
+                "You will lead the lending team, own disbursement and portfolio targets, "
+                "and ensure compliant, high-quality loan sourcing."
+            )
+            if "mortgage" in title_lower or "home loan" in title_lower or "housing loan" in title_lower:
+                responsibilities = [
+                    "Lead and coach a team of mortgage/home-loan relationship managers or officers",
+                    "Drive monthly disbursement, login, and sanction targets across branch and partner channels",
+                    "Build relationships with builders, brokers, DSAs, and referral partners to grow the pipeline",
+                    "Review file quality, documentation completeness, and turnaround with credit and operations",
+                    "Monitor portfolio health, early delinquency, and ensure adherence to RBI and internal policies",
+                ]
+                requirements = [
+                    "Proven experience leading a mortgage or home-loan sales team in a bank or NBFC",
+                    "Strong knowledge of home-loan products, LTV norms, documentation, and underwriting basics",
+                    "Track record of achieving disbursement targets and managing partner/channel networks",
+                    "Excellent stakeholder management with credit, operations, legal, and branch leadership",
+                ]
+            else:
+                responsibilities = [
+                    "Lead a team of relationship managers or loan officers to achieve lending targets",
+                    "Own branch/area disbursement, login, and cross-sell goals with clear weekly tracking",
+                    "Coach the team on product knowledge, objection handling, and compliant selling practices",
+                    "Partner with credit, operations, and collections to improve TAT and portfolio quality",
+                    "Ensure KYC/AML compliance, audit readiness, and accurate reporting to regional leadership",
+                ]
+                requirements = [
+                    "Experience managing a retail lending, personal loan, or banking sales team",
+                    "Strong understanding of loan products, documentation, and regulatory compliance",
+                    "Demonstrated success in target achievement and team development",
+                    "Good analytical skills for pipeline review, forecasting, and performance management",
+                ]
+
+    # Role summary
+    summary_bits = [
+        f"{company} is looking for {indefinite_article(title)} {title}"
+        + (f" based in {where}" if where else "")
+        + f" to join the team, {family['summary']}."
+    ]
+    if open_positions and int(open_positions) > 1:
+        summary_bits.append(f"We are hiring for {int(open_positions)} open positions.")
+    if level_note:
+        summary_bits.append(level_note)
+    if notes and notes.strip():
+        summary_bits.append(notes.strip().rstrip(".") + ".")
 
     # Family-specific experience (e.g. "0–2 years, freshers welcome" for
     # telecallers) beats the generic mid-level default, but explicit seniority
