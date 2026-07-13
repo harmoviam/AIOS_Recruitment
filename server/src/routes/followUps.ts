@@ -13,7 +13,11 @@ import {
   syncFollowUps,
 } from '../services/followUpEngine.js';
 import { followUpMessageTemplate } from '../services/messageTemplates.js';
-import { AI_NOT_CONFIGURED, aiMode, generateFollowUpScript } from '../services/ai.js';
+import { enrichFollowUp, enrichPendingFollowUps } from '../services/followUpAi.js';
+import {
+  AI_NOT_CONFIGURED,
+  aiMode,
+} from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -43,6 +47,9 @@ router.get('/', async (req, res) => {
   // Lazily generate rule-based follow-ups (interview reminders, offer chase,
   // onboarding milestones) so the center is always up to date.
   await syncFollowUps(tid(req));
+  void enrichPendingFollowUps(tid(req)).catch((err) =>
+    console.warn('Follow-up AI enrichment failed:', (err as Error).message)
+  );
 
   const t = tenantClause(tid(req), 'f', 1);
   let sql = `
@@ -89,7 +96,7 @@ router.get('/', async (req, res) => {
   const mapped = rows.map((r) => ({
     ...r,
     status: deriveStatus(r.due_at, r.status, r.completed_at),
-    message_template: followUpMessageTemplate(r),
+    message_template: r.whatsapp_message || followUpMessageTemplate(r),
   }));
 
   if (status) {
@@ -156,8 +163,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// Generate a personalized call script for one follow-up and persist it to
-// ai_suggestion (replacing the rules engine's generic template text).
+// Generate AI call script + WhatsApp message for one follow-up.
 router.post('/:id/ai-script', async (req, res) => {
   if (aiMode() === 'disabled') {
     return res.status(503).json({ error: AI_NOT_CONFIGURED });
@@ -166,7 +172,7 @@ router.post('/:id/ai-script', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT f.*, c.name AS candidate_name, c.stage AS candidate_stage,
        c.expected_joining_at, c.joined_at, j.title AS job_title,
-       i.scheduled_at AS interview_at
+       i.scheduled_at AS interview_at, i.meeting_link
      FROM follow_ups f
      JOIN candidates c ON c.id = f.candidate_id AND c.tenant_id = f.tenant_id
      LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = f.tenant_id
@@ -177,35 +183,27 @@ router.post('/:id/ai-script', async (req, res) => {
   const f = rows[0];
   if (!f) return res.status(404).json({ error: 'Follow-up not found' });
 
-  const { rows: prior } = await pool.query(
-    `SELECT category, outcome, completed_at FROM follow_ups
-     WHERE tenant_id = $1 AND candidate_id = $2 AND outcome IS NOT NULL AND completed_at IS NOT NULL
-     ORDER BY completed_at DESC LIMIT 5`,
-    [tid(req), f.candidate_id]
-  );
-
-  const script = await generateFollowUpScript({
+  const ok = await enrichFollowUp({
+    id: f.id,
+    tenant_id: tid(req),
+    candidate_id: f.candidate_id,
     category: f.category,
     type: f.type,
-    dueAt: f.due_at,
-    milestoneDay: f.milestone_day,
-    candidateName: f.candidate_name,
-    stage: f.candidate_stage,
-    jobTitle: f.job_title,
-    interviewAt: f.interview_at,
-    expectedJoiningAt: f.expected_joining_at,
-    joinedAt: f.joined_at,
-    priorOutcomes: prior.map((p) => ({
-      category: p.category,
-      outcome: p.outcome,
-      completedAt: p.completed_at,
-    })),
+    due_at: f.due_at,
+    milestone_day: f.milestone_day,
+    candidate_name: f.candidate_name,
+    candidate_stage: f.candidate_stage,
+    job_title: f.job_title,
+    interview_at: f.interview_at,
+    candidate_expected_joining_at: f.expected_joining_at,
+    candidate_joined_at: f.joined_at,
+    meeting_link: f.meeting_link ?? null,
   });
-  if (!script) return res.status(502).json({ error: 'AI script generation failed — try again' });
+  if (!ok) return res.status(502).json({ error: 'AI script generation failed — try again' });
 
   const { rows: updated } = await pool.query(
-    'UPDATE follow_ups SET ai_suggestion = $1 WHERE id = $2 AND tenant_id = $3 RETURNING *',
-    [script, req.params.id, tid(req)]
+    'SELECT * FROM follow_ups WHERE id = $1 AND tenant_id = $2',
+    [req.params.id, tid(req)]
   );
   res.json(updated[0]);
 });

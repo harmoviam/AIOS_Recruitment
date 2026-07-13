@@ -378,6 +378,7 @@ async function migrateFollowUpEngine(client: pg.PoolClient) {
   await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS milestone_day INTEGER`);
   await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES follow_ups(id) ON DELETE SET NULL`);
   await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS escalated BOOLEAN NOT NULL DEFAULT FALSE`);
+  await client.query(`ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS whatsapp_message TEXT`);
   await client.query(`CREATE INDEX IF NOT EXISTS follow_ups_rule_idx ON follow_ups (tenant_id, candidate_id, category)`);
 
   await client.query(`ALTER TABLE interviews ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);

@@ -75,8 +75,7 @@ router.get('/', async (req, res) => {
 });
 
 // Draft a job description from the basics typed into the add-job form.
-// Primary: the AI model when configured (role-specific, detailed output).
-// Fallback: the Python parser-service template engine (no API key needed).
+// Uses Ollama when configured; Python templates only when AI is disabled.
 router.post('/generate-description', async (req, res) => {
   const { title, client, location, open_positions, notes } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
@@ -89,20 +88,19 @@ router.post('/generate-description', async (req, res) => {
     notes,
   };
 
-  let description: string | null = null;
   if (aiMode() === 'live') {
-    description = await generateJobDescription(input);
+    const description = await generateJobDescription(input);
+    if (!description) {
+      return res.status(502).json({
+        error: 'JD generation failed — check AI_BASE_URL/AI_MODEL and that Ollama is running',
+      });
+    }
+    return res.json({ description });
   }
+
+  const description = await generateJdWithPythonService(input);
   if (!description) {
-    description = await generateJdWithPythonService(input);
-  }
-  if (!description) {
-    return res.status(502).json({
-      error:
-        aiMode() === 'live'
-          ? 'JD generation failed — check AI_BASE_URL/AI_MODEL and the parser service'
-          : 'JD generation failed — is the parser service running?',
-    });
+    return res.status(502).json({ error: 'JD generation failed — is the parser service running?' });
   }
   res.json({ description });
 });

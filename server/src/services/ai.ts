@@ -369,6 +369,132 @@ export async function generateFollowUpScript(input: FollowUpScriptInput): Promis
   return textCall(system, prompt);
 }
 
+// ── Follow-up WhatsApp message ─────────────────────────────────────────
+
+export interface FollowUpMessageInput extends FollowUpScriptInput {
+  meetingLink?: string | null;
+}
+
+export async function generateFollowUpMessage(input: FollowUpMessageInput): Promise<string | null> {
+  const system =
+    'You write short WhatsApp messages a recruiter sends to a job candidate. ' +
+    'Warm, professional, under 400 characters. Use *text* for bold (WhatsApp style). ' +
+    'For interview scheduling/confirmation messages, the candidate must be asked to reply *CONFIRMED*. ' +
+    'Plain text only — no markdown headers.';
+
+  const outcomes = (input.priorOutcomes || [])
+    .map((o) => `${o.category}: ${o.outcome} (${new Date(o.completedAt).toLocaleDateString()})`)
+    .join('; ');
+
+  const prompt = [
+    `Follow-up type: ${input.category} via ${input.type}, due ${new Date(input.dueAt).toLocaleString()}`,
+    input.milestoneDay != null ? `Milestone day: ${input.milestoneDay}` : null,
+    `Candidate: ${input.candidateName} (stage: ${input.stage})`,
+    input.jobTitle ? `Role: ${input.jobTitle}` : null,
+    input.interviewAt ? `Interview at: ${new Date(input.interviewAt).toLocaleString()}` : null,
+    input.meetingLink ? `Video interview link: ${input.meetingLink}` : null,
+    input.expectedJoiningAt
+      ? `Expected joining: ${new Date(input.expectedJoiningAt).toLocaleDateString()}`
+      : null,
+    input.joinedAt ? `Joined on: ${new Date(input.joinedAt).toLocaleDateString()}` : null,
+    outcomes ? `Previous follow-up outcomes: ${outcomes}` : null,
+    'Write the WhatsApp message to send for this follow-up.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return textCall(system, prompt);
+}
+
+export async function generateInterviewScheduledMessage(input: {
+  candidateName: string;
+  jobTitle?: string | null;
+  interviewAt: string;
+  meetingLink?: string | null;
+}): Promise<string | null> {
+  const system =
+    'You write a WhatsApp interview confirmation message for a recruiter. ' +
+    'Thank the candidate, state the interview date/time, include the video link if provided, ' +
+    'and ask them to reply *CONFIRMED*. Under 450 characters. Use *CONFIRMED* and *text* for bold.';
+
+  const prompt = [
+    `Candidate: ${input.candidateName}`,
+    input.jobTitle ? `Role: ${input.jobTitle}` : null,
+    `Interview: ${new Date(input.interviewAt).toLocaleString()}`,
+    input.meetingLink ? `Join link: ${input.meetingLink}` : null,
+    'Write the confirmation WhatsApp message.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return textCall(system, prompt);
+}
+
+// ── Candidate fit score (sync path for create/import) ────────────────────
+
+export function heuristicCandidateScore(skills: string[], years: number): number {
+  const base = Math.min(10, 5 + years * 0.4 + skills.length * 0.3);
+  return Math.round(base * 10) / 10;
+}
+
+export async function resolveCandidateAiScore(
+  tenantId: number,
+  input: {
+    name: string;
+    skills: string[];
+    experienceYears: number;
+    notes?: string | null;
+    salaryExpectation?: string | null;
+    jobId?: number | null;
+  }
+): Promise<number> {
+  if (aiMode() !== 'live') {
+    return heuristicCandidateScore(input.skills, input.experienceYears);
+  }
+
+  let jobTitle: string | null = null;
+  let jobDescription: string | null = null;
+  let jobLocation: string | null = null;
+  if (input.jobId) {
+    const { rows } = await pool.query(
+      'SELECT title, description, location FROM jobs WHERE id = $1 AND tenant_id = $2',
+      [input.jobId, tenantId]
+    );
+    jobTitle = rows[0]?.title ?? null;
+    jobDescription = rows[0]?.description ?? null;
+    jobLocation = rows[0]?.location ?? null;
+  }
+
+  const result = await scoreCandidate({
+    name: input.name,
+    skills: input.skills,
+    experienceYears: input.experienceYears,
+    notes: input.notes,
+    salaryExpectation: input.salaryExpectation,
+    jobTitle,
+    jobDescription,
+    jobLocation,
+  });
+  return result?.score ?? heuristicCandidateScore(input.skills, input.experienceYears);
+}
+
+// ── Resume text refinement (sparse OCR / extraction cleanup) ───────────
+
+export async function refineResumeText(text: string, filename: string): Promise<string | null> {
+  if (aiMode() === 'disabled' || !text.trim()) return null;
+  const system =
+    'You clean up resume text extracted from a PDF or DOCX. ' +
+    'Fix broken line breaks and OCR glitches, preserve all factual content, ' +
+    'and output plain resume text only — no commentary.';
+  const prompt = [
+    `Filename: ${filename}`,
+    'Extracted text (may be noisy or fragmented):',
+    text.slice(0, 80_000),
+    'Return the cleaned full resume text.',
+  ].join('\n\n');
+  return textCall(system, prompt);
+}
+
 // ── Job description generation ─────────────────────────────────────────
 
 export interface JobDescriptionInput {

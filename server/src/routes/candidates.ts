@@ -15,6 +15,7 @@ import {
   aiMode,
   MESSAGE_SUGGESTION_COUNT,
   type ParsedProfile,
+  resolveCandidateAiScore,
   rescoreCandidate,
   suggestMessages,
 } from '../services/ai.js';
@@ -360,7 +361,14 @@ router.post('/import', async (req, res) => {
       continue;
     }
 
-    const ai_score = computeAiScore(parsed.skills, parsed.experience_years);
+    const ai_score = await resolveCandidateAiScore(tenantId, {
+      name: parsed.name,
+      skills: parsed.skills,
+      experienceYears: parsed.experience_years,
+      notes: parsed.notes,
+      salaryExpectation: parsed.salary_expectation,
+      jobId,
+    });
     const createdAt = parsed.applied_at || new Date().toISOString();
     const { rows: inserted } = await pool.query(
       `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, job_id, recruiter_id, notes, salary_expectation, tenant_id, source, created_at, updated_at)
@@ -902,8 +910,16 @@ router.post('/', async (req, res) => {
   }
 
   const skillList = Array.isArray(skills) ? skills : [];
-  const ai_score = computeAiScore(skillList, experience_years || 0);
   const fromResume = Boolean(pending_resume_id || parsed_profile);
+
+  const ai_score = await resolveCandidateAiScore(tid(req), {
+    name,
+    skills: skillList,
+    experienceYears: experience_years || 0,
+    notes,
+    salaryExpectation: salary_expectation,
+    jobId: job_id ? Number(job_id) : null,
+  });
 
   const { rows } = await pool.query(
     `INSERT INTO candidates (
@@ -1015,7 +1031,8 @@ router.patch('/:id', async (req, res) => {
   } = req.body;
 
   const { rows: existing } = await pool.query(
-    'SELECT id, name, email, phone FROM candidates WHERE id = $1 AND tenant_id = $2',
+    `SELECT id, name, email, phone, experience_years, job_id, notes, salary_expectation
+     FROM candidates WHERE id = $1 AND tenant_id = $2`,
     [req.params.id, tid(req)]
   );
   if (!existing[0]) return res.status(404).json({ error: 'Candidate not found' });
@@ -1087,7 +1104,25 @@ router.patch('/:id', async (req, res) => {
     updates.push(`skills = $${i++}::jsonb`);
     params.push(JSON.stringify(skills));
     updates.push(`ai_score = $${i++}`);
-    params.push(computeAiScore(skills, experience_years || 0));
+    params.push(
+      await resolveCandidateAiScore(tid(req), {
+        name: existing[0].name,
+        skills,
+        experienceYears:
+          experience_years !== undefined
+            ? Number(experience_years) || 0
+            : Number(existing[0].experience_years) || 0,
+        notes: notes !== undefined ? notes : existing[0].notes,
+        salaryExpectation:
+          salary_expectation !== undefined ? salary_expectation : existing[0].salary_expectation,
+        jobId:
+          job_id !== undefined
+            ? job_id
+              ? Number(job_id)
+              : null
+            : existing[0].job_id,
+      })
+    );
   }
   if (experience_years !== undefined) {
     updates.push(`experience_years = $${i++}`);
@@ -1375,11 +1410,6 @@ function resolveJobId(
     if (partial) return partial.id;
   }
   return defaultJobId;
-}
-
-function computeAiScore(skills: string[], years: number): number {
-  const base = Math.min(10, 5 + years * 0.4 + skills.length * 0.3);
-  return Math.round(base * 10) / 10;
 }
 
 function buildResumeMeta(opts: {

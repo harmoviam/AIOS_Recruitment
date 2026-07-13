@@ -11,6 +11,7 @@ import {
 import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
+import { aiMode, generateInterviewScheduledMessage } from '../services/ai.js';
 import {
   appPublicUrl,
   candidateJoinPath,
@@ -277,12 +278,23 @@ router.post('/', async (req, res) => {
   let whatsapp: { status: 'simulated' | 'sent' | 'failed'; error?: string } | undefined;
 
   if (candidate && interview.meeting_link) {
-    const body = interviewScheduledMessage(
-      candidate.name,
-      candidate.job_title,
-      new Date(scheduled_at),
-      interview.meeting_link
-    );
+    let body: string | null = null;
+    if (aiMode() === 'live') {
+      body = await generateInterviewScheduledMessage({
+        candidateName: candidate.name,
+        jobTitle: candidate.job_title,
+        interviewAt: scheduled_at,
+        meetingLink: interview.meeting_link,
+      });
+    }
+    if (!body) {
+      body = interviewScheduledMessage(
+        candidate.name,
+        candidate.job_title,
+        new Date(scheduled_at),
+        interview.meeting_link
+      );
+    }
     const result = await storeAndSendCandidateWhatsApp({
       candidateId: Number(candidate_id),
       tenantId: tid(req),

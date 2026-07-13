@@ -1,4 +1,5 @@
 import { pool } from '../dbConfig.js';
+import { aiMode } from './ai.js';
 
 /**
  * Follow-up rules engine.
@@ -49,6 +50,11 @@ const JOINING_MILESTONE_SUGGESTIONS: Record<number, string> = {
 };
 
 export const CLOSING_OUTCOMES = ['not_interested', 'joined_elsewhere', 'offer_rejected', 'left_company'];
+
+/** When AI is live, rule follow-ups are enriched asynchronously; use null placeholders. */
+function ruleAiSuggestion(fallback: string): string | null {
+  return aiMode() === 'live' ? null : fallback;
+}
 
 /** Close pre-join follow-ups and schedule post-joining milestones when a candidate joins. */
 export async function onCandidateJoined(tenantId: number, candidateId: number): Promise<void> {
@@ -117,7 +123,9 @@ async function syncInterviewReminders(tenantId: number): Promise<void> {
       interviewId: iv.id,
       dueAt: clampToNow(dayBefore),
       type: 'call',
-      aiSuggestion: `Interview on ${scheduled.toLocaleString()} — confirm attendance, share meeting link & documents checklist.`,
+      aiSuggestion: ruleAiSuggestion(
+        `Interview on ${scheduled.toLocaleString()} — confirm attendance, share meeting link & documents checklist.`
+      ),
     });
 
     await insertRuleFollowUp(tenantId, {
@@ -127,7 +135,9 @@ async function syncInterviewReminders(tenantId: number): Promise<void> {
       interviewId: iv.id,
       dueAt: clampToNow(sameDay),
       type: 'call',
-      aiSuggestion: `Interview today at ${scheduled.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — final confirmation call; if no answer, escalate immediately.`,
+      aiSuggestion: ruleAiSuggestion(
+        `Interview today at ${scheduled.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — final confirmation call; if no answer, escalate immediately.`
+      ),
     });
   }
 }
@@ -167,7 +177,7 @@ async function syncOfferFollowUps(tenantId: number): Promise<void> {
             c.recruiter_id,
             clampToNow(due).toISOString(),
             day,
-            JOINING_MILESTONE_SUGGESTIONS[day],
+            ruleAiSuggestion(JOINING_MILESTONE_SUGGESTIONS[day]),
           ]
         );
       }
@@ -185,10 +195,17 @@ async function syncOfferFollowUps(tenantId: number): Promise<void> {
         : new Date();
       await pool.query(
         `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, ai_suggestion)
-         VALUES ($1, $2, $3, $4, 'call', 'upcoming', 'offer_followup',
-           'Selected — pin down the expected joining date. Once it is set, reminders for 1 week before, 1 day before and the joining day are scheduled automatically.')
+         VALUES ($1, $2, $3, $4, 'call', 'upcoming', 'offer_followup', $5)
          ON CONFLICT DO NOTHING`,
-        [tenantId, c.id, c.recruiter_id, clampToNow(base).toISOString()]
+        [
+          tenantId,
+          c.id,
+          c.recruiter_id,
+          clampToNow(base).toISOString(),
+          ruleAiSuggestion(
+            'Selected — pin down the expected joining date. Once it is set, reminders for 1 week before, 1 day before and the joining day are scheduled automatically.'
+          ),
+        ]
       );
     }
   }
@@ -220,7 +237,9 @@ async function syncOnboardingMilestones(tenantId: number): Promise<void> {
           c.recruiter_id,
           due.toISOString(),
           day,
-          `Day ${day} post-joining check-in — confirm the candidate is settled; flag attrition risk early.`,
+          ruleAiSuggestion(
+            `Day ${day} post-joining check-in — confirm the candidate is settled; flag attrition risk early.`
+          ),
         ]
       );
     }
@@ -245,9 +264,18 @@ export async function createNoResponseEscalation(
   const due = new Date(Date.now() + 2 * 3600 * 1000); // retry in 2 hours
   await pool.query(
     `INSERT INTO follow_ups (tenant_id, candidate_id, assigned_to, due_at, type, status, category, interview_id, parent_id, escalated, ai_suggestion)
-     VALUES ($1, $2, $3, $4, 'whatsapp', 'upcoming', 'no_response', $5, $6, TRUE,
-       'Candidate not picking calls before the interview — retry, and switch channel: send a WhatsApp + email with the interview details.')`,
-    [tenantId, parent.candidate_id, parent.assigned_to, due.toISOString(), parent.interview_id, parent.id]
+     VALUES ($1, $2, $3, $4, 'whatsapp', 'upcoming', 'no_response', $5, $6, TRUE, $7)`,
+    [
+      tenantId,
+      parent.candidate_id,
+      parent.assigned_to,
+      due.toISOString(),
+      parent.interview_id,
+      parent.id,
+      ruleAiSuggestion(
+        'Candidate not picking calls before the interview — retry, and switch channel: send a WhatsApp + email with the interview details.'
+      ),
+    ]
   );
 }
 
@@ -274,7 +302,7 @@ interface RuleFollowUp {
   interviewId: number;
   dueAt: Date;
   type: string;
-  aiSuggestion: string;
+  aiSuggestion: string | null;
 }
 
 async function insertRuleFollowUp(tenantId: number, fu: RuleFollowUp): Promise<void> {

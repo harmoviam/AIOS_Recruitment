@@ -1,5 +1,5 @@
 import { GoogleAuth } from 'google-auth-library';
-import { aiMode, parseResume, type ParsedProfile } from './ai.js';
+import { aiMode, parseResume, refineResumeText, type ParsedProfile } from './ai.js';
 import { extractResumeText } from './fileStorage.js';
 
 /**
@@ -119,7 +119,8 @@ export interface HybridParseResult {
 /**
  * Full extraction + parsing pipeline:
  * 1. Text: Python service (pdfplumber/python-docx), falling back to pdf-parse/mammoth.
- * 2. Profile: the AI model when configured, falling back to the spaCy profile.
+ * 2. When AI is live: refine sparse text via Ollama, then structured parse via Ollama only.
+ * 3. When AI is disabled: fall back to spaCy heuristics from the Python service.
  */
 export async function extractAndParseResume(
   buffer: Buffer,
@@ -133,14 +134,27 @@ export async function extractAndParseResume(
     text = (await extractResumeText(buffer, mimeType)).trim();
   }
   if (!text) {
-    return { text: '', profile: null, source: 'spacy', error: 'Could not extract text from this file.' };
+    return {
+      text: '',
+      profile: null,
+      source: aiMode() === 'live' ? 'ai' : 'spacy',
+      error: 'Could not extract text from this file.',
+    };
   }
 
-  let aiError: string | undefined;
   if (aiMode() === 'live') {
+    if (text.length < 200) {
+      const refined = await refineResumeText(text, filename);
+      if (refined?.trim()) text = refined.trim();
+    }
     const { profile, error } = await parseResume(text, filename);
     if (profile) return { text, profile, source: 'ai' };
-    aiError = error;
+    return {
+      text,
+      profile: null,
+      source: 'ai',
+      error: error || 'AI could not parse this resume. Check AI_BASE_URL/AI_MODEL or enter details manually.',
+    };
   }
 
   if (py?.profile?.name?.trim()) {
@@ -151,8 +165,6 @@ export async function extractAndParseResume(
     text,
     profile: null,
     source: 'spacy',
-    error:
-      aiError ||
-      'Could not parse this resume automatically. Enter details manually.',
+    error: 'Could not parse this resume automatically. Enter details manually.',
   };
 }

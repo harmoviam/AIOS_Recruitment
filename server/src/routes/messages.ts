@@ -13,7 +13,7 @@ import {
 } from '../services/whatsapp.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
 import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
-import { aiMode, MESSAGE_SUGGESTION_COUNT, suggestMessages } from '../services/ai.js';
+import { aiMode, generateInterviewScheduledMessage, MESSAGE_SUGGESTION_COUNT, suggestMessages } from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -73,9 +73,23 @@ router.get('/:candidateId/suggestions', async (req, res) => {
 
   // The interview confirmation template stays first when an interview is
   // pending — the webhook's "CONFIRMED" reply parsing depends on its wording.
-  const confirmationFirst = c?.scheduled_at
-    ? [interviewScheduledMessage(c.name, c.title, new Date(c.scheduled_at), c.meeting_link)]
-    : [];
+  const confirmationFirst: string[] = [];
+  if (c?.scheduled_at) {
+    if (aiMode() === 'live') {
+      const aiConfirm = await generateInterviewScheduledMessage({
+        candidateName: c.name,
+        jobTitle: c.title,
+        interviewAt: c.scheduled_at,
+        meetingLink: c.meeting_link,
+      });
+      if (aiConfirm) confirmationFirst.push(aiConfirm);
+    }
+    if (confirmationFirst.length === 0) {
+      confirmationFirst.push(
+        interviewScheduledMessage(c.name, c.title, new Date(c.scheduled_at), c.meeting_link)
+      );
+    }
+  }
 
   if (aiMode() === 'live' && c) {
     const ai = await suggestMessages({
