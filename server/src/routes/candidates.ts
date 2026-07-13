@@ -13,6 +13,7 @@ import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { closeOpenFollowUps, onCandidateJoined } from '../services/followUpEngine.js';
 import {
   aiMode,
+  MESSAGE_SUGGESTION_COUNT,
   type ParsedProfile,
   rescoreCandidate,
   suggestMessages,
@@ -608,11 +609,23 @@ router.get('/:id/suggestions', async (req, res) => {
     `Hi ${c.name.split(' ')[0]}, quick follow-up on your application. Any questions?`,
     `Would Tuesday 2 PM work for a quick call?`,
     `I'll share the interview link shortly.`,
+    `Thanks for your interest — happy to walk you through the role and next steps.`,
+    `Could you confirm your current notice period and earliest joining date?`,
+    `We'd like to schedule a short screening call. What time works best this week?`,
+    `Please review the job description I shared and let me know if you'd like to proceed.`,
+    `Your profile looks relevant for this opening — are you open to a conversation?`,
+    `I'll send available interview slots shortly. Please pick one that suits you.`,
+    `Let me know if the location and compensation range align with your expectations.`,
   ];
   if (c.salary_expectation) {
     suggestions.push(`Based on profile, salary range looks like ${c.salary_expectation}.`);
   }
-  res.json({ suggestions, ai_score: c.ai_score, salary_expectation: c.salary_expectation, source: 'template' });
+  res.json({
+    suggestions: suggestions.slice(0, MESSAGE_SUGGESTION_COUNT),
+    ai_score: c.ai_score,
+    salary_expectation: c.salary_expectation,
+    source: 'template',
+  });
 });
 
 /** Download the original resume file stored for a candidate. */

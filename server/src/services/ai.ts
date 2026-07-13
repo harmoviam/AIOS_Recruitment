@@ -157,6 +157,8 @@ async function textCall(system: string, prompt: string): Promise<string | null> 
 
 // ── Message suggestions (WhatsApp inbox + candidate outreach) ──────────
 
+export const MESSAGE_SUGGESTION_COUNT = 10;
+
 export interface SuggestionContext {
   candidateName: string;
   stage: string;
@@ -174,7 +176,7 @@ const SUGGESTIONS_SCHEMA = {
     suggestions: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Exactly 3 short candidate-facing messages',
+      description: `Exactly ${MESSAGE_SUGGESTION_COUNT} short candidate-facing messages`,
     },
   },
   required: ['suggestions'],
@@ -190,7 +192,7 @@ export async function suggestMessages(ctx: SuggestionContext): Promise<string[] 
     'You draft WhatsApp messages a recruiter sends to a job candidate. ' +
     'Messages must be warm, professional, specific to the context, and under 200 characters each. ' +
     'No emoji spam, no placeholders like [date] — if a detail is unknown, phrase the message so it is not needed. ' +
-    'Return exactly 3 distinct options.';
+    `Return exactly ${MESSAGE_SUGGESTION_COUNT} distinct options.`;
 
   const prompt = [
     `Candidate: ${ctx.candidateName} (pipeline stage: ${ctx.stage})`,
@@ -201,15 +203,15 @@ export async function suggestMessages(ctx: SuggestionContext): Promise<string[] 
       : null,
     conversation ? `Recent conversation (newest last):\n${conversation}` : null,
     ctx.purpose === 'whatsapp_reply'
-      ? 'Task: suggest 3 replies the recruiter could send next in this conversation.'
-      : 'Task: suggest 3 outreach messages to move this candidate forward in the pipeline.',
+      ? `Task: suggest ${MESSAGE_SUGGESTION_COUNT} replies the recruiter could send next in this conversation.`
+      : `Task: suggest ${MESSAGE_SUGGESTION_COUNT} outreach messages to move this candidate forward in the pipeline.`,
   ]
     .filter(Boolean)
     .join('\n');
 
   const result = await jsonCall<{ suggestions: string[] }>(system, prompt, SUGGESTIONS_SCHEMA);
   const suggestions = result?.suggestions?.filter((s) => typeof s === 'string' && s.trim());
-  return suggestions?.length ? suggestions.slice(0, 3) : null;
+  return suggestions?.length ? suggestions.slice(0, MESSAGE_SUGGESTION_COUNT) : null;
 }
 
 // ── Candidate screening score ──────────────────────────────────────────

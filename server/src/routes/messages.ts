@@ -13,7 +13,7 @@ import {
 } from '../services/whatsapp.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
 import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
-import { aiMode, suggestMessages } from '../services/ai.js';
+import { aiMode, MESSAGE_SUGGESTION_COUNT, suggestMessages } from '../services/ai.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -95,7 +95,10 @@ router.get('/:candidateId/suggestions', async (req, res) => {
       purpose: 'whatsapp_reply',
     });
     if (ai) {
-      return res.json({ suggestions: [...confirmationFirst, ...ai].slice(0, 3), source: 'ai' });
+      return res.json({
+        suggestions: [...confirmationFirst, ...ai].slice(0, MESSAGE_SUGGESTION_COUNT),
+        source: 'ai',
+      });
     }
   }
 
@@ -105,6 +108,13 @@ router.get('/:candidateId/suggestions', async (req, res) => {
     'Thanks for reaching out! Let me check and get back to you shortly.',
     'Would a call tomorrow at 2 PM work for you?',
     'I have shared the job description. Please review and confirm your interest.',
+    'Happy to answer any questions about the role or interview process.',
+    'Could you share your updated resume and preferred notice period?',
+    'We are moving quickly on this role — are you available for a call today?',
+    'I will follow up with the interview details shortly.',
+    'Please confirm if the shared salary range works for you.',
+    'Let me know a convenient time for a 10-minute screening call.',
+    'Thanks for your patience — I am checking with the hiring team and will update you soon.',
   ];
   suggestions.unshift(...confirmationFirst);
   if (lastIncoming.toLowerCase().includes('interview')) {
@@ -114,7 +124,7 @@ router.get('/:candidateId/suggestions', async (req, res) => {
     suggestions.unshift('Sure! I will send the JD right away. The role offers competitive compensation.');
   }
 
-  res.json({ suggestions: suggestions.slice(0, 3), source: 'template' });
+  res.json({ suggestions: suggestions.slice(0, MESSAGE_SUGGESTION_COUNT), source: 'template' });
 });
 
 router.get('/:candidateId', async (req, res) => {
