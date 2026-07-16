@@ -84,7 +84,7 @@ router.patch('/:id', async (req, res) => {
   }
   if (company_id !== undefined) {
     updates.push(`company_id = $${i++}`);
-    params.push(company_id);
+    params.push(company_id || null);
   }
   if (password) {
     updates.push(`password_hash = $${i++}`);

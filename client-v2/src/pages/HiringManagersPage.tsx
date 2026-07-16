@@ -11,6 +11,8 @@ import { showDemoCredentials } from '../utils/demoMode';
 
 const defaultHmPassword = () => (showDemoCredentials ? 'password123' : '');
 
+type EditForm = { name: string; company_id: string };
+
 export default function HiringManagersPage() {
   const { tenant } = useTenant();
   const loginUrl = tenantLoginUrl(tenant.slug);
@@ -18,11 +20,14 @@ export default function HiringManagersPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: defaultHmPassword(), company_id: '' });
+  const [editHm, setEditHm] = useState<HiringManager | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({ name: '', company_id: '' });
   const [loginHm, setLoginHm] = useState<HiringManager | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [createdLogin, setCreatedLogin] = useState<{ name: string; email: string; password: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [editError, setEditError] = useState('');
 
   const load = () => api.getHiringManagers().then(setManagers);
 
@@ -30,6 +35,20 @@ export default function HiringManagersPage() {
     load();
     api.getCompanies().then(setCompanies);
   }, []);
+
+  const openEdit = (hm: HiringManager) => {
+    setEditHm(hm);
+    setEditForm({
+      name: hm.name,
+      company_id: hm.company_id ? String(hm.company_id) : '',
+    });
+    setEditError('');
+  };
+
+  const closeEdit = () => {
+    setEditHm(null);
+    setEditError('');
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +65,25 @@ export default function HiringManagersPage() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create hiring manager');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editHm) return;
+    setSaving(true);
+    setEditError('');
+    try {
+      await api.updateHiringManager(editHm.id, {
+        name: editForm.name.trim(),
+        company_id: editForm.company_id ? Number(editForm.company_id) : null,
+      });
+      closeEdit();
+      load();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update hiring manager');
     } finally {
       setSaving(false);
     }
@@ -191,6 +229,9 @@ export default function HiringManagersPage() {
                   <td>{hm.recruiterCount}</td>
                   <td>{hm.teamJoiningsMtd}</td>
                   <td style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    <button type="button" className="button-pill button-secondary btn-sm" onClick={() => openEdit(hm)}>
+                      Edit
+                    </button>
                     <button type="button" className="button-pill button-primary btn-sm" onClick={() => { setLoginHm(hm); setResetPassword(''); }}>
                       Login details
                     </button>
@@ -212,6 +253,67 @@ export default function HiringManagersPage() {
           </div>
         )}
       </div>
+
+      <SideDrawer
+        open={!!editHm}
+        onClose={closeEdit}
+        title={editHm ? `Edit — ${editHm.name}` : 'Edit Hiring Manager'}
+        footer={
+          <div className="form-actions" style={{ margin: 0 }}>
+            <button type="button" className="button-pill button-secondary" onClick={closeEdit} disabled={saving}>
+              Cancel
+            </button>
+            <button type="submit" form="hm-edit-form" className="button-pill button-primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        }
+      >
+        <form id="hm-edit-form" onSubmit={handleEdit}>
+          {editError && <p className="text-critical" style={{ marginBottom: '1rem' }}>{editError}</p>}
+          {companies.length === 0 && (
+            <p className="text-muted" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+              No companies yet. Create one under <Link to="/companies">Companies</Link> first, then assign it here.
+            </p>
+          )}
+          <div className="form-group">
+            <label className="form-label" htmlFor="hm-edit-name">Full name</label>
+            <input
+              id="hm-edit-name"
+              className="input-field"
+              name="name"
+              autoComplete="name"
+              required
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+            />
+          </div>
+          <div className="form-group" style={{ marginTop: '0.75rem' }}>
+            <label className="form-label" htmlFor="hm-edit-email">Login email</label>
+            <input
+              id="hm-edit-email"
+              className="input-field"
+              type="email"
+              readOnly
+              value={editHm?.email ?? ''}
+            />
+          </div>
+          <div className="form-group" style={{ marginTop: '0.75rem' }}>
+            <label className="form-label" htmlFor="hm-edit-company">Company</label>
+            <select
+              id="hm-edit-company"
+              className="input-field"
+              value={editForm.company_id}
+              onChange={(e) => setEditForm({ ...editForm, company_id: e.target.value })}
+            >
+              <option value="">— No company —</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </form>
+      </SideDrawer>
 
       <SideDrawer
         open={!!loginHm}

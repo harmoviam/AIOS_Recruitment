@@ -326,7 +326,7 @@ export const api = {
   getHiringManagers: () => request<import('../types').HiringManager[]>('/hiring-managers'),
   createHiringManager: (data: { email: string; password: string; name: string; company_id?: number }) =>
     request('/hiring-managers', { method: 'POST', body: JSON.stringify(data) }),
-  updateHiringManager: (id: number, data: { name?: string; password?: string; company_id?: number }) =>
+  updateHiringManager: (id: number, data: { name?: string; password?: string; company_id?: number | null }) =>
     request(`/hiring-managers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getRecruiterStats: (params?: { hm_id?: number }) => {
