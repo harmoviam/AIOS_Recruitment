@@ -262,9 +262,8 @@ router.post('/', async (req, res) => {
       managedById = hm[0]?.id ?? null;
     }
   } else {
-    if (!scope.companyId) {
-      return res.status(400).json({ error: 'Your account is not linked to a company. Contact your Organization Admin.' });
-    }
+    // HM can always add recruiters that report to them; company is optional
+    // (EarlyJobs HMs may not have company_id until Org Admin assigns one).
     resolvedCompanyId = scope.companyId;
     managedById = scope.hmId;
   }

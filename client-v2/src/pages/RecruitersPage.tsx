@@ -139,7 +139,7 @@ export default function RecruitersPage() {
   const isAdd = drawer?.type === 'add';
   const pageTitle = isHm ? 'My Recruiters' : 'Recruiter Management';
   const pageDesc = isHm
-    ? 'Add and manage recruiters on your team. New recruiters are linked to your company automatically.'
+    ? 'Add and manage recruiters on your team. New recruiters report to you automatically.'
     : isAdmin && selectedHm
       ? `Managing recruiters for ${selectedHm.name} (${selectedHm.company}). Org Admin has full HM-level access here.`
       : 'Manage all recruiters, assign hiring managers, and monitor team performance across the organization.';
@@ -291,7 +291,7 @@ export default function RecruitersPage() {
           {error && <p className="text-critical" style={{ marginBottom: '1rem' }}>{error}</p>}
           {isHm && isAdd && (
             <p className="text-muted" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
-              This recruiter will be linked to your company and report to you automatically.
+              This recruiter will report to you automatically. If your account is linked to a company, they will inherit it.
             </p>
           )}
           <div className="form-group">
@@ -299,6 +299,8 @@ export default function RecruitersPage() {
             <input
               id="recruiter-name"
               className="input-field"
+              name="name"
+              autoComplete="name"
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -310,6 +312,8 @@ export default function RecruitersPage() {
               id="recruiter-email"
               className="input-field"
               type="email"
+              name="email"
+              autoComplete="username"
               required
               readOnly={!isAdd}
               value={form.email}
@@ -356,6 +360,8 @@ export default function RecruitersPage() {
               id="recruiter-password"
               className="input-field"
               type="password"
+              name="password"
+              autoComplete={isAdd ? 'new-password' : 'current-password'}
               required={isAdd}
               minLength={8}
               placeholder={isAdd ? '' : 'Leave blank to keep current'}

@@ -6,8 +6,8 @@
 --
 -- Users created / updated:
 --   admin           jyoti@earlyjobs.in     passwordJyoti@123
---   hiring_manager  moumita@earlyjobs.in   HM@123
---   hiring_manager  nidhi@earlyjobs.in     HM@123
+--   hiring_manager  moumita@earlyjobs.in   HM@123  → company EarlyJobs Desk A
+--   hiring_manager  nidhi@earlyjobs.in     HM@123  → company EarlyJobs Desk B
 --   recruiter       smruti@earlyjobs.in    Password@123  → reports to Nidhi
 --   recruiter       vidhi@earlyjobs.in     Password@123  → reports to Moumita
 -- =============================================================================
@@ -33,6 +33,8 @@ DECLARE
   v_tenant_id INTEGER;
   v_moumita_id INTEGER;
   v_nidhi_id INTEGER;
+  v_company_a INTEGER;
+  v_company_b INTEGER;
   v_hash_admin TEXT := '$2a$10$oSr9QtcMxh2tvuxpKfEPyuc2WfEceQbYJeVhBLpeSsh.A6V7dGWEu';   -- passwordJyoti@123
   v_hash_hm TEXT := '$2a$10$.5gcWHY8Z/o3omL/KQ6z.eIwX9Bc9CHhPKO/T0a8l4c1.S4wLgVTq';       -- HM@123
   v_hash_recruiter TEXT := '$2a$10$M7m/QNN/NjPrUWMPNBRYbe6sKLfBF57MbXEM6kVdbB/ucHB4m7tJq'; -- Password@123
@@ -41,6 +43,21 @@ BEGIN
   IF v_tenant_id IS NULL THEN
     RAISE EXCEPTION 'earlyjobs tenant not found after insert';
   END IF;
+
+  -- Companies for HM desks (required so HMs can manage recruiters with company linkage)
+  INSERT INTO companies (tenant_id, name, industry, location, status)
+  SELECT v_tenant_id, 'EarlyJobs Desk A', 'Staffing', 'India', 'active'
+  WHERE NOT EXISTS (
+    SELECT 1 FROM companies WHERE tenant_id = v_tenant_id AND name = 'EarlyJobs Desk A'
+  );
+  INSERT INTO companies (tenant_id, name, industry, location, status)
+  SELECT v_tenant_id, 'EarlyJobs Desk B', 'Staffing', 'India', 'active'
+  WHERE NOT EXISTS (
+    SELECT 1 FROM companies WHERE tenant_id = v_tenant_id AND name = 'EarlyJobs Desk B'
+  );
+
+  SELECT id INTO v_company_a FROM companies WHERE tenant_id = v_tenant_id AND name = 'EarlyJobs Desk A';
+  SELECT id INTO v_company_b FROM companies WHERE tenant_id = v_tenant_id AND name = 'EarlyJobs Desk B';
 
   -- Org admin
   IF EXISTS (SELECT 1 FROM users WHERE tenant_id = v_tenant_id AND email = 'jyoti@earlyjobs.in') THEN
@@ -52,48 +69,52 @@ BEGIN
     VALUES ('jyoti@earlyjobs.in', v_hash_admin, 'Jyoti', 'admin', v_tenant_id);
   END IF;
 
-  -- Hiring manager: Moumita
+  -- Hiring manager: Moumita → Desk A
   IF EXISTS (SELECT 1 FROM users WHERE tenant_id = v_tenant_id AND email = 'moumita@earlyjobs.in') THEN
     UPDATE users
-    SET password_hash = v_hash_hm, name = 'Moumita', role = 'hiring_manager', managed_by_id = NULL
+    SET password_hash = v_hash_hm, name = 'Moumita', role = 'hiring_manager',
+        managed_by_id = NULL, company_id = v_company_a
     WHERE tenant_id = v_tenant_id AND email = 'moumita@earlyjobs.in';
   ELSE
-    INSERT INTO users (email, password_hash, name, role, tenant_id)
-    VALUES ('moumita@earlyjobs.in', v_hash_hm, 'Moumita', 'hiring_manager', v_tenant_id);
+    INSERT INTO users (email, password_hash, name, role, tenant_id, company_id)
+    VALUES ('moumita@earlyjobs.in', v_hash_hm, 'Moumita', 'hiring_manager', v_tenant_id, v_company_a);
   END IF;
 
   SELECT id INTO v_moumita_id FROM users WHERE tenant_id = v_tenant_id AND email = 'moumita@earlyjobs.in';
 
-  -- Hiring manager: Nidhi
+  -- Hiring manager: Nidhi → Desk B
   IF EXISTS (SELECT 1 FROM users WHERE tenant_id = v_tenant_id AND email = 'nidhi@earlyjobs.in') THEN
     UPDATE users
-    SET password_hash = v_hash_hm, name = 'Nidhi', role = 'hiring_manager', managed_by_id = NULL
+    SET password_hash = v_hash_hm, name = 'Nidhi', role = 'hiring_manager',
+        managed_by_id = NULL, company_id = v_company_b
     WHERE tenant_id = v_tenant_id AND email = 'nidhi@earlyjobs.in';
   ELSE
-    INSERT INTO users (email, password_hash, name, role, tenant_id)
-    VALUES ('nidhi@earlyjobs.in', v_hash_hm, 'Nidhi', 'hiring_manager', v_tenant_id);
+    INSERT INTO users (email, password_hash, name, role, tenant_id, company_id)
+    VALUES ('nidhi@earlyjobs.in', v_hash_hm, 'Nidhi', 'hiring_manager', v_tenant_id, v_company_b);
   END IF;
 
   SELECT id INTO v_nidhi_id FROM users WHERE tenant_id = v_tenant_id AND email = 'nidhi@earlyjobs.in';
 
-  -- Recruiter: Smruti → Nidhi
+  -- Recruiter: Smruti → Nidhi / Desk B
   IF EXISTS (SELECT 1 FROM users WHERE tenant_id = v_tenant_id AND email = 'smruti@earlyjobs.in') THEN
     UPDATE users
-    SET password_hash = v_hash_recruiter, name = 'Smruti', role = 'recruiter', managed_by_id = v_nidhi_id
+    SET password_hash = v_hash_recruiter, name = 'Smruti', role = 'recruiter',
+        managed_by_id = v_nidhi_id, company_id = v_company_b
     WHERE tenant_id = v_tenant_id AND email = 'smruti@earlyjobs.in';
   ELSE
-    INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id)
-    VALUES ('smruti@earlyjobs.in', v_hash_recruiter, 'Smruti', 'recruiter', v_tenant_id, v_nidhi_id);
+    INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id, company_id)
+    VALUES ('smruti@earlyjobs.in', v_hash_recruiter, 'Smruti', 'recruiter', v_tenant_id, v_nidhi_id, v_company_b);
   END IF;
 
-  -- Recruiter: Vidhi → Moumita
+  -- Recruiter: Vidhi → Moumita / Desk A
   IF EXISTS (SELECT 1 FROM users WHERE tenant_id = v_tenant_id AND email = 'vidhi@earlyjobs.in') THEN
     UPDATE users
-    SET password_hash = v_hash_recruiter, name = 'Vidhi', role = 'recruiter', managed_by_id = v_moumita_id
+    SET password_hash = v_hash_recruiter, name = 'Vidhi', role = 'recruiter',
+        managed_by_id = v_moumita_id, company_id = v_company_a
     WHERE tenant_id = v_tenant_id AND email = 'vidhi@earlyjobs.in';
   ELSE
-    INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id)
-    VALUES ('vidhi@earlyjobs.in', v_hash_recruiter, 'Vidhi', 'recruiter', v_tenant_id, v_moumita_id);
+    INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id, company_id)
+    VALUES ('vidhi@earlyjobs.in', v_hash_recruiter, 'Vidhi', 'recruiter', v_tenant_id, v_moumita_id, v_company_a);
   END IF;
 END $$;
 
@@ -106,9 +127,11 @@ SELECT
   u.role,
   u.name,
   u.email,
+  co.name AS company,
   hm.name AS reports_to
 FROM tenants t
 JOIN users u ON u.tenant_id = t.id
+LEFT JOIN companies co ON co.id = u.company_id
 LEFT JOIN users hm ON hm.id = u.managed_by_id
 WHERE t.slug = 'earlyjobs'
   AND u.email IN (

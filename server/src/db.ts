@@ -738,12 +738,30 @@ async function ensureEarlyJobsTeamUsers(client: pg.PoolClient, ejId: number, def
   const hashHm = '$2a$10$.5gcWHY8Z/o3omL/KQ6z.eIwX9Bc9CHhPKO/T0a8l4c1.S4wLgVTq'; // HM@123
   const hashRecruiter = '$2a$10$M7m/QNN/NjPrUWMPNBRYbe6sKLfBF57MbXEM6kVdbB/ucHB4m7tJq'; // Password@123
 
+  const ensureCompany = async (name: string) => {
+    const { rows } = await client.query(
+      `SELECT id FROM companies WHERE tenant_id = $1 AND name = $2 LIMIT 1`,
+      [ejId, name]
+    );
+    if (rows[0]) return rows[0].id as number;
+    const { rows: inserted } = await client.query(
+      `INSERT INTO companies (tenant_id, name, industry, location, status)
+       VALUES ($1, $2, 'Staffing', 'India', 'active') RETURNING id`,
+      [ejId, name]
+    );
+    return inserted[0].id as number;
+  };
+
+  const companyA = await ensureCompany('EarlyJobs Desk A');
+  const companyB = await ensureCompany('EarlyJobs Desk B');
+
   const upsert = async (
     email: string,
     passwordHash: string,
     name: string,
     role: string,
-    managedById: number | null = null
+    managedById: number | null = null,
+    companyId: number | null = null
   ) => {
     // Prefer the exact-case row: case-only duplicates can exist, and updating a
     // variant to the canonical email would hit the unique (tenant_id, email) index.
@@ -755,26 +773,26 @@ async function ensureEarlyJobsTeamUsers(client: pg.PoolClient, ejId: number, def
     if (rows[0]) {
       await client.query(
         `UPDATE users
-         SET email = $1, password_hash = $2, name = $3, role = $4, managed_by_id = $5
-         WHERE id = $6`,
-        [email, passwordHash, name, role, managedById, rows[0].id]
+         SET email = $1, password_hash = $2, name = $3, role = $4, managed_by_id = $5, company_id = $6
+         WHERE id = $7`,
+        [email, passwordHash, name, role, managedById, companyId, rows[0].id]
       );
       return rows[0].id as number;
     }
     const { rows: inserted } = await client.query(
-      `INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [email, passwordHash, name, role, ejId, managedById]
+      `INSERT INTO users (email, password_hash, name, role, tenant_id, managed_by_id, company_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [email, passwordHash, name, role, ejId, managedById, companyId]
     );
     return inserted[0].id as number;
   };
 
   await upsert('admin@earlyjobs.com', defaultHash, 'EarlyJobs Admin', 'admin');
   await upsert('jyoti@earlyjobs.in', hashAdmin, 'Jyoti', 'admin');
-  const moumitaId = await upsert('moumita@earlyjobs.in', hashHm, 'Moumita', 'hiring_manager');
-  const nidhiId = await upsert('nidhi@earlyjobs.in', hashHm, 'Nidhi', 'hiring_manager');
-  await upsert('smruti@earlyjobs.in', hashRecruiter, 'Smruti', 'recruiter', nidhiId);
-  await upsert('vidhi@earlyjobs.in', hashRecruiter, 'Vidhi', 'recruiter', moumitaId);
+  const moumitaId = await upsert('moumita@earlyjobs.in', hashHm, 'Moumita', 'hiring_manager', null, companyA);
+  const nidhiId = await upsert('nidhi@earlyjobs.in', hashHm, 'Nidhi', 'hiring_manager', null, companyB);
+  await upsert('smruti@earlyjobs.in', hashRecruiter, 'Smruti', 'recruiter', nidhiId, companyB);
+  await upsert('vidhi@earlyjobs.in', hashRecruiter, 'Vidhi', 'recruiter', moumitaId, companyA);
 }
 
 async function ensureDemoUsers(client: pg.PoolClient, staffproId: number) {
