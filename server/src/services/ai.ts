@@ -495,6 +495,91 @@ export async function refineResumeText(text: string, filename: string): Promise<
   return textCall(system, prompt);
 }
 
+// ── Screening questions from JD ────────────────────────────────────────
+
+export interface ScreeningQuestionsInput {
+  title: string;
+  description?: string | null;
+  client?: string | null;
+  location?: string | null;
+}
+
+export interface GeneratedScreeningQuestion {
+  id: string;
+  label: string;
+  hint: string;
+  requirement?: string;
+  category?: string;
+  time_seconds?: number;
+}
+
+export interface GeneratedScreeningQuestions {
+  prescreen: GeneratedScreeningQuestion[];
+  interview: GeneratedScreeningQuestion[];
+}
+
+const SCREENING_QUESTION_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', description: 'snake_case unique identifier' },
+    label: { type: 'string', description: 'Short question title for the recruiter' },
+    hint: { type: 'string', description: 'What to listen for when scoring 1-5' },
+    requirement: { type: 'string', description: 'Which JD requirement this probes' },
+    category: {
+      type: 'string',
+      description: 'introduction, technical, domain, behavioral, or goals (interview only)',
+    },
+    time_seconds: { type: 'number', description: 'Suggested speaking time in seconds (interview only)' },
+  },
+  required: ['id', 'label', 'hint'],
+  additionalProperties: false,
+} as const;
+
+const SCREENING_QUESTIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    prescreen: {
+      type: 'array',
+      items: SCREENING_QUESTION_ITEM_SCHEMA,
+      description: 'Exactly 5 first-call pre-screening questions tailored to the JD',
+    },
+    interview: {
+      type: 'array',
+      items: SCREENING_QUESTION_ITEM_SCHEMA,
+      description: '10-14 live interview questions probing JD requirements',
+    },
+  },
+  required: ['prescreen', 'interview'],
+  additionalProperties: false,
+} as const;
+
+export async function generateScreeningQuestionsFromJd(
+  input: ScreeningQuestionsInput
+): Promise<GeneratedScreeningQuestions | null> {
+  const system =
+    'You generate recruitment screening questions from a job description. ' +
+    'Pre-screen questions assess commitment, motivation, and fit on a first phone call. ' +
+    'Interview questions probe specific JD requirements — technical skills, experience, and behavioral fit. ' +
+    'Each question must map to a real requirement from the JD when possible. ' +
+    'Use clear, recruiter-friendly labels and actionable scoring hints (what 1 vs 5 sounds like). ' +
+    'Interview categories: introduction, technical, domain, behavioral, goals. ' +
+    'IDs must be unique snake_case strings.';
+
+  const prompt = [
+    `Job title: ${input.title}`,
+    input.client ? `Client: ${input.client}` : null,
+    input.location ? `Location: ${input.location}` : null,
+    input.description ? `Job description:\n${input.description}` : null,
+    'Generate 5 pre-screen questions and 10-14 interview questions derived from the JD requirements.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const result = await jsonCall<GeneratedScreeningQuestions>(system, prompt, SCREENING_QUESTIONS_SCHEMA);
+  if (!result?.prescreen?.length || !result?.interview?.length) return null;
+  return result;
+}
+
 // ── Job description generation ─────────────────────────────────────────
 
 export interface JobDescriptionInput {

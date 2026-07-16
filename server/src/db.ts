@@ -182,6 +182,7 @@ export async function initDb() {
 
     await migratePhase1Tables(client);
     await migrateScreening(client);
+    await migrateJobScreeningQuestions(client);
     await migrateFollowUpEngine(client);
     await migrateInterviewEvaluation(client);
     await migrateWhatsAppDelivery(client);
@@ -189,6 +190,8 @@ export async function initDb() {
     await fixStaleMeetingLinks(client);
     await migrateMultiTenant(client);
     await migrateAiResumeParser(client);
+    await migrateJobRecommendation(client);
+    await migrateCompanyGeo(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 
@@ -285,6 +288,11 @@ async function migrateScreening(client: pg.PoolClient) {
   // Pre-screening scorecard filled by recruiters during the first call:
   // question scores, red-flag signal scores, computed totals and risk level.
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS screening JSONB`);
+}
+
+async function migrateJobScreeningQuestions(client: pg.PoolClient) {
+  // JD-derived screening question templates: pre-screen + interview scorecard.
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS screening_questions JSONB`);
 }
 
 async function migrateWhatsAppDelivery(client: pg.PoolClient) {
@@ -631,6 +639,63 @@ async function dedupeJobsByTitle(client: pg.PoolClient) {
       HAVING COUNT(*) > 1
     ) d
     WHERE j.tenant_id = d.tenant_id AND j.title = d.title AND j.id != d.keep_id
+  `);
+}
+
+/** Company geo — lat/lng and structured address for nearby-company ranking. */
+async function migrateCompanyGeo(client: pg.PoolClient) {
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS latitude REAL`);
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS longitude REAL`);
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS address TEXT`);
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS city TEXT`);
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS state TEXT`);
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS country TEXT`);
+  await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS pincode TEXT`);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS companies_geo_tenant_idx
+    ON companies (tenant_id, status)
+    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+  `);
+}
+
+/** Job recommendation engine — geo coordinates and matching criteria on jobs & candidates. */
+async function migrateJobRecommendation(client: pg.PoolClient) {
+  // Candidate screening / matching fields
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS latitude REAL`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS longitude REAL`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS relocation_allowed BOOLEAN NOT NULL DEFAULT FALSE`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS age INTEGER`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS gender TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS highest_qualification TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS specialization TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferred_job_type TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferred_shift TEXT`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferred_cities JSONB DEFAULT '[]'`);
+
+  // Job location & requirement fields
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS latitude REAL`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS longitude REAL`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS address TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS city TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS state TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS country TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pincode TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS required_qualification TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS required_languages JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS min_age INTEGER`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_age INTEGER`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS min_experience REAL`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_experience REAL`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS required_skills JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS salary TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS shift TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS gender_preference TEXT`);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS jobs_active_tenant_idx
+    ON jobs (tenant_id, status)
+    WHERE status IN ('active', 'urgent', 'open')
   `);
 }
 

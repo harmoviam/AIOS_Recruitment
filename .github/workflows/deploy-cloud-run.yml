@@ -68,10 +68,12 @@ jobs:
       - name: Build Docker image
         env:
           DOCKER_BUILDKIT: 1
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: |
           docker pull ${IMAGE}:latest || true
           docker build \
             --cache-from ${IMAGE}:latest \
+            --build-arg VITE_GOOGLE_MAPS_API_KEY="${VITE_GOOGLE_MAPS_API_KEY}" \
             -t ${IMAGE}:latest \
             -t ${IMAGE}:${{ github.sha }} \
             -f Dockerfile \

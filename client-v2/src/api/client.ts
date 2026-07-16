@@ -167,6 +167,12 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(scores),
     }),
+  getCandidateScreeningQuestions: (id: number) =>
+    request<{
+      job_id: number | null;
+      job_title: string | null;
+      questions: import('../types').JobScreeningQuestions;
+    }>(`/candidates/${id}/screening-questions`),
   deleteCandidate: (id: number) => request<void>(`/candidates/${id}`, { method: 'DELETE' }),
   bulkUpdateCandidates: (ids: number[], data: { stage?: string; offer_status?: string; recruiter_id?: number }) =>
     request<{ updated: number }>('/candidates/bulk', { method: 'PATCH', body: JSON.stringify({ ids, ...data }) }),
@@ -216,7 +222,23 @@ export const api = {
     request<import('../types').Job>('/jobs', { method: 'POST', body: JSON.stringify(data) }),
   updateJob: (id: number, data: Partial<import('../types').Job>) =>
     request<import('../types').Job>(`/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getJobScreeningQuestions: (id: number) =>
+    request<{
+      job_id: number;
+      job_title: string;
+      questions: import('../types').JobScreeningQuestions;
+    }>(`/jobs/${id}/screening-questions`),
+  generateJobScreeningQuestions: (id: number) =>
+    request<{
+      job_id: number;
+      job_title: string;
+      questions: import('../types').JobScreeningQuestions;
+    }>(`/jobs/${id}/generate-screening-questions`, { method: 'POST' }),
   deleteJob: (id: number) => request<void>(`/jobs/${id}`, { method: 'DELETE' }),
+  recommendJobs: (candidateId: number, params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<import('../types').RecommendJobsResponse>(`/jobs/recommend/${candidateId}${q}`);
+  },
 
   getInterviews: (params?: Record<string, string>) => {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -232,6 +254,12 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(scores),
     }),
+  getInterviewScreeningQuestions: (id: number) =>
+    request<{
+      job_id: number | null;
+      job_title: string | null;
+      questions: import('../types').JobScreeningQuestions;
+    }>(`/interviews/${id}/screening-questions`),
   getInterviewVideoToken: (id: number) =>
     request<import('../types').InterviewVideoTokenResponse>(`/interviews/${id}/video-token`),
   getInterviewJoinPreview: (joinToken: string) =>
@@ -284,6 +312,16 @@ export const api = {
   },
   createCompany: (data: Partial<import('../types').Company>) =>
     request<import('../types').Company>('/companies', { method: 'POST', body: JSON.stringify(data) }),
+  updateCompany: (id: number, data: Partial<import('../types').Company>) =>
+    request<import('../types').Company>(`/companies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getNearbyCompanies: (lat: number, lng: number, params?: Record<string, string>) => {
+    const q = new URLSearchParams({ lat: String(lat), lng: String(lng), ...params });
+    return request<import('../types').NearbyCompaniesResponse>(`/companies/nearby?${q}`);
+  },
+  getCompaniesNearCandidate: (candidateId: number, params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<import('../types').NearbyCompaniesResponse>(`/companies/near/${candidateId}${q}`);
+  },
 
   getHiringManagers: () => request<import('../types').HiringManager[]>('/hiring-managers'),
   createHiringManager: (data: { email: string; password: string; name: string; company_id?: number }) =>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import JobLocationPicker, { type JobLocationValue } from '../components/JobLocationPicker';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../utils/useRefetchOnFocus';
 import type { Job } from '../types';
@@ -33,7 +34,49 @@ function statusMeta(status: string): { label: string; className: string } {
   return { label: 'Inactive', className: 'job-status inactive' };
 }
 
-const EMPTY_FORM = { title: '', client: '', location: '', open_positions: 1, description: '', tenure_days: '' };
+const EMPTY_LOCATION: Partial<JobLocationValue> = {
+  address: '',
+  latitude: undefined,
+  longitude: undefined,
+  city: '',
+  state: '',
+  country: '',
+  pincode: '',
+  locationLabel: '',
+};
+
+const EMPTY_FORM = {
+  title: '',
+  client: '',
+  location: '',
+  open_positions: 1,
+  description: '',
+  tenure_days: '',
+  required_qualification: '',
+  required_languages: '',
+  required_skills: '',
+  salary: '',
+  shift: '',
+  job_type: '',
+  min_experience: '',
+  max_experience: '',
+  min_age: '',
+  max_age: '',
+  gender_preference: '',
+};
+
+function jobToLocation(job: Job): Partial<JobLocationValue> {
+  return {
+    address: job.address || '',
+    latitude: job.latitude ?? undefined,
+    longitude: job.longitude ?? undefined,
+    city: job.city || '',
+    state: job.state || '',
+    country: job.country || '',
+    pincode: job.pincode || '',
+    locationLabel: job.location || '',
+  };
+}
 
 export default function JobsPage() {
   const { user } = useAuth();
@@ -45,8 +88,14 @@ export default function JobsPage() {
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
+  const [jobLocation, setJobLocation] = useState<Partial<JobLocationValue>>(EMPTY_LOCATION);
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [viewingJd, setViewingJd] = useState<Job | null>(null);
+  const [jdScreeningQuestions, setJdScreeningQuestions] = useState<import('../types').JobScreeningQuestions | null>(null);
+  const [loadingJdQuestions, setLoadingJdQuestions] = useState(false);
+  const [regeneratingQuestions, setRegeneratingQuestions] = useState(false);
 
   const load = useCallback(
     () =>
@@ -73,6 +122,8 @@ export default function JobsPage() {
     }
     setEditingJob(null);
     setForm(EMPTY_FORM);
+    setJobLocation(EMPTY_LOCATION);
+    setSaveError('');
     setShowForm(true);
   };
 
@@ -85,7 +136,20 @@ export default function JobsPage() {
       open_positions: job.open_positions ?? 1,
       description: job.description || '',
       tenure_days: job.tenure_days != null ? String(job.tenure_days) : '',
+      required_qualification: job.required_qualification || '',
+      required_languages: (job.required_languages || []).join(', '),
+      required_skills: (job.required_skills || []).join(', '),
+      salary: job.salary || '',
+      shift: job.shift || '',
+      job_type: job.job_type || '',
+      min_experience: job.min_experience != null ? String(job.min_experience) : '',
+      max_experience: job.max_experience != null ? String(job.max_experience) : '',
+      min_age: job.min_age != null ? String(job.min_age) : '',
+      max_age: job.max_age != null ? String(job.max_age) : '',
+      gender_preference: job.gender_preference || '',
     });
+    setJobLocation(jobToLocation(job));
+    setSaveError('');
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -94,18 +158,68 @@ export default function JobsPage() {
     setShowForm(false);
     setEditingJob(null);
     setForm(EMPTY_FORM);
+    setJobLocation(EMPTY_LOCATION);
+    setSaveError('');
+    setSaving(false);
   };
+
+  const splitList = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
+
+  const hasMapPin =
+    jobLocation.latitude != null &&
+    jobLocation.longitude != null &&
+    !(jobLocation.latitude === 0 && jobLocation.longitude === 0) &&
+    Boolean(jobLocation.address?.trim());
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { ...form, tenure_days: form.tenure_days ? Number(form.tenure_days) : null };
-    if (editingJob) {
-      await api.updateJob(editingJob.id, payload);
-    } else {
-      await api.createJob(payload);
+    setSaveError('');
+    if (!editingJob && !hasMapPin) {
+      setSaveError('Select a job address from Google Maps suggestions — latitude and longitude are required.');
+      return;
     }
-    closeForm();
-    load();
+    const locationLabel =
+      jobLocation.locationLabel ||
+      form.location ||
+      jobLocation.city ||
+      jobLocation.address ||
+      '';
+    if (!locationLabel.trim()) {
+      setSaveError('Location label is required.');
+      return;
+    }
+    const payload = {
+      ...form,
+      tenure_days: form.tenure_days ? Number(form.tenure_days) : null,
+      location: locationLabel.trim(),
+      latitude: jobLocation.latitude,
+      longitude: jobLocation.longitude,
+      address: jobLocation.address || locationLabel.trim(),
+      city: jobLocation.city || null,
+      state: jobLocation.state || null,
+      country: jobLocation.country || null,
+      pincode: jobLocation.pincode || null,
+      required_languages: splitList(form.required_languages),
+      required_skills: splitList(form.required_skills),
+      min_experience: form.min_experience ? Number(form.min_experience) : null,
+      max_experience: form.max_experience ? Number(form.max_experience) : null,
+      min_age: form.min_age ? Number(form.min_age) : null,
+      max_age: form.max_age ? Number(form.max_age) : null,
+    };
+    setSaving(true);
+    try {
+      if (editingJob) {
+        await api.updateJob(editingJob.id, payload);
+      } else {
+        await api.createJob(payload);
+      }
+      closeForm();
+      load();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save job');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const generateDescription = async () => {
@@ -133,6 +247,34 @@ export default function JobsPage() {
     const next = isActive(job.status) ? 'inactive' : 'active';
     await api.updateJob(job.id, { status: next });
     load();
+  };
+
+  const openViewJd = async (job: Job) => {
+    setViewingJd(job);
+    setJdScreeningQuestions(job.screening_questions ?? null);
+    setLoadingJdQuestions(true);
+    try {
+      const r = await api.getJobScreeningQuestions(job.id);
+      setJdScreeningQuestions(r.questions);
+    } catch {
+      setJdScreeningQuestions(null);
+    } finally {
+      setLoadingJdQuestions(false);
+    }
+  };
+
+  const regenerateScreeningQuestions = async () => {
+    if (!viewingJd) return;
+    setRegeneratingQuestions(true);
+    try {
+      const r = await api.generateJobScreeningQuestions(viewingJd.id);
+      setJdScreeningQuestions(r.questions);
+      load();
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setRegeneratingQuestions(false);
+    }
   };
 
   const counts = useMemo(() => {
@@ -207,8 +349,18 @@ export default function JobsPage() {
             <div className="grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
               <input className="input-field" placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
               <input className="input-field" placeholder="Client" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} required />
-              <input className="input-field" placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} required />
+              <input className="input-field" placeholder="Display location label" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} required />
               <input type="number" className="input-field" placeholder="Open positions" value={form.open_positions} onChange={(e) => setForm({ ...form, open_positions: Number(e.target.value) })} />
+              <input className="input-field" placeholder="Salary (e.g. 4.2 LPA)" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
+              <input className="input-field" placeholder="Job type (On-site / Remote / Hybrid)" value={form.job_type} onChange={(e) => setForm({ ...form, job_type: e.target.value })} />
+              <input className="input-field" placeholder="Shift (Day / Night)" value={form.shift} onChange={(e) => setForm({ ...form, shift: e.target.value })} />
+              <input className="input-field" placeholder="Required qualification" value={form.required_qualification} onChange={(e) => setForm({ ...form, required_qualification: e.target.value })} />
+              <input className="input-field" placeholder="Required languages (comma-separated)" value={form.required_languages} onChange={(e) => setForm({ ...form, required_languages: e.target.value })} />
+              <input className="input-field" placeholder="Required skills (comma-separated)" value={form.required_skills} onChange={(e) => setForm({ ...form, required_skills: e.target.value })} />
+              <input type="number" className="input-field" placeholder="Min experience (years)" value={form.min_experience} onChange={(e) => setForm({ ...form, min_experience: e.target.value })} />
+              <input type="number" className="input-field" placeholder="Max experience (years)" value={form.max_experience} onChange={(e) => setForm({ ...form, max_experience: e.target.value })} />
+              <input type="number" className="input-field" placeholder="Min age" value={form.min_age} onChange={(e) => setForm({ ...form, min_age: e.target.value })} />
+              <input type="number" className="input-field" placeholder="Max age" value={form.max_age} onChange={(e) => setForm({ ...form, max_age: e.target.value })} />
               <select className="input-field" value={form.tenure_days} onChange={(e) => setForm({ ...form, tenure_days: e.target.value })}>
                 <option value="">Tenure (default 90 days)</option>
                 <option value="30">30 days</option>
@@ -217,6 +369,17 @@ export default function JobsPage() {
                 <option value="90">90 days</option>
               </select>
             </div>
+            <JobLocationPicker
+              value={jobLocation}
+              onChange={(loc) => {
+                setJobLocation(loc);
+                setSaveError('');
+                setForm((f) => ({
+                  ...f,
+                  location: loc.locationLabel || loc.city || loc.address || f.location,
+                }));
+              }}
+            />
             <textarea
               className="input-field"
               style={{ marginTop: '1rem', minHeight: '320px', resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
@@ -224,9 +387,14 @@ export default function JobsPage() {
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
+            {saveError && (
+              <p className="form-error" style={{ marginTop: '0.75rem' }} role="alert">
+                {saveError}
+              </p>
+            )}
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-              <button type="submit" className="button-pill button-primary">
-                {editingJob ? 'Save changes' : 'Create job'}
+              <button type="submit" className="button-pill button-primary" disabled={saving}>
+                {saving ? 'Saving…' : editingJob ? 'Save changes' : 'Create job'}
               </button>
               <button
                 type="button"
@@ -274,7 +442,7 @@ export default function JobsPage() {
                     type="button"
                     className="button-pill button-secondary btn-sm"
                     title={job.description ? 'View the full job description' : 'No description added for this job yet'}
-                    onClick={() => setViewingJd(job)}
+                    onClick={() => openViewJd(job)}
                   >
                     View JD
                   </button>
@@ -317,6 +485,41 @@ export default function JobsPage() {
             <div className="jd-modal-body">
               {viewingJd.description?.trim() || 'No description has been added for this job yet. Edit the job or draft one with AI.'}
             </div>
+            <div style={{ marginTop: '1.25rem' }}>
+              <h4 className="card-heading" style={{ marginBottom: '0.5rem' }}>Screening Questions</h4>
+              {loadingJdQuestions ? (
+                <p className="text-muted">Loading questions from JD…</p>
+              ) : jdScreeningQuestions ? (
+                <>
+                  <p className="text-muted" style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                    Generated from JD requirements ({jdScreeningQuestions.source || 'default'}).
+                    {jdScreeningQuestions.prescreen.length} pre-screen · {jdScreeningQuestions.interview.length} interview questions.
+                  </p>
+                  <div className="jd-screening-preview">
+                    <strong>Pre-screen</strong>
+                    <ul>
+                      {jdScreeningQuestions.prescreen.map((q) => (
+                        <li key={q.id}>
+                          {q.label}
+                          {q.requirement ? <span className="text-muted"> — {q.requirement}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                    <strong>Interview</strong>
+                    <ul>
+                      {jdScreeningQuestions.interview.map((q) => (
+                        <li key={q.id}>
+                          {q.label}
+                          {q.requirement ? <span className="text-muted"> — {q.requirement}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted">No screening questions yet. Add a JD description and save the job.</p>
+              )}
+            </div>
             <div className="modal-actions">
               {viewingJd.description?.trim() && (
                 <button
@@ -325,6 +528,16 @@ export default function JobsPage() {
                   onClick={() => navigator.clipboard.writeText(viewingJd.description || '')}
                 >
                   Copy JD
+                </button>
+              )}
+              {canManageJobs && viewingJd.description?.trim() && (
+                <button
+                  type="button"
+                  className="button-pill button-secondary"
+                  disabled={regeneratingQuestions}
+                  onClick={regenerateScreeningQuestions}
+                >
+                  {regeneratingQuestions ? 'Regenerating…' : 'Regenerate questions'}
                 </button>
               )}
               <button type="button" className="button-pill button-primary" onClick={() => setViewingJd(null)}>

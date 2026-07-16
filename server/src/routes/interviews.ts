@@ -23,6 +23,7 @@ import {
   liveKitServerUrl,
   normalizeMeetingLink,
 } from '../services/livekit.js';
+import { getScreeningQuestionsForInterview } from '../services/screeningQuestions.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -30,28 +31,6 @@ router.use(tenantMiddleware);
 router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
-
-const INTERVIEW_QUESTION_FIELDS = [
-  'self_intro',
-  'topic_5min',
-  'hobbies_elaborate',
-  'not_on_resume',
-  'family_background',
-  'work_life_balance',
-  'customer_service',
-  'strengths_elaborate',
-  'bpo_definition',
-  'why_bpo_career',
-  'handle_irate_customer',
-  'retain_disconnecting_customer',
-  'favourite_movie',
-  'short_term_goal',
-  'long_term_goal',
-  'five_year_vision',
-  'why_organization',
-  'why_hire_you',
-  'salary_expectation',
-] as const;
 
 function interviewAccessSql(req: Request, t: ReturnType<typeof tenantClause>, idx: number) {
   let sql = '';
@@ -153,6 +132,21 @@ router.get('/:id', async (req, res) => {
   res.json(normalized);
 });
 
+router.get('/:id/screening-questions', async (req, res) => {
+  const interviewId = Number(req.params.id);
+  if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
+
+  const existing = await fetchInterviewForTenant(req, interviewId);
+  if (!existing) return res.status(404).json({ error: 'Interview not found' });
+
+  try {
+    const result = await getScreeningQuestionsForInterview(interviewId, tid(req));
+    res.json(result);
+  } catch {
+    return res.status(404).json({ error: 'Interview not found' });
+  }
+});
+
 router.put('/:id/evaluation', asyncHandler(async (req, res) => {
   const interviewId = Number(req.params.id);
   if (!Number.isFinite(interviewId)) return res.status(400).json({ error: 'Invalid interview id' });
@@ -160,8 +154,11 @@ router.put('/:id/evaluation', asyncHandler(async (req, res) => {
   const existing = await fetchInterviewForTenant(req, interviewId);
   if (!existing) return res.status(404).json({ error: 'Interview not found' });
 
+  const { questions } = await getScreeningQuestionsForInterview(interviewId, tid(req));
+  const questionFields = questions.interview.map((q) => q.id);
+
   const scores: Record<string, number | null> = {};
-  for (const f of INTERVIEW_QUESTION_FIELDS) {
+  for (const f of questionFields) {
     const v = req.body[f];
     if (v === null || v === undefined || v === '') {
       scores[f] = null;
@@ -174,9 +171,9 @@ router.put('/:id/evaluation', asyncHandler(async (req, res) => {
     }
   }
 
-  const scored = INTERVIEW_QUESTION_FIELDS.filter((f) => scores[f] != null);
+  const scored = questionFields.filter((f) => scores[f] != null);
   const totalScore = scored.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
-  const maxScore = INTERVIEW_QUESTION_FIELDS.length * 5;
+  const maxScore = questionFields.length * 5;
   const overallScore = scored.length > 0 ? Math.round((totalScore / maxScore) * 100) / 10 : null;
 
   const evaluation = {

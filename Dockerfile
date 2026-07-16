@@ -4,6 +4,9 @@ WORKDIR /app/client
 COPY client-v2/package*.json ./
 RUN npm ci --no-audit
 COPY client-v2/ ./
+# Vite inlines VITE_* at build time — pass via --build-arg from CI.
+ARG VITE_GOOGLE_MAPS_API_KEY=
+ENV VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
 RUN npm run build
 
 FROM node:20-alpine AS server-builder

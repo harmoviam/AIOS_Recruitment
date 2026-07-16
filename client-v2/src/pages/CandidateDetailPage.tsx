@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
+import CandidateLocationFields, { type CandidateLocationValue } from '../components/CandidateLocationFields';
+import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
+import RecommendedJobsPanel from '../components/RecommendedJobsPanel';
 import Tabs from '../components/ui/Tabs';
 import ScorePicker from '../components/ui/ScorePicker';
-import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel } from '../types';
+import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel, type ScreeningQuestionDef } from '../types';
 import type { Candidate, Interview, Message, TimelineEvent } from '../types';
 
 const DETAIL_TABS = [
@@ -16,7 +19,7 @@ const DETAIL_TABS = [
   { id: 'ai', label: 'AI Insights' },
 ];
 
-const SCORE_FIELDS = [...SCREENING_QUESTIONS, ...RED_FLAG_SIGNALS].map((q) => q.id);
+const RED_FLAG_FIELDS = RED_FLAG_SIGNALS.map((q) => q.id);
 
 const TIMELINE_SOURCE_LABELS: Record<TimelineEvent['source'], string> = {
   activity: 'Activity',
@@ -47,6 +50,8 @@ export default function CandidateDetailPage() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [scores, setScores] = useState<Record<string, number | null>>({});
+  const [prescreenQuestions, setPrescreenQuestions] = useState<ScreeningQuestionDef[]>(SCREENING_QUESTIONS);
+  const [screeningJobTitle, setScreeningJobTitle] = useState<string | null>(null);
   const [screeningStatus, setScreeningStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
@@ -61,16 +66,42 @@ export default function CandidateDetailPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [reparseLoading, setReparseLoading] = useState(false);
   const [reparseError, setReparseError] = useState('');
+  const [stayLocation, setStayLocation] = useState<CandidateLocationValue>({
+    current_location: '',
+    latitude: null,
+    longitude: null,
+    relocation_allowed: false,
+  });
+  const [staySaving, setStaySaving] = useState(false);
+  const [stayError, setStayError] = useState('');
+  const [staySaved, setStaySaved] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     const cid = Number(id);
     api.getCandidate(cid).then((c) => {
       setCandidate(c);
+      setStayLocation({
+        current_location: c.current_location || '',
+        latitude: c.latitude ?? null,
+        longitude: c.longitude ?? null,
+        relocation_allowed: Boolean(c.relocation_allowed),
+      });
       setNotes(c.notes || '');
-      setScores(
-        Object.fromEntries(SCORE_FIELDS.map((f) => [f, (c.screening?.[f] as number | null) ?? null]))
-      );
+      const applyScores = (questions: ScreeningQuestionDef[]) => {
+        const fields = [...questions.map((q) => q.id), ...RED_FLAG_FIELDS];
+        setScores(
+          Object.fromEntries(fields.map((f) => [f, (c.screening?.[f as keyof typeof c.screening] as number | null) ?? null]))
+        );
+      };
+      api.getCandidateScreeningQuestions(cid)
+        .then((r) => {
+          const questions = r.questions.prescreen?.length ? r.questions.prescreen : SCREENING_QUESTIONS;
+          setPrescreenQuestions(questions);
+          setScreeningJobTitle(r.job_title);
+          applyScores(questions);
+        })
+        .catch(() => applyScores(SCREENING_QUESTIONS));
     });
     api.getInterviews({ candidate_id: String(cid) }).then(setInterviews);
     api.getMessages(cid).then(setMessages);
@@ -91,8 +122,8 @@ export default function CandidateDetailPage() {
     setCandidate(updated);
   };
 
-  // Live totals mirror the server calculation so recruiters see the risk level as they score.
-  const totalScore = SCREENING_QUESTIONS.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
+  const maxPrescreenScore = prescreenQuestions.length * 5;
+  const totalScore = prescreenQuestions.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
   const totalRedFlags = RED_FLAG_SIGNALS.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
   // A signal scored 3 or below counts as a red flag (unscored signals don't count).
   const redFlagCount = RED_FLAG_SIGNALS.filter((q) => {
@@ -101,7 +132,7 @@ export default function CandidateDetailPage() {
   }).length;
   // 5+ red flags: stop — reduce interview time, pre-screening questions are blocked.
   const screeningBlocked = redFlagCount >= 5;
-  const riskLevel = screeningRiskLevel(totalScore);
+  const riskLevel = screeningRiskLevel(totalScore, maxPrescreenScore);
 
   const setScore = (field: string, value: number | null) => {
     setScores((prev) => ({ ...prev, [field]: value }));
@@ -131,6 +162,36 @@ export default function CandidateDetailPage() {
   const cancelEditProfile = () => {
     setEditingProfile(false);
     setProfileError('');
+  };
+
+  const saveStayLocation = async () => {
+    setStayError('');
+    setStaySaved(false);
+    if (stayLocation.latitude == null || stayLocation.longitude == null) {
+      setStayError('Pick a place from the Google Maps suggestions (typing alone does not save coordinates).');
+      return;
+    }
+    setStaySaving(true);
+    try {
+      const updated = await api.updateCandidate(candidate.id, {
+        current_location: stayLocation.current_location,
+        latitude: stayLocation.latitude,
+        longitude: stayLocation.longitude,
+        relocation_allowed: stayLocation.relocation_allowed,
+      });
+      setCandidate({ ...candidate, ...updated });
+      setStayLocation({
+        current_location: updated.current_location || stayLocation.current_location,
+        latitude: updated.latitude ?? stayLocation.latitude,
+        longitude: updated.longitude ?? stayLocation.longitude,
+        relocation_allowed: Boolean(updated.relocation_allowed),
+      });
+      setStaySaved(true);
+    } catch (err) {
+      setStayError(err instanceof Error ? err.message : 'Failed to save stay location');
+    } finally {
+      setStaySaving(false);
+    }
   };
 
   const saveProfile = async () => {
@@ -433,6 +494,53 @@ export default function CandidateDetailPage() {
 
         {tab === 'screening' && (
           <div className="screening-form">
+            <div className="card stay-location-card" style={{ marginBottom: '1rem' }}>
+              <div className="card-title">Candidate stay location</div>
+              <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+                Select a place from Google Maps suggestions so nearby companies can be ranked by distance.
+                {candidate.latitude != null && candidate.longitude != null
+                  ? ' Coordinates are saved.'
+                  : ' Coordinates are missing for this candidate.'}
+              </p>
+              <CandidateLocationFields
+                value={stayLocation}
+                onChange={(loc) => {
+                  setStayLocation(loc);
+                  setStaySaved(false);
+                  setStayError('');
+                }}
+                disabled={staySaving}
+              />
+              {stayError && <p className="form-error" style={{ marginTop: '0.5rem' }}>{stayError}</p>}
+              {staySaved && !stayError && (
+                <p className="text-muted" style={{ marginTop: '0.5rem', color: '#16a34a' }}>
+                  Stay location saved.
+                </p>
+              )}
+              <div className="form-actions" style={{ marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="button-pill button-primary btn-sm"
+                  onClick={() => void saveStayLocation()}
+                  disabled={staySaving}
+                >
+                  {staySaving ? 'Saving…' : 'Save stay location'}
+                </button>
+              </div>
+            </div>
+
+            <NearbyCompaniesPanel
+              key={`${candidate.latitude}-${candidate.longitude}`}
+              candidateId={candidate.id}
+            />
+            <RecommendedJobsPanel
+              candidateId={candidate.id}
+              onApply={async (jobId) => {
+                const updated = await api.updateCandidate(candidate.id, { job_id: jobId, stage: 'screening' });
+                setCandidate(updated);
+              }}
+            />
+
             <div className="card" style={{ marginBottom: '1rem' }}>
               <div className="screening-section-head">
                 <div>
@@ -470,17 +578,24 @@ export default function CandidateDetailPage() {
                   <p className="text-muted">
                     {screeningBlocked
                       ? 'Blocked — 5+ red flags in the first 3 minutes.'
-                      : 'First-call quick scorecard (not the full interview screening). Score each answer 1 (weak) to 5 (strong).'}
+                      : screeningJobTitle
+                        ? `First-call scorecard tailored for ${screeningJobTitle}. Score each answer 1 (weak) to 5 (strong).`
+                        : 'First-call quick scorecard (not the full interview screening). Score each answer 1 (weak) to 5 (strong).'}
                   </p>
                 </div>
                 <div className="screening-total">
-                  Total Score <strong>{totalScore}</strong>/25
+                  Total Score <strong>{totalScore}</strong>/{maxPrescreenScore}
                 </div>
               </div>
-              {SCREENING_QUESTIONS.map((q) => (
+              {prescreenQuestions.map((q) => (
                 <div key={q.id} className="screening-row">
                   <div className="screening-row-info">
                     <div className="screening-row-label">{q.label}</div>
+                    {q.requirement && (
+                      <div className="screening-row-hint text-muted" style={{ fontSize: '0.8rem' }}>
+                        JD requirement: {q.requirement}
+                      </div>
+                    )}
                     <div className="screening-row-hint">{q.hint}</div>
                   </div>
                   <ScorePicker
@@ -493,7 +608,7 @@ export default function CandidateDetailPage() {
               ))}
               <div className="screening-risk-line">
                 Risk Level: <span className={riskBadgeClass(riskLevel)}>{riskLevel}</span>
-                <span className="text-muted"> — auto-calculated: ≥20 High Join Probability · ≥15 Moderate Risk · below 15 High Ghosting Risk</span>
+                <span className="text-muted"> — auto-calculated from total score vs max ({maxPrescreenScore})</span>
               </div>
             </div>
 

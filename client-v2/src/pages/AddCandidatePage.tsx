@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import ResumeUploadZone from '../components/ResumeUploadZone';
+import CandidateLocationFields from '../components/CandidateLocationFields';
+import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
 import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
 import type { Job, ParsedProfile, ResumeParseResponse } from '../types';
@@ -62,6 +64,16 @@ export default function AddCandidatePage() {
     notice_period: '',
     current_salary: '',
     professional_summary: '',
+    latitude: null as number | null,
+    longitude: null as number | null,
+    relocation_allowed: false,
+    age: '',
+    gender: '',
+    highest_qualification: '',
+    specialization: '',
+    preferred_job_type: '',
+    preferred_shift: '',
+    languages: '',
   });
 
   useEffect(() => {
@@ -107,12 +119,24 @@ export default function AddCandidatePage() {
         notice_period: form.notice_period || undefined,
         current_salary: form.current_salary || undefined,
         professional_summary: form.professional_summary || undefined,
+        latitude: form.latitude ?? undefined,
+        longitude: form.longitude ?? undefined,
+        relocation_allowed: form.relocation_allowed,
+        age: form.age ? Number(form.age) : undefined,
+        gender: form.gender || undefined,
+        highest_qualification: form.highest_qualification || undefined,
+        specialization: form.specialization || undefined,
+        preferred_job_type: form.preferred_job_type || undefined,
+        preferred_shift: form.preferred_shift || undefined,
+        languages:
+          form.languages.trim().length > 0
+            ? form.languages.split(',').map((s) => s.trim()).filter(Boolean)
+            : parsedProfile?.languages,
         parsed_profile: parsedProfile || undefined,
         education: parsedProfile?.education,
         experience: parsedProfile?.experience,
         projects: parsedProfile?.projects,
         certifications: parsedProfile?.certifications,
-        languages: parsedProfile?.languages,
         technical_skills: parsedProfile?.technical_skills,
         soft_skills: parsedProfile?.soft_skills,
         ...(pendingResume
@@ -145,6 +169,16 @@ export default function AddCandidatePage() {
           notice_period: '',
           current_salary: '',
           professional_summary: '',
+          latitude: null,
+          longitude: null,
+          relocation_allowed: false,
+          age: '',
+          gender: '',
+          highest_qualification: '',
+          specialization: '',
+          preferred_job_type: '',
+          preferred_shift: '',
+          languages: '',
         });
         setParsedProfile(null);
         setPendingResume(null);
@@ -223,9 +257,50 @@ export default function AddCandidatePage() {
               <label className="form-label" htmlFor="company">Current company</label>
               <input id="company" className="input-field" value={form.current_company} onChange={(e) => setForm({ ...form, current_company: e.target.value })} />
             </div>
+            <CandidateLocationFields
+              value={{
+                current_location: form.current_location,
+                latitude: form.latitude,
+                longitude: form.longitude,
+                relocation_allowed: form.relocation_allowed,
+              }}
+              onChange={(loc) =>
+                setForm({
+                  ...form,
+                  current_location: loc.current_location,
+                  latitude: loc.latitude,
+                  longitude: loc.longitude,
+                  relocation_allowed: loc.relocation_allowed,
+                })
+              }
+              disabled={loading}
+            />
+            <div className="form-span-2">
+              <NearbyCompaniesPanel latitude={form.latitude} longitude={form.longitude} />
+            </div>
             <div className="form-group">
-              <label className="form-label" htmlFor="location">Current location</label>
-              <input id="location" className="input-field" value={form.current_location} onChange={(e) => setForm({ ...form, current_location: e.target.value })} />
+              <label className="form-label" htmlFor="preferred">Preferred location</label>
+              <input id="preferred" className="input-field" value={form.preferred_location} onChange={(e) => setForm({ ...form, preferred_location: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="age">Age</label>
+              <input id="age" type="number" min={16} className="input-field" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="gender">Gender</label>
+              <input id="gender" className="input-field" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="qualification">Highest qualification</label>
+              <input id="qualification" className="input-field" value={form.highest_qualification} onChange={(e) => setForm({ ...form, highest_qualification: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="specialization">Specialization</label>
+              <input id="specialization" className="input-field" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="languages">Languages known (comma-separated)</label>
+              <input id="languages" className="input-field" value={form.languages} onChange={(e) => setForm({ ...form, languages: e.target.value })} placeholder="English, Hindi" />
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="preferred">Preferred location</label>

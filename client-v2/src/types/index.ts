@@ -68,9 +68,11 @@ export const RED_FLAG_SIGNALS: { id: keyof ScreeningAssessment & string; label: 
   { id: 'non_committed_language', label: 'Non-Committed Language', hint: 'Uses "maybe", "try", "let\'s see", "hopefully" instead of "I will", "yes I can".' },
 ];
 
-export function screeningRiskLevel(totalScore: number): ScreeningRiskLevel {
-  if (totalScore >= 20) return 'High Join Probability';
-  if (totalScore >= 15) return 'Moderate Risk';
+export function screeningRiskLevel(totalScore: number, maxScore = 25): ScreeningRiskLevel {
+  const joinThreshold = Math.ceil(maxScore * 0.8);
+  const moderateThreshold = Math.ceil(maxScore * 0.6);
+  if (totalScore >= joinThreshold) return 'High Join Probability';
+  if (totalScore >= moderateThreshold) return 'Moderate Risk';
   return 'High Ghosting Risk';
 }
 
@@ -192,8 +194,60 @@ export interface Candidate {
   languages?: string[];
   technical_skills?: string[];
   soft_skills?: string[];
+  latitude?: number | null;
+  longitude?: number | null;
+  relocation_allowed?: boolean;
+  age?: number | null;
+  gender?: string | null;
+  highest_qualification?: string | null;
+  specialization?: string | null;
+  preferred_job_type?: string | null;
+  preferred_shift?: string | null;
+  preferred_cities?: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface JobScreeningQuestions {
+  prescreen: ScreeningQuestionDef[];
+  interview: ScreeningQuestionDef[];
+  generated_at?: string;
+  source?: 'ai' | 'template' | 'default';
+}
+
+export interface ScreeningQuestionDef {
+  id: string;
+  label: string;
+  hint: string;
+  requirement?: string;
+  category?: InterviewScreeningQuestion['category'] | 'technical';
+  time_seconds?: number;
+}
+
+export interface JobRecommendation {
+  id: number;
+  title: string;
+  company: string;
+  distance: number | null;
+  matchScore: number;
+  salary: string | null;
+  reason: string;
+  experience: string | null;
+  qualification: string | null;
+  languages: string[];
+  jobType?: string | null;
+  shift?: string | null;
+  city?: string | null;
+  description?: string | null;
+}
+
+export interface RecommendJobsResponse {
+  recommendations: JobRecommendation[];
+  suggestions?: {
+    remote: number;
+    hybrid: number;
+    nearbyCities: string[];
+  };
 }
 
 export interface Job {
@@ -206,9 +260,28 @@ export interface Job {
   assigned_name?: string;
   open_positions: number;
   description?: string;
+  screening_questions?: JobScreeningQuestions | null;
   tenure_days?: number | null;
   pipeline_count?: number;
   match_percent?: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pincode?: string | null;
+  required_qualification?: string | null;
+  required_languages?: string[];
+  min_age?: number | null;
+  max_age?: number | null;
+  min_experience?: number | null;
+  max_experience?: number | null;
+  required_skills?: string[];
+  salary?: string | null;
+  shift?: string | null;
+  job_type?: string | null;
+  gender_preference?: string | null;
 }
 
 export interface InterviewVideoTokenResponse {
@@ -273,11 +346,12 @@ export type InterviewQuestionId = keyof Omit<
 >;
 
 export interface InterviewScreeningQuestion {
-  id: InterviewQuestionId;
+  id: string;
   label: string;
   hint: string;
   timeSeconds?: number;
-  category: 'introduction' | 'domain' | 'behavioral' | 'goals';
+  category: 'introduction' | 'domain' | 'behavioral' | 'goals' | 'technical';
+  requirement?: string;
 }
 
 export const INTERVIEW_SCREENING_CATEGORIES: {
@@ -285,6 +359,7 @@ export const INTERVIEW_SCREENING_CATEGORIES: {
   label: string;
 }[] = [
   { id: 'introduction', label: 'Introduction & Personal' },
+  { id: 'technical', label: 'Role & Technical' },
   { id: 'domain', label: 'BPO / Customer Service' },
   { id: 'behavioral', label: 'Behavioral & Communication' },
   { id: 'goals', label: 'Goals & Fit' },
@@ -428,10 +503,34 @@ export const INTERVIEW_SCREENING_QUESTIONS: InterviewScreeningQuestion[] = [
 
 export const INTERVIEW_QUESTION_IDS = INTERVIEW_SCREENING_QUESTIONS.map((q) => q.id);
 
-export function interviewEvaluationSummary(evaluation?: InterviewEvaluation | null): string | null {
+export function interviewEvaluationSummary(
+  evaluation?: InterviewEvaluation | null,
+  questionCount = INTERVIEW_SCREENING_QUESTIONS.length
+): string | null {
   if (!evaluation || evaluation.questions_scored === 0) return null;
   const overall = evaluation.overall_score != null ? `${evaluation.overall_score}/10` : `${evaluation.total_score}/${evaluation.max_score}`;
-  return `${overall} · ${evaluation.questions_scored}/${INTERVIEW_SCREENING_QUESTIONS.length} questions`;
+  return `${overall} · ${evaluation.questions_scored}/${questionCount} questions`;
+}
+
+/** Map API screening question defs to interview panel format. */
+export function toInterviewPanelQuestions(questions: ScreeningQuestionDef[]): InterviewScreeningQuestion[] {
+  return questions.map((q) => ({
+    id: q.id,
+    label: q.label,
+    hint: q.hint,
+    requirement: q.requirement,
+    category: (q.category as InterviewScreeningQuestion['category']) || 'technical',
+    timeSeconds: q.time_seconds,
+  }));
+}
+
+/** Categories present in a question set, in display order. */
+export function categoriesForQuestions(questions: InterviewScreeningQuestion[]) {
+  const order = INTERVIEW_SCREENING_CATEGORIES.map((c) => c.id);
+  const present = new Set(questions.map((q) => q.category));
+  return INTERVIEW_SCREENING_CATEGORIES.filter((c) => present.has(c.id)).sort(
+    (a, b) => order.indexOf(a.id) - order.indexOf(b.id)
+  );
 }
 
 export interface Interview {
@@ -653,8 +752,40 @@ export interface Company {
   industry?: string;
   location?: string;
   status: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pincode?: string | null;
   open_jobs?: number;
   hiring_manager?: string;
+}
+
+export interface NearbyCompany {
+  id: number;
+  name: string;
+  industry: string | null;
+  location: string | null;
+  status: string;
+  latitude: number;
+  longitude: number;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  pincode: string | null;
+  distance_km: number;
+  open_jobs: number;
+  hiring_manager: string | null;
+}
+
+export interface NearbyCompaniesResponse {
+  companies: NearbyCompany[];
+  origin: { latitude: number; longitude: number };
+  max_distance_km: number;
+  message?: string;
 }
 
 export interface HiringManager {

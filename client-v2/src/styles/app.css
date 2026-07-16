@@ -83,6 +83,22 @@ body {
 
 img, svg { display: inline-block; vertical-align: middle; max-width: 100%; }
 
+/* Google Places Autocomplete dropdown — avoid global img rules stretching/breaking icons */
+.pac-container {
+  z-index: 10000 !important;
+  box-sizing: border-box;
+}
+.pac-item {
+  cursor: pointer;
+}
+.pac-icon,
+.pac-container img {
+  max-width: 15px !important;
+  width: 15px !important;
+  height: 20px !important;
+  margin-right: 7px;
+}
+
 button { font-family: inherit; }
 input, select, textarea { font-family: inherit; font-size: inherit; }
 
@@ -3596,4 +3612,112 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     gap: 0.75rem;
     flex-wrap: wrap;
 }
+
+/* Job recommendation engine */
+.job-location-picker { margin-top: 0.5rem; }
+.job-location-map {
+  height: 220px;
+  min-height: 220px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-top: 0.75rem;
+  background: var(--bg-secondary);
+  position: relative;
+}
+.job-location-map.is-ready {
+  background: #e5e3df;
+}
+.job-location-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.recommended-jobs-section { margin-bottom: 1.5rem; }
+.recommended-jobs-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.recommended-jobs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+}
+.filter-select { max-width: 180px; min-width: 140px; }
+.recommended-jobs-empty { padding: 1.25rem; }
+.recommended-jobs-suggestions { margin: 0.75rem 0 0; padding-left: 1.25rem; }
+
+/* Compact company name list (screening) */
+.company-name-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  max-width: 420px;
+}
+.company-name-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+.company-name-list li:last-child { border-bottom: none; }
+.company-name-list-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+.company-name-list-meta {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.company-name-list-action {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.nearby-companies-msg { margin: 0.5rem 0 0; font-size: 0.9rem; }
+.link-button {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font: inherit;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Nearby companies */
+.nearby-companies-section { margin: 1rem 0 1.5rem; }
+.nearby-companies-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.company-card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.geo-ready { color: #16a34a; font-size: 0.85rem; }
+.geo-missing { color: #ca8a04; font-size: 0.85rem; }
+.form-span-2 { grid-column: 1 / -1; }
 

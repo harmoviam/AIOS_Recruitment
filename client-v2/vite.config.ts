@@ -7,6 +7,8 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Load VITE_* from repo root .env (same place as DATABASE_URL / PORT).
+    envDir: '..',
     server: {
       port: 5174,
       proxy: {

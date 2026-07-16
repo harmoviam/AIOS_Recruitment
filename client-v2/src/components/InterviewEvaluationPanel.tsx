@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import ScorePicker from './ui/ScorePicker';
 import {
-  INTERVIEW_QUESTION_IDS,
-  INTERVIEW_SCREENING_CATEGORIES,
   INTERVIEW_SCREENING_QUESTIONS,
+  categoriesForQuestions,
   type InterviewEvaluation,
+  type InterviewScreeningQuestion,
 } from '../types';
 
 function formatTime(seconds: number) {
@@ -50,6 +50,8 @@ function QuestionTimer({ seconds, active }: { seconds: number; active: boolean }
 interface InterviewEvaluationPanelProps {
   interviewId: number;
   candidateName?: string;
+  jobTitle?: string | null;
+  questions?: InterviewScreeningQuestion[];
   initialEvaluation?: InterviewEvaluation | null;
   compact?: boolean;
   onSaved?: (evaluation: InterviewEvaluation) => void;
@@ -58,12 +60,45 @@ interface InterviewEvaluationPanelProps {
 export default function InterviewEvaluationPanel({
   interviewId,
   candidateName,
+  jobTitle,
+  questions: questionsProp,
   initialEvaluation,
   compact = false,
   onSaved,
 }: InterviewEvaluationPanelProps) {
+  const [loadedQuestions, setLoadedQuestions] = useState<InterviewScreeningQuestion[] | null>(null);
+  const [loadingQuestions, setLoadingQuestions] = useState(!questionsProp);
+
+  useEffect(() => {
+    if (questionsProp) {
+      setLoadedQuestions(questionsProp);
+      setLoadingQuestions(false);
+      return;
+    }
+    setLoadingQuestions(true);
+    api
+      .getInterviewScreeningQuestions(interviewId)
+      .then((r) => {
+        const mapped = r.questions.interview.map((q) => ({
+          id: q.id,
+          label: q.label,
+          hint: q.hint,
+          requirement: q.requirement,
+          category: (q.category as InterviewScreeningQuestion['category']) || 'technical',
+          timeSeconds: q.time_seconds,
+        }));
+        setLoadedQuestions(mapped);
+      })
+      .catch(() => setLoadedQuestions(INTERVIEW_SCREENING_QUESTIONS))
+      .finally(() => setLoadingQuestions(false));
+  }, [interviewId, questionsProp]);
+
+  const questions = loadedQuestions ?? questionsProp ?? INTERVIEW_SCREENING_QUESTIONS;
+  const questionIds = useMemo(() => questions.map((q) => q.id), [questions]);
+  const categories = useMemo(() => categoriesForQuestions(questions), [questions]);
+
   const [scores, setScores] = useState<Record<string, number | null>>(() =>
-    Object.fromEntries(INTERVIEW_QUESTION_IDS.map((id) => [id, (initialEvaluation?.[id] as number | null) ?? null]))
+    Object.fromEntries(questionIds.map((id) => [id, (initialEvaluation?.[id as keyof InterviewEvaluation] as number | null) ?? null]))
   );
   const [notes, setNotes] = useState(initialEvaluation?.notes ?? '');
   const [activeTimer, setActiveTimer] = useState<string | null>(null);
@@ -72,20 +107,20 @@ export default function InterviewEvaluationPanel({
 
   useEffect(() => {
     setScores(
-      Object.fromEntries(INTERVIEW_QUESTION_IDS.map((id) => [id, (initialEvaluation?.[id] as number | null) ?? null]))
+      Object.fromEntries(questionIds.map((id) => [id, (initialEvaluation?.[id as keyof InterviewEvaluation] as number | null) ?? null]))
     );
     setNotes(initialEvaluation?.notes ?? '');
-  }, [initialEvaluation, interviewId]);
+  }, [initialEvaluation, interviewId, questionIds]);
 
   const totalScore = useMemo(
-    () => INTERVIEW_QUESTION_IDS.reduce((sum, id) => sum + (scores[id] ?? 0), 0),
-    [scores]
+    () => questionIds.reduce((sum, id) => sum + (scores[id] ?? 0), 0),
+    [scores, questionIds]
   );
   const questionsScored = useMemo(
-    () => INTERVIEW_QUESTION_IDS.filter((id) => scores[id] != null).length,
-    [scores]
+    () => questionIds.filter((id) => scores[id] != null).length,
+    [scores, questionIds]
   );
-  const maxScore = INTERVIEW_SCREENING_QUESTIONS.length * 5;
+  const maxScore = questions.length * 5;
   const overallScore = questionsScored > 0 ? Math.round((totalScore / maxScore) * 100) / 10 : null;
 
   const setScore = (field: string, value: number | null) => {
@@ -113,12 +148,21 @@ export default function InterviewEvaluationPanel({
     setStatus('idle');
   };
 
+  if (loadingQuestions) {
+    return <div className="iv-eval-panel text-muted">Loading screening questions…</div>;
+  }
+
   return (
     <div className={`iv-eval-panel${compact ? ' iv-eval-panel-compact' : ''}`}>
       <div className="iv-eval-header">
         <div>
           <div className="iv-eval-title">Interview Screening</div>
           {candidateName && <div className="iv-eval-subtitle">{candidateName}</div>}
+          {jobTitle && (
+            <div className="iv-eval-subtitle text-muted" style={{ fontSize: '0.85rem' }}>
+              Questions tailored for: {jobTitle}
+            </div>
+          )}
         </div>
         <div className="iv-eval-totals">
           <div>
@@ -130,7 +174,7 @@ export default function InterviewEvaluationPanel({
             </div>
           )}
           <div className="text-muted" style={{ fontSize: '0.8rem' }}>
-            {questionsScored}/{INTERVIEW_SCREENING_QUESTIONS.length} rated
+            {questionsScored}/{questions.length} rated
           </div>
         </div>
       </div>
@@ -140,13 +184,13 @@ export default function InterviewEvaluationPanel({
       </p>
 
       <div className="iv-eval-questions">
-        {INTERVIEW_SCREENING_CATEGORIES.map((cat) => {
-          const questions = INTERVIEW_SCREENING_QUESTIONS.filter((q) => q.category === cat.id);
-          if (questions.length === 0) return null;
+        {categories.map((cat) => {
+          const catQuestions = questions.filter((q) => q.category === cat.id);
+          if (catQuestions.length === 0) return null;
           return (
             <section key={cat.id} className="iv-eval-category">
               <h3 className="iv-eval-category-title">{cat.label}</h3>
-              {questions.map((q) => (
+              {catQuestions.map((q) => (
                 <div key={q.id} className="iv-eval-row">
                   <div className="iv-eval-row-info">
                     <div className="iv-eval-row-label">
@@ -162,6 +206,11 @@ export default function InterviewEvaluationPanel({
                         </button>
                       )}
                     </div>
+                    {q.requirement && (
+                      <div className="iv-eval-row-requirement text-muted" style={{ fontSize: '0.8rem' }}>
+                        JD requirement: {q.requirement}
+                      </div>
+                    )}
                     <div className="iv-eval-row-hint">{q.hint}</div>
                   </div>
                   <ScorePicker

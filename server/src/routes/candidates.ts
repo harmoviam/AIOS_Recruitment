@@ -21,6 +21,10 @@ import {
 } from '../services/ai.js';
 import { extractAndParseResume } from '../services/parserService.js';
 import {
+  DEFAULT_PRESCREEN_QUESTIONS,
+  getScreeningQuestionsForCandidate,
+} from '../services/screeningQuestions.js';
+import {
   finalizePendingResume,
   isAllowedMimeType,
   readResumeFile,
@@ -40,14 +44,6 @@ const resumeUpload = multer({
 });
 
 const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
-// Pre-screening scorecard: each question is scored 1-5 by the recruiter.
-const SCREENING_QUESTION_FIELDS = [
-  'commitment_language',
-  'future_clarity',
-  'opportunity_competition',
-  'motivation_strength',
-  'stability_indicators',
-] as const;
 // Red-flag signals observed in the first 3 minutes of the call, scored 1-5.
 const RED_FLAG_FIELDS = [
   'low_energy',
@@ -59,9 +55,11 @@ const RED_FLAG_FIELDS = [
   'non_committed_language',
 ] as const;
 
-function screeningRiskLevel(totalScore: number): string {
-  if (totalScore >= 20) return 'High Join Probability';
-  if (totalScore >= 15) return 'Moderate Risk';
+function screeningRiskLevel(totalScore: number, maxScore = 25): string {
+  const joinThreshold = Math.ceil(maxScore * 0.8);
+  const moderateThreshold = Math.ceil(maxScore * 0.6);
+  if (totalScore >= joinThreshold) return 'High Join Probability';
+  if (totalScore >= moderateThreshold) return 'Moderate Risk';
   return 'High Ghosting Risk';
 }
 const OFFER_STATUSES = ['screening_rejected', 'offer_rejected', 'not_interested', 'joined_elsewhere', 'left_company'];
@@ -797,13 +795,21 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
 router.put('/:id/screening', async (req, res) => {
   const candidateId = Number(req.params.id);
   const { rows: existing } = await pool.query(
-    'SELECT id, name FROM candidates WHERE id = $1 AND tenant_id = $2',
+    'SELECT id, name, job_id FROM candidates WHERE id = $1 AND tenant_id = $2',
     [candidateId, tid(req)]
   );
   if (!existing[0]) return res.status(404).json({ error: 'Candidate not found' });
 
+  let prescreenFields = DEFAULT_PRESCREEN_QUESTIONS.map((q) => q.id);
+  try {
+    const { questions } = await getScreeningQuestionsForCandidate(candidateId, tid(req));
+    if (questions.prescreen?.length) prescreenFields = questions.prescreen.map((q) => q.id);
+  } catch {
+    // Fall back to defaults if job lookup fails.
+  }
+
   const scores: Record<string, number | null> = {};
-  for (const field of [...SCREENING_QUESTION_FIELDS, ...RED_FLAG_FIELDS]) {
+  for (const field of [...prescreenFields, ...RED_FLAG_FIELDS]) {
     const value = req.body[field];
     if (value === undefined || value === null) {
       scores[field] = null;
@@ -816,15 +822,15 @@ router.put('/:id/screening', async (req, res) => {
     scores[field] = n;
   }
 
-  // Unscored questions count as 0, matching the spreadsheet formula the risk
-  // levels come from: >=20 join, >=15 moderate, else ghosting risk.
-  const totalScore = SCREENING_QUESTION_FIELDS.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
+  const maxPrescreenScore = prescreenFields.length * 5;
+  const totalScore = prescreenFields.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
   const totalRedFlags = RED_FLAG_FIELDS.reduce((sum, f) => sum + (scores[f] ?? 0), 0);
   const screening = {
     ...scores,
     total_score: totalScore,
+    max_score: maxPrescreenScore,
     total_red_flags: totalRedFlags,
-    risk_level: screeningRiskLevel(totalScore),
+    risk_level: screeningRiskLevel(totalScore, maxPrescreenScore),
     updated_by: req.user!.id,
     updated_at: new Date().toISOString(),
   };
@@ -838,7 +844,7 @@ router.put('/:id/screening', async (req, res) => {
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
     [
       'screening',
-      `${existing[0].name} pre-screening scored ${totalScore}/25 — ${screening.risk_level}`,
+      `${existing[0].name} pre-screening scored ${totalScore}/${maxPrescreenScore} — ${screening.risk_level}`,
       req.user!.id,
       candidateId,
       tid(req),
@@ -846,6 +852,18 @@ router.put('/:id/screening', async (req, res) => {
   );
 
   res.json(rows[0]);
+});
+
+router.get('/:id/screening-questions', async (req, res) => {
+  const candidateId = Number(req.params.id);
+  if (!Number.isFinite(candidateId)) return res.status(400).json({ error: 'Invalid candidate id' });
+
+  try {
+    const result = await getScreeningQuestionsForCandidate(candidateId, tid(req));
+    res.json(result);
+  } catch {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
 });
 
 router.get('/:id', async (req, res) => {
@@ -895,6 +913,16 @@ router.post('/', async (req, res) => {
     languages,
     technical_skills,
     soft_skills,
+    latitude,
+    longitude,
+    relocation_allowed,
+    age,
+    gender,
+    highest_qualification,
+    specialization,
+    preferred_job_type,
+    preferred_shift,
+    preferred_cities,
   } = req.body;
 
   if (!name) return res.status(400).json({ error: 'Name required' });
@@ -913,11 +941,14 @@ router.post('/', async (req, res) => {
       name, email, phone, skills, experience_years, ai_score, job_id, recruiter_id, notes, salary_expectation, tenant_id,
       source, parsed_profile, linkedin, github, portfolio, current_company, current_location, preferred_location,
       notice_period, current_salary, professional_summary, education, experience, projects, certifications, languages,
-      technical_skills, soft_skills
+      technical_skills, soft_skills,
+      latitude, longitude, relocation_allowed, age, gender, highest_qualification, specialization,
+      preferred_job_type, preferred_shift, preferred_cities
     ) VALUES (
       $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11,
       $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-      $23::jsonb, $24::jsonb, $25::jsonb, $26::jsonb, $27::jsonb, $28::jsonb, $29::jsonb
+      $23::jsonb, $24::jsonb, $25::jsonb, $26::jsonb, $27::jsonb, $28::jsonb, $29::jsonb,
+      $30, $31, $32, $33, $34, $35, $36, $37, $38, $39::jsonb
     ) RETURNING *`,
     [
       name,
@@ -949,6 +980,16 @@ router.post('/', async (req, res) => {
       JSON.stringify(languages || []),
       JSON.stringify(technical_skills || []),
       JSON.stringify(soft_skills || []),
+      latitude != null ? Number(latitude) : null,
+      longitude != null ? Number(longitude) : null,
+      Boolean(relocation_allowed),
+      age != null ? Number(age) : null,
+      gender || null,
+      highest_qualification || null,
+      specialization || null,
+      preferred_job_type || null,
+      preferred_shift || null,
+      JSON.stringify(Array.isArray(preferred_cities) ? preferred_cities : []),
     ]
   );
 
@@ -1015,6 +1056,17 @@ router.patch('/:id', async (req, res) => {
     current_salary,
     professional_summary,
     parsed_profile,
+    latitude,
+    longitude,
+    relocation_allowed,
+    age,
+    gender,
+    highest_qualification,
+    specialization,
+    preferred_job_type,
+    preferred_shift,
+    preferred_cities,
+    languages,
   } = req.body;
 
   const { rows: existing } = await pool.query(
@@ -1169,6 +1221,50 @@ router.patch('/:id', async (req, res) => {
   if (parsed_profile !== undefined) {
     updates.push(`parsed_profile = $${i++}::jsonb`);
     params.push(JSON.stringify(parsed_profile));
+  }
+  if (latitude !== undefined) {
+    updates.push(`latitude = $${i++}`);
+    params.push(latitude != null ? Number(latitude) : null);
+  }
+  if (longitude !== undefined) {
+    updates.push(`longitude = $${i++}`);
+    params.push(longitude != null ? Number(longitude) : null);
+  }
+  if (relocation_allowed !== undefined) {
+    updates.push(`relocation_allowed = $${i++}`);
+    params.push(Boolean(relocation_allowed));
+  }
+  if (age !== undefined) {
+    updates.push(`age = $${i++}`);
+    params.push(age != null ? Number(age) : null);
+  }
+  if (gender !== undefined) {
+    updates.push(`gender = $${i++}`);
+    params.push(gender || null);
+  }
+  if (highest_qualification !== undefined) {
+    updates.push(`highest_qualification = $${i++}`);
+    params.push(highest_qualification || null);
+  }
+  if (specialization !== undefined) {
+    updates.push(`specialization = $${i++}`);
+    params.push(specialization || null);
+  }
+  if (preferred_job_type !== undefined) {
+    updates.push(`preferred_job_type = $${i++}`);
+    params.push(preferred_job_type || null);
+  }
+  if (preferred_shift !== undefined) {
+    updates.push(`preferred_shift = $${i++}`);
+    params.push(preferred_shift || null);
+  }
+  if (preferred_cities !== undefined) {
+    updates.push(`preferred_cities = $${i++}::jsonb`);
+    params.push(JSON.stringify(Array.isArray(preferred_cities) ? preferred_cities : []));
+  }
+  if (languages !== undefined) {
+    updates.push(`languages = $${i++}::jsonb`);
+    params.push(JSON.stringify(Array.isArray(languages) ? languages : []));
   }
 
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
