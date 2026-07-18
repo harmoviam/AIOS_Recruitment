@@ -452,6 +452,10 @@ router.delete(
 
 /* ── Public routes (tenant slug in path) ── */
 
+const TENANT_LOGO_PATHS: Record<string, string> = {
+  earlyjobs: '/brands/earlyjobs-logo.png',
+};
+
 router.get(
   '/:tenantSlug/meta',
   asyncHandler(async (req, res) => {
@@ -462,6 +466,7 @@ router.get(
       name: tenant.name,
       logoInitials: tenant.logo_initials,
       primaryColor: tenant.primary_color,
+      logoUrl: TENANT_LOGO_PATHS[tenant.slug] || null,
     });
   })
 );

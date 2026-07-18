@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { getTenantLogoUrl } from '../../data/tenantLogos';
 import { pollPath } from '../../utils/pollSession';
 import PollShell from './PollShell';
 
@@ -39,20 +40,27 @@ export default function PollEntryPage() {
           <p className="form-error">{error}</p>
         ) : (
           <div className="poll-workspace-list">
-            {workspaces.map((ws) => (
-              <Link
-                key={ws.slug}
-                to={pollPath(ws.slug)}
-                className="poll-workspace-item"
-                style={{ '--ws-color': ws.primaryColor } as CSSProperties}
-              >
-                <span className="poll-workspace-mark">{ws.logoInitials}</span>
-                <span>
-                  <strong>{ws.name}</strong>
-                  <small>{ws.slug}</small>
-                </span>
-              </Link>
-            ))}
+            {workspaces.map((ws) => {
+              const logoUrl = getTenantLogoUrl(ws.slug);
+              return (
+                <Link
+                  key={ws.slug}
+                  to={pollPath(ws.slug)}
+                  className={`poll-workspace-item${logoUrl ? ' poll-workspace-item--logo' : ''}`}
+                  style={{ '--ws-color': ws.primaryColor } as CSSProperties}
+                >
+                  {logoUrl ? (
+                    <img className="poll-workspace-logo" src={logoUrl} alt={`${ws.name} logo`} />
+                  ) : (
+                    <span className="poll-workspace-mark">{ws.logoInitials}</span>
+                  )}
+                  <span>
+                    <strong>{ws.name}</strong>
+                    <small>{ws.slug}</small>
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>

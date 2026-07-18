@@ -365,9 +365,13 @@ export const api = {
 
   /* Recruiter Poll & Assessment (tenant-scoped) */
   pollGetMeta: (tenantSlug: string) =>
-    publicRequest<{ slug: string; name: string; logoInitials: string; primaryColor: string }>(
-      `/poll/${encodeURIComponent(tenantSlug)}/meta`
-    ),
+    publicRequest<{
+      slug: string;
+      name: string;
+      logoInitials: string;
+      primaryColor: string;
+      logoUrl?: string | null;
+    }>(`/poll/${encodeURIComponent(tenantSlug)}/meta`),
   pollRegister: (
     tenantSlug: string,
     data: { name: string; email: string; mobile: string; company_name: string }

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" role="img" aria-label="EarlyJobs.ai">
+  <title>EarlyJobs.ai</title>
+  <rect width="640" height="200" fill="#ffffff"/>
+  <g font-family="Inter, Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-weight="800">
+    <text x="28" y="118" font-size="96" letter-spacing="-2.4" fill="#EA580C">Early</text>
+    <text x="258" y="118" font-size="96" letter-spacing="-2.4" fill="#334155">Jobs</text>
+    <text x="500" y="152" font-size="36" letter-spacing="-0.5" fill="#EA580C">.ai</text>
+  </g>
+  <!-- Partial frame around Jobs.ai (open on the left) -->
+  <path
+    d="M270 34 H590 V164 H370"
+    fill="none"
+    stroke="#EA580C"
+    stroke-width="10"
+    stroke-linecap="square"
+    stroke-linejoin="miter"
+  />
+</svg>
