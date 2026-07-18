@@ -31,6 +31,12 @@ import BillingPage from './pages/settings/BillingPage';
 import PlatformDashboardPage from './pages/platform/PlatformDashboardPage';
 import TenantsPage from './pages/platform/TenantsPage';
 import PlatformPlansPage from './pages/platform/PlatformPlansPage';
+import PollEntryPage from './pages/poll/PollEntryPage';
+import PollRegisterPage from './pages/poll/PollRegisterPage';
+import PollAssessmentPage from './pages/poll/PollAssessmentPage';
+import PollResultPage from './pages/poll/PollResultPage';
+import PollRecruiterDashboardPage from './pages/poll/PollRecruiterDashboardPage';
+import PollAdminDashboardPage from './pages/poll/PollAdminDashboardPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -74,6 +80,11 @@ function AppRoutes() {
       <Route path="/walkthrough/:role" element={<WalkthroughPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/join/interview/:joinToken" element={<JoinInterviewPage />} />
+      <Route path="/poll" element={<PollEntryPage />} />
+      <Route path="/poll/:tenantSlug" element={<PollRegisterPage />} />
+      <Route path="/poll/:tenantSlug/assessment" element={<PollAssessmentPage />} />
+      <Route path="/poll/:tenantSlug/result" element={<PollResultPage />} />
+      <Route path="/poll/:tenantSlug/dashboard" element={<PollRecruiterDashboardPage />} />
       <Route
         path="/interviews/:id/room"
         element={
@@ -110,6 +121,16 @@ function AppRoutes() {
         <Route path="interviews/:id/evaluate" element={<OrgWorkspaceRoute><InterviewEvaluationPage /></OrgWorkspaceRoute>} />
         <Route path="reports" element={<OrgWorkspaceRoute><ReportsPage /></OrgWorkspaceRoute>} />
         <Route path="analytics" element={<OrgWorkspaceRoute><AnalyticsPage /></OrgWorkspaceRoute>} />
+        <Route
+          path="poll-admin"
+          element={
+            <OrgWorkspaceRoute>
+              <AdminRoute>
+                <PollAdminDashboardPage />
+              </AdminRoute>
+            </OrgWorkspaceRoute>
+          }
+        />
         <Route path="settings" element={<OrgWorkspaceRoute><AdminRoute><SettingsPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="settings/profile" element={<ProfilePage />} />
         <Route path="settings/organization" element={<OrgWorkspaceRoute><AdminRoute><TenantSettingsPage /></AdminRoute></OrgWorkspaceRoute>} />

@@ -400,6 +400,105 @@ ALTER TABLE candidates ADD COLUMN IF NOT EXISTS languages JSONB DEFAULT '[]';
 ALTER TABLE candidates ADD COLUMN IF NOT EXISTS technical_skills JSONB DEFAULT '[]';
 ALTER TABLE candidates ADD COLUMN IF NOT EXISTS soft_skills JSONB DEFAULT '[]';
 
+-- ---------------------------------------------------------------------------
+-- 9. Recruiter Poll & Assessment (tenant-scoped learning engagement module)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS poll_recruiters (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  mobile TEXT NOT NULL,
+  company_name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS poll_questions (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  option1 TEXT NOT NULL,
+  option2 TEXT NOT NULL,
+  option3 TEXT NOT NULL,
+  option4 TEXT NOT NULL,
+  correct_option INTEGER NOT NULL CHECK (correct_option BETWEEN 1 AND 4),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS poll_responses (
+  id SERIAL PRIMARY KEY,
+  recruiter_id INTEGER NOT NULL REFERENCES poll_recruiters(id) ON DELETE CASCADE,
+  question_id INTEGER NOT NULL REFERENCES poll_questions(id) ON DELETE CASCADE,
+  selected_option INTEGER NOT NULL CHECK (selected_option BETWEEN 1 AND 4),
+  is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (recruiter_id, question_id)
+);
+
+CREATE TABLE IF NOT EXISTS poll_results (
+  id SERIAL PRIMARY KEY,
+  recruiter_id INTEGER NOT NULL UNIQUE REFERENCES poll_recruiters(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL DEFAULT 0,
+  percentage NUMERIC(5,2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (status IN ('pass', 'fail')),
+  total_questions INTEGER NOT NULL DEFAULT 0,
+  correct_answers INTEGER NOT NULL DEFAULT 0,
+  wrong_answers INTEGER NOT NULL DEFAULT 0,
+  completed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE poll_recruiters ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE;
+ALTER TABLE poll_questions ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE;
+
+UPDATE poll_recruiters pr
+SET tenant_id = t.id
+FROM (
+  SELECT id FROM tenants
+  WHERE slug = 'staffpro-agency' OR status IN ('active', 'trial')
+  ORDER BY CASE WHEN slug = 'staffpro-agency' THEN 0 ELSE 1 END, id
+  LIMIT 1
+) t
+WHERE pr.tenant_id IS NULL;
+
+UPDATE poll_questions pq
+SET tenant_id = t.id
+FROM (
+  SELECT id FROM tenants
+  WHERE slug = 'staffpro-agency' OR status IN ('active', 'trial')
+  ORDER BY CASE WHEN slug = 'staffpro-agency' THEN 0 ELSE 1 END, id
+  LIMIT 1
+) t
+WHERE pq.tenant_id IS NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_schema = current_schema()
+      AND table_name = 'poll_recruiters'
+      AND constraint_name = 'poll_recruiters_email_key'
+  ) THEN
+    ALTER TABLE poll_recruiters DROP CONSTRAINT poll_recruiters_email_key;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_schema = current_schema()
+      AND table_name = 'poll_recruiters'
+      AND constraint_name = 'poll_recruiters_mobile_key'
+  ) THEN
+    ALTER TABLE poll_recruiters DROP CONSTRAINT poll_recruiters_mobile_key;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_tenant_email_uidx
+  ON poll_recruiters (tenant_id, email);
+CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_tenant_mobile_uidx
+  ON poll_recruiters (tenant_id, mobile);
+CREATE INDEX IF NOT EXISTS poll_recruiters_tenant_idx ON poll_recruiters (tenant_id);
+CREATE INDEX IF NOT EXISTS poll_questions_tenant_idx ON poll_questions (tenant_id);
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------

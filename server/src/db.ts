@@ -192,6 +192,7 @@ export async function initDb() {
     await migrateAiResumeParser(client);
     await migrateJobRecommendation(client);
     await migrateCompanyGeo(client);
+    await migratePollAssessment(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 
@@ -697,6 +698,239 @@ async function migrateJobRecommendation(client: pg.PoolClient) {
     ON jobs (tenant_id, status)
     WHERE status IN ('active', 'urgent', 'open')
   `);
+}
+
+/** Recruiter Poll & Assessment — tenant-scoped learning engagement module. */
+async function migratePollAssessment(client: pg.PoolClient) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS poll_recruiters (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      mobile TEXT NOT NULL,
+      company_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_questions (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+      question TEXT NOT NULL,
+      option1 TEXT NOT NULL,
+      option2 TEXT NOT NULL,
+      option3 TEXT NOT NULL,
+      option4 TEXT NOT NULL,
+      correct_option INTEGER NOT NULL CHECK (correct_option BETWEEN 1 AND 4),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_responses (
+      id SERIAL PRIMARY KEY,
+      recruiter_id INTEGER NOT NULL REFERENCES poll_recruiters(id) ON DELETE CASCADE,
+      question_id INTEGER NOT NULL REFERENCES poll_questions(id) ON DELETE CASCADE,
+      selected_option INTEGER NOT NULL CHECK (selected_option BETWEEN 1 AND 4),
+      is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (recruiter_id, question_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_results (
+      id SERIAL PRIMARY KEY,
+      recruiter_id INTEGER NOT NULL UNIQUE REFERENCES poll_recruiters(id) ON DELETE CASCADE,
+      score INTEGER NOT NULL DEFAULT 0,
+      percentage NUMERIC(5,2) NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK (status IN ('pass', 'fail')),
+      total_questions INTEGER NOT NULL DEFAULT 0,
+      correct_answers INTEGER NOT NULL DEFAULT 0,
+      wrong_answers INTEGER NOT NULL DEFAULT 0,
+      completed_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await client.query(`ALTER TABLE poll_recruiters ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE`);
+  await client.query(`ALTER TABLE poll_questions ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE`);
+
+  // Backfill legacy global rows onto the primary demo tenant (or first active tenant).
+  const { rows: defaultTenant } = await client.query(
+    `SELECT id FROM tenants
+     WHERE slug = 'staffpro-agency' OR status IN ('active', 'trial')
+     ORDER BY CASE WHEN slug = 'staffpro-agency' THEN 0 ELSE 1 END, id
+     LIMIT 1`
+  );
+  const defaultTenantId = defaultTenant[0]?.id as number | undefined;
+  if (defaultTenantId) {
+    await client.query(`UPDATE poll_recruiters SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+    await client.query(`UPDATE poll_questions SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+  }
+
+  await client.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = current_schema()
+          AND table_name = 'poll_recruiters'
+          AND constraint_name = 'poll_recruiters_email_key'
+      ) THEN
+        ALTER TABLE poll_recruiters DROP CONSTRAINT poll_recruiters_email_key;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = current_schema()
+          AND table_name = 'poll_recruiters'
+          AND constraint_name = 'poll_recruiters_mobile_key'
+      ) THEN
+        ALTER TABLE poll_recruiters DROP CONSTRAINT poll_recruiters_mobile_key;
+      END IF;
+    END $$;
+  `);
+
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_tenant_email_uidx
+      ON poll_recruiters (tenant_id, email);
+    CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_tenant_mobile_uidx
+      ON poll_recruiters (tenant_id, mobile);
+    CREATE INDEX IF NOT EXISTS poll_recruiters_tenant_idx ON poll_recruiters (tenant_id);
+    CREATE INDEX IF NOT EXISTS poll_questions_tenant_idx ON poll_questions (tenant_id);
+  `);
+
+  await seedPollQuestionsForAllTenants(client);
+}
+
+const POLL_QUESTION_SEEDS: Array<{
+  question: string;
+  option1: string;
+  option2: string;
+  option3: string;
+  option4: string;
+  correct_option: number;
+  sort_order: number;
+}> = [
+  {
+    question: 'Which sourcing strategy gives the best hiring results?',
+    option1: 'One Job Portal',
+    option2: 'Employee Referrals Only',
+    option3: 'Walk-ins Only',
+    option4: 'Multiple Sourcing Channels (WhatsApp, Referrals, LinkedIn, Colleges & Job Portals)',
+    correct_option: 4,
+    sort_order: 1,
+  },
+  {
+    question: 'What improves interview attendance the most?',
+    option1: 'Higher Salary',
+    option2: 'More Job Advertisements',
+    option3: 'Longer Job Descriptions',
+    option4: 'Consistent Follow-up with Candidates',
+    correct_option: 4,
+    sort_order: 2,
+  },
+  {
+    question: 'What should be the primary KPI for recruiters?',
+    option1: 'Number of Resumes',
+    option2: 'Number of Interviews',
+    option3: 'Number of Offers',
+    option4: 'Joining Ratio & Retention',
+    correct_option: 4,
+    sort_order: 3,
+  },
+  {
+    question: "A candidate rejects today's offer. What should a recruiter do?",
+    option1: 'Delete the Profile',
+    option2: 'Ignore Future Communication',
+    option3: 'Block the Candidate',
+    option4: 'Keep them in the Talent Pipeline',
+    correct_option: 4,
+    sort_order: 4,
+  },
+  {
+    question: 'Candidates usually accept a BPO offer because of:',
+    option1: 'Salary Only',
+    option2: 'Office Location Only',
+    option3: 'Brand Name Only',
+    option4: 'Salary + Career Growth + Shift + Transport + Work Culture',
+    correct_option: 4,
+    sort_order: 5,
+  },
+  {
+    question: 'Freshers should mainly be evaluated based on:',
+    option1: 'Resume Design',
+    option2: 'College Reputation',
+    option3: 'Degree Only',
+    option4: 'Communication Skills + Aptitude + Attitude',
+    correct_option: 4,
+    sort_order: 6,
+  },
+  {
+    question: 'When is hiring considered complete?',
+    option1: 'Resume Shortlisted',
+    option2: 'Interview Completed',
+    option3: 'Offer Letter Sent',
+    option4: 'Candidate Joins & Completes Onboarding',
+    correct_option: 4,
+    sort_order: 7,
+  },
+  {
+    question: 'What should recruiters spend most of their time doing?',
+    option1: 'Waiting for Applications',
+    option2: 'Posting Jobs Repeatedly',
+    option3: 'Updating Excel Sheets',
+    option4: 'Sourcing, Engaging & Following Up with Candidates',
+    correct_option: 4,
+    sort_order: 8,
+  },
+  {
+    question: 'Which recruiter will achieve the highest joining ratio?',
+    option1: 'Recruiter using only one Job Portal',
+    option2: 'Recruiter calling candidates once',
+    option3: 'Recruiter offering only higher salary',
+    option4: 'Recruiter who consistently follows up and builds relationships',
+    correct_option: 4,
+    sort_order: 9,
+  },
+  {
+    question: 'Which statement best defines an excellent recruiter?',
+    option1: 'Closes positions quickly',
+    option2: 'Conducts the most interviews',
+    option3: 'Sends the most offers',
+    option4: 'Builds relationships, talent pipelines, and quality hires',
+    correct_option: 4,
+    sort_order: 10,
+  },
+];
+
+async function seedPollQuestionsForTenant(client: pg.PoolClient, tenantId: number) {
+  const { rows } = await client.query(
+    'SELECT COUNT(*)::int AS c FROM poll_questions WHERE tenant_id = $1',
+    [tenantId]
+  );
+  if (rows[0].c > 0) return 0;
+
+  for (const q of POLL_QUESTION_SEEDS) {
+    await client.query(
+      `INSERT INTO poll_questions
+        (tenant_id, question, option1, option2, option3, option4, correct_option, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)`,
+      [tenantId, q.question, q.option1, q.option2, q.option3, q.option4, q.correct_option, q.sort_order]
+    );
+  }
+  return POLL_QUESTION_SEEDS.length;
+}
+
+async function seedPollQuestionsForAllTenants(client: pg.PoolClient) {
+  const { rows: tenants } = await client.query(
+    `SELECT id, slug FROM tenants WHERE status IN ('active', 'trial') ORDER BY id`
+  );
+  let seededTenants = 0;
+  for (const t of tenants) {
+    const count = await seedPollQuestionsForTenant(client, t.id);
+    if (count > 0) seededTenants += 1;
+  }
+  if (seededTenants > 0) {
+    console.log(`Seeded poll assessment questions for ${seededTenants} tenant(s)`);
+  }
 }
 
 /** AI resume parser — structured profile fields and resume file metadata on candidates. */

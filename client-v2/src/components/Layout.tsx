@@ -40,6 +40,7 @@ const navSections: NavSection[] = [
       { to: '/messages', label: 'WhatsApp', orgOnly: true },
       { to: '/interviews', label: 'Calendar', orgOnly: true },
       { to: '/reports', label: 'Reports', hmHidden: false, orgOnly: true },
+      { to: '/poll-admin', label: 'Recruiter Poll', adminOnly: true, orgOnly: true },
     ],
   },
   {
@@ -118,6 +119,7 @@ function iconFor(to: string): string {
     case '/interviews': return 'calendar';
     case '/reports': return 'fileText';
     case '/analytics': return 'chart';
+    case '/poll-admin': return 'chart';
     case '/platform/tenants': return 'building';
     case '/platform/plans': return 'creditCard';
     case '/settings': return 'settings';

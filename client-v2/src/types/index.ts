@@ -928,3 +928,84 @@ export const ROLE_LABELS: Record<string, string> = {
   hiring_manager: 'Hiring Manager',
   recruiter: 'Recruiter',
 };
+
+/* ── Recruiter Poll & Assessment ── */
+
+export interface PollRecruiter {
+  id: number;
+  name: string;
+  email: string;
+  mobile: string;
+  company_name: string;
+  created_at: string;
+  score?: number | null;
+  percentage?: number | null;
+  status?: 'pass' | 'fail' | null;
+  completed_at?: string | null;
+  total_questions?: number | null;
+  correct_answers?: number | null;
+  wrong_answers?: number | null;
+}
+
+export interface PollQuestionPublic {
+  id: number;
+  question: string;
+  option1: string;
+  option2: string;
+  option3: string;
+  option4: string;
+  sort_order: number;
+}
+
+export interface PollQuestionAdmin extends PollQuestionPublic {
+  correct_option: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface PollResult {
+  id: number;
+  recruiter_id: number;
+  name?: string;
+  email?: string;
+  mobile?: string;
+  company_name?: string;
+  score: number;
+  percentage: number;
+  status: 'pass' | 'fail';
+  total_questions: number;
+  correct_answers: number;
+  wrong_answers: number;
+  completed_at: string;
+}
+
+export interface PollMotivation {
+  tier: string;
+  emoji: string;
+  title: string;
+  message: string;
+}
+
+export interface PollDashboard {
+  tenant?: { id: number; slug: string; name: string };
+  cards: {
+    total_recruiters: number;
+    total_attempts: number;
+    average_score: number;
+    pass_percentage: number;
+    fail_percentage: number;
+  };
+  charts: {
+    recruiter_scores: { name: string; score: number; percentage: number; status: string }[];
+    company_participation: { company: string; recruiters: number }[];
+    pass_vs_fail: { name: string; value: number; key: string }[];
+    question_accuracy: {
+      question: string;
+      question_id: number;
+      accuracy: number;
+      attempts: number;
+      correct_count: number;
+      full_question: string;
+    }[];
+  };
+}
