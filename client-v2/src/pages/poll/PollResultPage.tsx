@@ -6,12 +6,13 @@ import { getPollRecruiterId, pollPath } from '../../utils/pollSession';
 import PollShell from './PollShell';
 
 export default function PollResultPage() {
-  const { tenantSlug = '' } = useParams();
+  const { tenantSlug = '', pollSlug = '' } = useParams();
   const navigate = useNavigate();
-  const recruiterId = getPollRecruiterId(tenantSlug);
+  const recruiterId = getPollRecruiterId(tenantSlug, pollSlug);
   const [result, setResult] = useState<PollResult | null>(null);
   const [motivation, setMotivation] = useState<PollMotivation | null>(null);
   const [tenantName, setTenantName] = useState('');
+  const [pollTitle, setPollTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -20,13 +21,21 @@ export default function PollResultPage() {
       navigate('/poll', { replace: true });
       return;
     }
-    if (!recruiterId) {
+    if (!pollSlug) {
       navigate(pollPath(tenantSlug), { replace: true });
       return;
     }
-    Promise.all([api.pollGetMeta(tenantSlug), api.pollGetResult(tenantSlug, recruiterId)])
+    if (!recruiterId) {
+      navigate(pollPath(tenantSlug, pollSlug), { replace: true });
+      return;
+    }
+    Promise.all([
+      api.pollGetPollMeta(tenantSlug, pollSlug),
+      api.pollGetResult(tenantSlug, pollSlug, recruiterId),
+    ])
       .then(([meta, data]) => {
         setTenantName(meta.name);
+        setPollTitle(meta.poll?.title || '');
         setResult(data.result);
         setMotivation(data.motivation);
       })
@@ -34,12 +43,16 @@ export default function PollResultPage() {
         setError(err instanceof Error ? err.message : 'Result not available');
       })
       .finally(() => setLoading(false));
-  }, [tenantSlug, recruiterId, navigate]);
+  }, [tenantSlug, pollSlug, recruiterId, navigate]);
 
-  if (!tenantSlug || !recruiterId) return null;
+  if (!tenantSlug || !pollSlug || !recruiterId) return null;
 
   return (
-    <PollShell subtitle="Your assessment result" tenantSlug={tenantSlug} tenantName={tenantName}>
+    <PollShell
+      subtitle={pollTitle ? `Result · ${pollTitle}` : 'Your assessment result'}
+      tenantSlug={tenantSlug}
+      tenantName={tenantName}
+    >
       <div className="poll-card poll-card--narrow">
         {loading ? (
           <div className="poll-loading">
@@ -49,7 +62,7 @@ export default function PollResultPage() {
         ) : error || !result ? (
           <div>
             <p className="form-error">{error || 'Result not found'}</p>
-            <Link to={pollPath(tenantSlug, '/assessment')} className="button-pill button-primary">
+            <Link to={pollPath(tenantSlug, pollSlug, '/assessment')} className="button-pill button-primary">
               Take assessment
             </Link>
           </div>
@@ -87,10 +100,10 @@ export default function PollResultPage() {
             </div>
 
             <div className="poll-nav">
-              <Link to={pollPath(tenantSlug, '/dashboard')} className="button-pill button-primary">
+              <Link to={pollPath(tenantSlug, pollSlug, '/dashboard')} className="button-pill button-primary">
                 View My Dashboard
               </Link>
-              <Link to={pollPath(tenantSlug, '/assessment')} className="button-pill button-secondary">
+              <Link to={pollPath(tenantSlug, pollSlug, '/assessment')} className="button-pill button-secondary">
                 Retake Assessment
               </Link>
             </div>

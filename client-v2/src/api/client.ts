@@ -363,7 +363,7 @@ export const api = {
   updateUser: (id: number, data: Partial<{ name: string; role: string; password: string; wa_signature: string }>) =>
     request(`/settings/users/list/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  /* Recruiter Poll & Assessment (tenant-scoped) */
+  /* Recruiter Poll & Assessment (tenant + poll scoped) */
   pollGetMeta: (tenantSlug: string) =>
     publicRequest<{
       slug: string;
@@ -371,45 +371,81 @@ export const api = {
       logoInitials: string;
       primaryColor: string;
       logoUrl?: string | null;
+      polls: import('../types').PollSummary[];
     }>(`/poll/${encodeURIComponent(tenantSlug)}/meta`),
+  pollGetPollMeta: (tenantSlug: string, pollSlug: string) =>
+    publicRequest<{
+      slug: string;
+      name: string;
+      logoInitials: string;
+      primaryColor: string;
+      logoUrl?: string | null;
+      poll: import('../types').PollSummary;
+    }>(`/poll/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pollSlug)}/meta`),
   pollRegister: (
     tenantSlug: string,
+    pollSlug: string,
     data: { name: string; email: string; mobile: string; company_name: string }
   ) =>
-    publicRequest<{ recruiter: import('../types').PollRecruiter; tenant: { slug: string; name: string } }>(
-      `/poll/${encodeURIComponent(tenantSlug)}/register`,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    ),
-  pollGetQuestions: (tenantSlug: string) =>
+    publicRequest<{
+      recruiter: import('../types').PollRecruiter;
+      tenant: { slug: string; name: string };
+      poll: import('../types').PollSummary;
+    }>(`/poll/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pollSlug)}/register`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  pollGetQuestions: (tenantSlug: string, pollSlug: string) =>
     publicRequest<{
       questions: import('../types').PollQuestionPublic[];
       total: number;
       tenant: { slug: string; name: string };
-    }>(`/poll/${encodeURIComponent(tenantSlug)}/questions`),
+      poll: import('../types').PollSummary;
+    }>(`/poll/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pollSlug)}/questions`),
   pollSubmit: (
     tenantSlug: string,
+    pollSlug: string,
     recruiterId: number,
     answers: { question_id: number; selected_option: number }[]
   ) =>
     publicRequest<{
       result: import('../types').PollResult;
       motivation: import('../types').PollMotivation;
-    }>(`/poll/${encodeURIComponent(tenantSlug)}/submit`, {
+    }>(`/poll/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pollSlug)}/submit`, {
       method: 'POST',
       body: JSON.stringify({ recruiter_id: recruiterId, answers }),
     }),
-  pollGetResult: (tenantSlug: string, recruiterId: number) =>
+  pollGetResult: (tenantSlug: string, pollSlug: string, recruiterId: number) =>
     publicRequest<{
       result: import('../types').PollResult;
       motivation: import('../types').PollMotivation;
-    }>(`/poll/${encodeURIComponent(tenantSlug)}/result/${recruiterId}`),
-  pollGetDashboard: () => request<import('../types').PollDashboard>('/poll/dashboard'),
+    }>(
+      `/poll/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pollSlug)}/result/${recruiterId}`
+    ),
+  pollListPolls: () => request<{ polls: import('../types').Poll[] }>('/poll/polls'),
+  pollCreatePoll: (data: { title: string; slug?: string; description?: string }) =>
+    request<{ poll: import('../types').PollSummary }>('/poll/polls', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  pollUpdatePoll: (
+    pollId: number,
+    data: Partial<{ title: string; slug: string; description: string | null; status: string; is_default: boolean }>
+  ) =>
+    request<{ poll: import('../types').PollSummary }>(`/poll/polls/${pollId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  pollDeletePoll: (pollId: number) =>
+    request<void>(`/poll/polls/${pollId}`, { method: 'DELETE' }),
+  pollGetDashboard: (pollId: number) =>
+    request<import('../types').PollDashboard>(`/poll/dashboard?pollId=${pollId}`),
   pollGetRecruiters: (params?: Record<string, string>) => {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<{ recruiters: import('../types').PollRecruiter[] }>(`/poll/recruiters${q}`);
+    return request<{
+      poll?: import('../types').PollSummary;
+      recruiters: import('../types').PollRecruiter[];
+    }>(`/poll/recruiters${q}`);
   },
   pollGetRecruiterResponses: (id: number) =>
     request<{
@@ -428,14 +464,21 @@ export const api = {
         sort_order: number;
       }>;
     }>(`/poll/recruiters/${id}/responses`),
-  pollExportRecruiters: () => download('/poll/export/recruiters', 'poll-recruiters.csv'),
-  pollAdminGetQuestions: () =>
-    request<{ questions: import('../types').PollQuestionAdmin[] }>('/poll/admin/questions'),
-  pollAdminCreateQuestion: (data: Partial<import('../types').PollQuestionAdmin>) =>
-    request<{ question: import('../types').PollQuestionAdmin }>('/poll/admin/questions', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  pollExportRecruiters: (pollId: number) =>
+    download(`/poll/export/recruiters?pollId=${pollId}`, 'poll-recruiters.csv'),
+  pollAdminGetQuestions: (pollId: number) =>
+    request<{
+      poll?: import('../types').PollSummary;
+      questions: import('../types').PollQuestionAdmin[];
+    }>(`/poll/admin/questions?pollId=${pollId}`),
+  pollAdminCreateQuestion: (pollId: number, data: Partial<import('../types').PollQuestionAdmin>) =>
+    request<{ question: import('../types').PollQuestionAdmin }>(
+      `/poll/admin/questions?pollId=${pollId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ ...data, pollId }),
+      }
+    ),
   pollAdminUpdateQuestion: (id: number, data: Partial<import('../types').PollQuestionAdmin>) =>
     request<{ question: import('../types').PollQuestionAdmin }>(`/poll/admin/questions/${id}`, {
       method: 'PUT',

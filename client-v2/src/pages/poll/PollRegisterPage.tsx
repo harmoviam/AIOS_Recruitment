@@ -6,9 +6,10 @@ import { showToast } from '../../utils/toast';
 import PollShell from './PollShell';
 
 export default function PollRegisterPage() {
-  const { tenantSlug = '' } = useParams();
+  const { tenantSlug = '', pollSlug = '' } = useParams();
   const navigate = useNavigate();
   const [tenantName, setTenantName] = useState('');
+  const [pollTitle, setPollTitle] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
@@ -22,28 +23,38 @@ export default function PollRegisterPage() {
       navigate('/poll', { replace: true });
       return;
     }
+    if (!pollSlug) {
+      navigate(pollPath(tenantSlug), { replace: true });
+      return;
+    }
     api
-      .pollGetMeta(tenantSlug)
-      .then((meta) => setTenantName(meta.name))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Workspace not found'))
+      .pollGetPollMeta(tenantSlug, pollSlug)
+      .then((meta) => {
+        setTenantName(meta.name);
+        setPollTitle(meta.poll?.title || '');
+        if (meta.poll?.status && meta.poll.status !== 'open') {
+          setError('This poll is not open for registrations');
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Poll not found'))
       .finally(() => setBootLoading(false));
-  }, [tenantSlug, navigate]);
+  }, [tenantSlug, pollSlug, navigate]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!tenantSlug) return;
+    if (!tenantSlug || !pollSlug) return;
     setError('');
     setLoading(true);
     try {
-      const { recruiter } = await api.pollRegister(tenantSlug, {
+      const { recruiter } = await api.pollRegister(tenantSlug, pollSlug, {
         name: name.trim(),
         email: email.trim(),
         mobile: mobile.trim(),
         company_name: companyName.trim(),
       });
-      setPollRecruiterId(tenantSlug, recruiter.id);
+      setPollRecruiterId(tenantSlug, pollSlug, recruiter.id);
       showToast('Registration successful — starting assessment', 'success');
-      navigate(pollPath(tenantSlug, '/assessment'));
+      navigate(pollPath(tenantSlug, pollSlug, '/assessment'));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Registration failed';
       setError(msg);
@@ -54,25 +65,31 @@ export default function PollRegisterPage() {
   }
 
   return (
-    <PollShell subtitle="Register before you begin" tenantSlug={tenantSlug} tenantName={tenantName}>
+    <PollShell
+      subtitle={pollTitle ? `Register · ${pollTitle}` : 'Register before you begin'}
+      tenantSlug={tenantSlug}
+      tenantName={tenantName}
+    >
       <div className="poll-card poll-card--narrow">
         {bootLoading ? (
           <div className="poll-loading">
             <span className="login-spinner" aria-hidden />
-            Loading workspace…
+            Loading poll…
           </div>
         ) : error && !tenantName ? (
           <div>
             <p className="form-error">{error}</p>
-            <Link to="/poll" className="button-pill button-secondary">
-              Choose another workspace
+            <Link to={pollPath(tenantSlug)} className="button-pill button-secondary">
+              View open polls
             </Link>
           </div>
         ) : (
           <>
             <h1 className="poll-title">Recruiter Registration</h1>
             <p className="poll-lead">
-              Complete your details for the {tenantName || 'organization'} recruitment knowledge assessment.
+              Complete your details for{' '}
+              {pollTitle ? <strong>{pollTitle}</strong> : 'this poll'}
+              {tenantName ? ` at ${tenantName}` : ''}.
             </p>
 
             <form className="poll-form" onSubmit={onSubmit}>
@@ -135,9 +152,11 @@ export default function PollRegisterPage() {
 
             <p className="poll-foot-link">
               Already registered?{' '}
-              <Link to={pollPath(tenantSlug, '/assessment')}>Continue assessment</Link>
+              <Link to={pollPath(tenantSlug, pollSlug, '/assessment')}>Continue assessment</Link>
               {' · '}
-              <Link to={pollPath(tenantSlug, '/dashboard')}>View my result</Link>
+              <Link to={pollPath(tenantSlug, pollSlug, '/dashboard')}>View my result</Link>
+              {' · '}
+              <Link to={pollPath(tenantSlug)}>Other polls</Link>
             </p>
           </>
         )}

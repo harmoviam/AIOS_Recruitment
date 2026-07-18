@@ -20,6 +20,18 @@ type PollQuestionRow = {
   sort_order: number;
 };
 
+type PollRow = {
+  id: number;
+  tenant_id: number;
+  title: string;
+  slug: string;
+  description: string | null;
+  status: 'open' | 'closed' | 'archived';
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 function requirePollAdmin(req: Request, res: Response): boolean {
   if (!req.user) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -57,6 +69,31 @@ function normalizeMobile(mobile: string): string {
   return mobile.replace(/[\s\-()]/g, '').trim();
 }
 
+function slugify(input: string): string {
+  const base = input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return base || 'poll';
+}
+
+function parsePollId(req: Request): number | null {
+  const raw = req.query.pollId ?? req.body?.poll_id ?? req.body?.pollId;
+  const id = Number(raw);
+  if (!id || Number.isNaN(id)) return null;
+  return id;
+}
+
+async function loadTenantPoll(tenantId: number, pollId: number): Promise<PollRow | null> {
+  const { rows } = await pool.query<PollRow>(
+    'SELECT * FROM polls WHERE id = $1 AND tenant_id = $2',
+    [pollId, tenantId]
+  );
+  return rows[0] || null;
+}
+
 async function resolvePublicTenant(req: Request, res: Response): Promise<TenantRecord | null> {
   const slug = String(req.params.tenantSlug ?? '').trim().toLowerCase();
   if (!slug) {
@@ -75,19 +112,252 @@ async function resolvePublicTenant(req: Request, res: Response): Promise<TenantR
   return tenant;
 }
 
+async function resolvePublicPoll(
+  req: Request,
+  res: Response,
+  opts: { requireOpen?: boolean } = {}
+): Promise<{ tenant: TenantRecord; poll: PollRow } | null> {
+  const tenant = await resolvePublicTenant(req, res);
+  if (!tenant) return null;
+
+  const pollSlug = String(req.params.pollSlug ?? '').trim().toLowerCase();
+  if (!pollSlug) {
+    res.status(400).json({ error: 'Poll slug is required' });
+    return null;
+  }
+
+  const { rows } = await pool.query<PollRow>(
+    'SELECT * FROM polls WHERE tenant_id = $1 AND slug = $2',
+    [tenant.id, pollSlug]
+  );
+  const poll = rows[0];
+  if (!poll) {
+    res.status(404).json({ error: 'Poll not found' });
+    return null;
+  }
+  if (opts.requireOpen && poll.status !== 'open') {
+    res.status(403).json({ error: 'This poll is not open for registrations' });
+    return null;
+  }
+  return { tenant, poll };
+}
+
 const adminGate = [authMiddleware, tenantMiddleware, requireTenant];
 
 function withAdmin(...handlers: Array<(req: Request, res: Response, next: NextFunction) => unknown>) {
   return [...adminGate, ...handlers.map((h) => asyncHandler(h as never))];
 }
 
-/* ── Admin routes (authenticated + tenant-scoped) ── */
+const TENANT_LOGO_PATHS: Record<string, string> = {
+  earlyjobs: '/brands/earlyjobs-logo.png',
+};
+
+function tenantBranding(tenant: TenantRecord) {
+  return {
+    slug: tenant.slug,
+    name: tenant.name,
+    logoInitials: tenant.logo_initials,
+    primaryColor: tenant.primary_color,
+    logoUrl: TENANT_LOGO_PATHS[tenant.slug] || null,
+  };
+}
+
+function pollSummary(poll: PollRow) {
+  return {
+    id: poll.id,
+    title: poll.title,
+    slug: poll.slug,
+    description: poll.description,
+    status: poll.status,
+    is_default: poll.is_default,
+  };
+}
+
+/* ── Admin poll CRUD ── */
+
+router.get(
+  '/polls',
+  ...withAdmin(async (req, res) => {
+    if (!requirePollAdmin(req, res)) return;
+    const tenantId = req.tenant!.id;
+
+    const { rows } = await pool.query(
+      `SELECT p.*,
+              (SELECT COUNT(*)::int FROM poll_questions q WHERE q.poll_id = p.id) AS question_count,
+              (SELECT COUNT(*)::int FROM poll_recruiters r WHERE r.poll_id = p.id) AS recruiter_count,
+              (SELECT COUNT(*)::int
+               FROM poll_results res
+               JOIN poll_recruiters r ON r.id = res.recruiter_id
+               WHERE r.poll_id = p.id) AS attempt_count
+       FROM polls p
+       WHERE p.tenant_id = $1
+       ORDER BY p.is_default DESC, p.created_at DESC, p.id DESC`,
+      [tenantId]
+    );
+
+    res.json({
+      polls: rows.map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        description: p.description,
+        status: p.status,
+        is_default: p.is_default,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        question_count: p.question_count,
+        recruiter_count: p.recruiter_count,
+        attempt_count: p.attempt_count,
+      })),
+    });
+  })
+);
+
+router.post(
+  '/polls',
+  ...withAdmin(async (req, res) => {
+    if (!requirePollAdmin(req, res)) return;
+    const tenantId = req.tenant!.id;
+
+    const title = String(req.body?.title ?? '').trim();
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    let slug = String(req.body?.slug ?? '').trim().toLowerCase();
+    if (slug) {
+      slug = slugify(slug);
+    } else {
+      slug = slugify(title);
+    }
+    const description =
+      req.body?.description != null ? String(req.body.description).trim() || null : null;
+
+    // Ensure unique slug within tenant
+    let candidate = slug;
+    let n = 2;
+    for (;;) {
+      const { rows } = await pool.query(
+        'SELECT id FROM polls WHERE tenant_id = $1 AND slug = $2',
+        [tenantId, candidate]
+      );
+      if (!rows[0]) break;
+      candidate = `${slug}-${n}`.slice(0, 64);
+      n += 1;
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO polls (tenant_id, title, slug, description, status, is_default)
+       VALUES ($1, $2, $3, $4, 'open', FALSE)
+       RETURNING *`,
+      [tenantId, title, candidate, description]
+    );
+
+    res.status(201).json({ poll: pollSummary(rows[0]) });
+  })
+);
+
+router.put(
+  '/polls/:pollId',
+  ...withAdmin(async (req, res) => {
+    if (!requirePollAdmin(req, res)) return;
+    const tenantId = req.tenant!.id;
+    const pollId = Number(req.params.pollId);
+    if (!pollId || Number.isNaN(pollId)) return res.status(400).json({ error: 'Invalid poll id' });
+
+    const existing = await loadTenantPoll(tenantId, pollId);
+    if (!existing) return res.status(404).json({ error: 'Poll not found' });
+
+    const title = req.body?.title != null ? String(req.body.title).trim() : existing.title;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    let slug = existing.slug;
+    if (req.body?.slug != null) {
+      slug = slugify(String(req.body.slug));
+      const { rows: clash } = await pool.query(
+        'SELECT id FROM polls WHERE tenant_id = $1 AND slug = $2 AND id <> $3',
+        [tenantId, slug, pollId]
+      );
+      if (clash[0]) return res.status(409).json({ error: 'Another poll already uses this slug' });
+    }
+
+    const description =
+      req.body?.description !== undefined
+        ? String(req.body.description ?? '').trim() || null
+        : existing.description;
+
+    let status = existing.status;
+    if (req.body?.status != null) {
+      const next = String(req.body.status).trim().toLowerCase();
+      if (!['open', 'closed', 'archived'].includes(next)) {
+        return res.status(400).json({ error: 'status must be open, closed, or archived' });
+      }
+      status = next as PollRow['status'];
+    }
+
+    let isDefault = existing.is_default;
+    if (req.body?.is_default === true || req.body?.isDefault === true) {
+      await pool.query('UPDATE polls SET is_default = FALSE WHERE tenant_id = $1', [tenantId]);
+      isDefault = true;
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE polls SET
+         title = $1, slug = $2, description = $3, status = $4, is_default = $5, updated_at = NOW()
+       WHERE id = $6 AND tenant_id = $7
+       RETURNING *`,
+      [title, slug, description, status, isDefault, pollId, tenantId]
+    );
+
+    res.json({ poll: pollSummary(rows[0]) });
+  })
+);
+
+router.delete(
+  '/polls/:pollId',
+  ...withAdmin(async (req, res) => {
+    if (!requirePollAdmin(req, res)) return;
+    const tenantId = req.tenant!.id;
+    const pollId = Number(req.params.pollId);
+    if (!pollId || Number.isNaN(pollId)) return res.status(400).json({ error: 'Invalid poll id' });
+
+    const existing = await loadTenantPoll(tenantId, pollId);
+    if (!existing) return res.status(404).json({ error: 'Poll not found' });
+
+    const { rows: countRows } = await pool.query(
+      'SELECT COUNT(*)::int AS c FROM polls WHERE tenant_id = $1',
+      [tenantId]
+    );
+    if (countRows[0].c <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last poll for this workspace' });
+    }
+
+    await pool.query('DELETE FROM polls WHERE id = $1 AND tenant_id = $2', [pollId, tenantId]);
+
+    if (existing.is_default) {
+      await pool.query(
+        `UPDATE polls SET is_default = TRUE, updated_at = NOW()
+         WHERE id = (
+           SELECT id FROM polls WHERE tenant_id = $1 ORDER BY created_at ASC, id ASC LIMIT 1
+         )`,
+        [tenantId]
+      );
+    }
+
+    res.status(204).send();
+  })
+);
+
+/* ── Admin analytics / questions (poll-scoped) ── */
 
 router.get(
   '/dashboard',
   ...withAdmin(async (req, res) => {
     if (!requirePollAdmin(req, res)) return;
     const tenantId = req.tenant!.id;
+    const pollId = parsePollId(req);
+    if (!pollId) return res.status(400).json({ error: 'pollId is required' });
+
+    const poll = await loadTenantPoll(tenantId, pollId);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
 
     const [
       totalRecruiters,
@@ -98,20 +368,20 @@ router.get(
       companyParticipation,
       questionAccuracy,
     ] = await Promise.all([
-      pool.query('SELECT COUNT(*)::int AS count FROM poll_recruiters WHERE tenant_id = $1', [tenantId]),
+      pool.query('SELECT COUNT(*)::int AS count FROM poll_recruiters WHERE poll_id = $1', [pollId]),
       pool.query(
         `SELECT COUNT(*)::int AS count
          FROM poll_results r
          JOIN poll_recruiters pr ON pr.id = r.recruiter_id
-         WHERE pr.tenant_id = $1`,
-        [tenantId]
+         WHERE pr.poll_id = $1`,
+        [pollId]
       ),
       pool.query(
         `SELECT COALESCE(ROUND(AVG(r.percentage)::numeric, 2), 0) AS avg
          FROM poll_results r
          JOIN poll_recruiters pr ON pr.id = r.recruiter_id
-         WHERE pr.tenant_id = $1`,
-        [tenantId]
+         WHERE pr.poll_id = $1`,
+        [pollId]
       ),
       pool.query(
         `SELECT
@@ -120,26 +390,26 @@ router.get(
            COUNT(*)::int AS total
          FROM poll_results r
          JOIN poll_recruiters pr ON pr.id = r.recruiter_id
-         WHERE pr.tenant_id = $1`,
-        [tenantId]
+         WHERE pr.poll_id = $1`,
+        [pollId]
       ),
       pool.query(
         `SELECT pr.name, r.score, r.percentage, r.status
          FROM poll_results r
          JOIN poll_recruiters pr ON pr.id = r.recruiter_id
-         WHERE pr.tenant_id = $1
+         WHERE pr.poll_id = $1
          ORDER BY r.score DESC, pr.name ASC
          LIMIT 50`,
-        [tenantId]
+        [pollId]
       ),
       pool.query(
         `SELECT company_name AS company, COUNT(*)::int AS recruiters
          FROM poll_recruiters
-         WHERE tenant_id = $1
+         WHERE poll_id = $1
          GROUP BY company_name
          ORDER BY recruiters DESC, company_name ASC
          LIMIT 30`,
-        [tenantId]
+        [pollId]
       ),
       pool.query(
         `SELECT q.id, q.sort_order, q.question,
@@ -150,10 +420,10 @@ router.get(
            END AS accuracy
          FROM poll_questions q
          LEFT JOIN poll_responses resp ON resp.question_id = q.id
-         WHERE q.tenant_id = $1 AND q.is_active = TRUE
+         WHERE q.poll_id = $1 AND q.is_active = TRUE
          GROUP BY q.id
          ORDER BY q.sort_order ASC, q.id ASC`,
-        [tenantId]
+        [pollId]
       ),
     ]);
 
@@ -166,6 +436,7 @@ router.get(
 
     res.json({
       tenant: { id: req.tenant!.id, slug: req.tenant!.slug, name: req.tenant!.name },
+      poll: pollSummary(poll),
       cards: {
         total_recruiters: totalRecruiters.rows[0].count,
         total_attempts: totalAttempts.rows[0].count,
@@ -203,6 +474,11 @@ router.get(
   ...withAdmin(async (req, res) => {
     if (!requirePollAdmin(req, res)) return;
     const tenantId = req.tenant!.id;
+    const pollId = parsePollId(req);
+    if (!pollId) return res.status(400).json({ error: 'pollId is required' });
+
+    const poll = await loadTenantPoll(tenantId, pollId);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
 
     const search = String(req.query.search ?? '').trim();
     const status = String(req.query.status ?? '').trim().toLowerCase();
@@ -222,8 +498,8 @@ router.get(
     };
     const sortCol = sortMap[sort] || 'r.completed_at';
 
-    const params: unknown[] = [tenantId];
-    const where: string[] = ['pr.tenant_id = $1'];
+    const params: unknown[] = [pollId];
+    const where: string[] = ['pr.poll_id = $1'];
 
     if (search) {
       params.push(`%${search}%`);
@@ -240,7 +516,7 @@ router.get(
     }
 
     const { rows } = await pool.query(
-      `SELECT pr.id, pr.name, pr.email, pr.mobile, pr.company_name, pr.created_at, pr.tenant_id,
+      `SELECT pr.id, pr.name, pr.email, pr.mobile, pr.company_name, pr.created_at, pr.tenant_id, pr.poll_id,
               r.score, r.percentage, r.status, r.completed_at,
               r.total_questions, r.correct_answers, r.wrong_answers
        FROM poll_recruiters pr
@@ -251,6 +527,7 @@ router.get(
     );
 
     res.json({
+      poll: pollSummary(poll),
       recruiters: rows.map((row) => ({
         ...row,
         percentage: row.percentage != null ? Number(row.percentage) : null,
@@ -282,9 +559,9 @@ router.get(
               q.question, q.option1, q.option2, q.option3, q.option4, q.correct_option, q.sort_order
        FROM poll_responses resp
        JOIN poll_questions q ON q.id = resp.question_id
-       WHERE resp.recruiter_id = $1 AND q.tenant_id = $2
+       WHERE resp.recruiter_id = $1 AND q.poll_id = $2
        ORDER BY q.sort_order ASC, q.id ASC`,
-      [id, tenantId]
+      [id, recruiterRows[0].poll_id]
     );
 
     const recruiter = recruiterRows[0];
@@ -303,6 +580,11 @@ router.get(
   ...withAdmin(async (req, res) => {
     if (!requirePollAdmin(req, res)) return;
     const tenantId = req.tenant!.id;
+    const pollId = parsePollId(req);
+    if (!pollId) return res.status(400).json({ error: 'pollId is required' });
+
+    const poll = await loadTenantPoll(tenantId, pollId);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
 
     const { rows } = await pool.query(
       `SELECT pr.name, pr.email, pr.mobile, pr.company_name,
@@ -310,9 +592,9 @@ router.get(
               r.correct_answers, r.wrong_answers, r.total_questions
        FROM poll_recruiters pr
        LEFT JOIN poll_results r ON r.recruiter_id = pr.id
-       WHERE pr.tenant_id = $1
+       WHERE pr.poll_id = $1
        ORDER BY r.completed_at DESC NULLS LAST, pr.created_at DESC`,
-      [tenantId]
+      [pollId]
     );
 
     const csv = toCsv(
@@ -333,7 +615,10 @@ router.get(
     );
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="poll-recruiters-${req.tenant!.slug}.csv"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="poll-recruiters-${req.tenant!.slug}-${poll.slug}.csv"`
+    );
     res.send('\uFEFF' + csv);
   })
 );
@@ -342,11 +627,18 @@ router.get(
   '/admin/questions',
   ...withAdmin(async (req, res) => {
     if (!requirePollAdmin(req, res)) return;
+    const tenantId = req.tenant!.id;
+    const pollId = parsePollId(req);
+    if (!pollId) return res.status(400).json({ error: 'pollId is required' });
+
+    const poll = await loadTenantPoll(tenantId, pollId);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
     const { rows } = await pool.query(
-      `SELECT * FROM poll_questions WHERE tenant_id = $1 ORDER BY sort_order ASC, id ASC`,
-      [req.tenant!.id]
+      `SELECT * FROM poll_questions WHERE poll_id = $1 ORDER BY sort_order ASC, id ASC`,
+      [pollId]
     );
-    res.json({ questions: rows });
+    res.json({ poll: pollSummary(poll), questions: rows });
   })
 );
 
@@ -355,6 +647,11 @@ router.post(
   ...withAdmin(async (req, res) => {
     if (!requirePollAdmin(req, res)) return;
     const tenantId = req.tenant!.id;
+    const pollId = parsePollId(req);
+    if (!pollId) return res.status(400).json({ error: 'pollId is required' });
+
+    const poll = await loadTenantPoll(tenantId, pollId);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
 
     const question = String(req.body?.question ?? '').trim();
     const option1 = String(req.body?.option1 ?? '').trim();
@@ -373,18 +670,18 @@ router.post(
     }
     if (!sort_order || Number.isNaN(sort_order)) {
       const { rows } = await pool.query(
-        'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM poll_questions WHERE tenant_id = $1',
-        [tenantId]
+        'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM poll_questions WHERE poll_id = $1',
+        [pollId]
       );
       sort_order = rows[0].next;
     }
 
     const { rows } = await pool.query(
       `INSERT INTO poll_questions
-        (tenant_id, question, option1, option2, option3, option4, correct_option, is_active, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (tenant_id, poll_id, question, option1, option2, option3, option4, correct_option, is_active, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [tenantId, question, option1, option2, option3, option4, correct_option, is_active, sort_order]
+      [tenantId, pollId, question, option1, option2, option3, option4, correct_option, is_active, sort_order]
     );
     res.status(201).json({ question: rows[0] });
   })
@@ -450,32 +747,60 @@ router.delete(
   })
 );
 
-/* ── Public routes (tenant slug in path) ── */
-
-const TENANT_LOGO_PATHS: Record<string, string> = {
-  earlyjobs: '/brands/earlyjobs-logo.png',
-};
+/* ── Public routes ── */
 
 router.get(
   '/:tenantSlug/meta',
   asyncHandler(async (req, res) => {
     const tenant = await resolvePublicTenant(req, res);
     if (!tenant) return;
+
+    const { rows } = await pool.query<PollRow>(
+      `SELECT id, title, slug, description, status, is_default, created_at, updated_at, tenant_id
+       FROM polls
+       WHERE tenant_id = $1 AND status = 'open'
+       ORDER BY is_default DESC, created_at DESC, id DESC`,
+      [tenant.id]
+    );
+
     res.json({
-      slug: tenant.slug,
-      name: tenant.name,
-      logoInitials: tenant.logo_initials,
-      primaryColor: tenant.primary_color,
-      logoUrl: TENANT_LOGO_PATHS[tenant.slug] || null,
+      ...tenantBranding(tenant),
+      polls: rows.map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        description: p.description,
+      })),
+    });
+  })
+);
+
+router.get(
+  '/:tenantSlug/:pollSlug/meta',
+  asyncHandler(async (req, res) => {
+    const resolved = await resolvePublicPoll(req, res);
+    if (!resolved) return;
+    const { tenant, poll } = resolved;
+
+    res.json({
+      ...tenantBranding(tenant),
+      poll: {
+        id: poll.id,
+        title: poll.title,
+        slug: poll.slug,
+        description: poll.description,
+        status: poll.status,
+      },
     });
   })
 );
 
 router.post(
-  '/:tenantSlug/register',
+  '/:tenantSlug/:pollSlug/register',
   asyncHandler(async (req, res) => {
-    const tenant = await resolvePublicTenant(req, res);
-    if (!tenant) return;
+    const resolved = await resolvePublicPoll(req, res, { requireOpen: true });
+    if (!resolved) return;
+    const { tenant, poll } = resolved;
 
     const name = String(req.body?.name ?? '').trim();
     const email = String(req.body?.email ?? '').trim().toLowerCase();
@@ -494,48 +819,57 @@ router.post(
 
     const existing = await pool.query(
       `SELECT id, email, mobile FROM poll_recruiters
-       WHERE tenant_id = $1 AND (email = $2 OR mobile = $3)
+       WHERE poll_id = $1 AND (email = $2 OR mobile = $3)
        LIMIT 1`,
-      [tenant.id, email, mobile]
+      [poll.id, email, mobile]
     );
     if (existing.rows[0]) {
       const row = existing.rows[0];
       if (row.email === email) {
-        return res.status(409).json({ error: 'This email is already registered for this workspace', recruiter_id: row.id });
+        return res.status(409).json({
+          error: 'This email is already registered for this poll',
+          recruiter_id: row.id,
+        });
       }
-      return res.status(409).json({ error: 'This mobile number is already registered for this workspace', recruiter_id: row.id });
+      return res.status(409).json({
+        error: 'This mobile number is already registered for this poll',
+        recruiter_id: row.id,
+      });
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO poll_recruiters (tenant_id, name, email, mobile, company_name)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, tenant_id, name, email, mobile, company_name, created_at`,
-      [tenant.id, name, email, mobile, company_name]
+      `INSERT INTO poll_recruiters (tenant_id, poll_id, name, email, mobile, company_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, tenant_id, poll_id, name, email, mobile, company_name, created_at`,
+      [tenant.id, poll.id, name, email, mobile, company_name]
     );
 
     res.status(201).json({
       recruiter: rows[0],
       tenant: { slug: tenant.slug, name: tenant.name },
+      poll: pollSummary(poll),
     });
   })
 );
 
 router.get(
-  '/:tenantSlug/questions',
+  '/:tenantSlug/:pollSlug/questions',
   asyncHandler(async (req, res) => {
-    const tenant = await resolvePublicTenant(req, res);
-    if (!tenant) return;
+    const resolved = await resolvePublicPoll(req, res, { requireOpen: true });
+    if (!resolved) return;
+    const { tenant, poll } = resolved;
 
     const { rows } = await pool.query<PollQuestionRow>(
       `SELECT id, question, option1, option2, option3, option4, sort_order
        FROM poll_questions
-       WHERE tenant_id = $1 AND is_active = TRUE
+       WHERE poll_id = $1 AND is_active = TRUE
        ORDER BY sort_order ASC, id ASC`,
-      [tenant.id]
+      [poll.id]
     );
 
     res.json({
       tenant: { slug: tenant.slug, name: tenant.name },
+      poll: pollSummary(poll),
       questions: rows.map((q) => ({
         id: q.id,
         question: q.question,
@@ -551,13 +885,21 @@ router.get(
 );
 
 router.post(
-  '/:tenantSlug/submit',
+  '/:tenantSlug/:pollSlug/submit',
   asyncHandler(async (req, res) => {
-    const tenant = await resolvePublicTenant(req, res);
-    if (!tenant) return;
+    const resolved = await resolvePublicPoll(req, res, { requireOpen: true });
+    if (!resolved) return;
+    const { poll } = resolved;
 
     const recruiterId = Number(req.body?.recruiter_id ?? req.body?.recruiterId);
-    const answers = req.body?.answers as Array<{ question_id?: number; questionId?: number; selected_option?: number; selectedOption?: number }> | undefined;
+    const answers = req.body?.answers as
+      | Array<{
+          question_id?: number;
+          questionId?: number;
+          selected_option?: number;
+          selectedOption?: number;
+        }>
+      | undefined;
 
     if (!recruiterId || Number.isNaN(recruiterId)) {
       return res.status(400).json({ error: 'recruiter_id is required' });
@@ -567,16 +909,16 @@ router.post(
     }
 
     const { rows: recruiters } = await pool.query(
-      'SELECT id FROM poll_recruiters WHERE id = $1 AND tenant_id = $2',
-      [recruiterId, tenant.id]
+      'SELECT id FROM poll_recruiters WHERE id = $1 AND poll_id = $2',
+      [recruiterId, poll.id]
     );
-    if (!recruiters[0]) return res.status(404).json({ error: 'Recruiter not found in this workspace' });
+    if (!recruiters[0]) return res.status(404).json({ error: 'Recruiter not found for this poll' });
 
     const { rows: questions } = await pool.query<PollQuestionRow>(
       `SELECT id, correct_option FROM poll_questions
-       WHERE tenant_id = $1 AND is_active = TRUE
+       WHERE poll_id = $1 AND is_active = TRUE
        ORDER BY sort_order ASC, id ASC`,
-      [tenant.id]
+      [poll.id]
     );
     if (questions.length === 0) {
       return res.status(400).json({ error: 'No active questions available' });
@@ -663,10 +1005,11 @@ router.post(
 );
 
 router.get(
-  '/:tenantSlug/result/:recruiterId',
+  '/:tenantSlug/:pollSlug/result/:recruiterId',
   asyncHandler(async (req, res) => {
-    const tenant = await resolvePublicTenant(req, res);
-    if (!tenant) return;
+    const resolved = await resolvePublicPoll(req, res);
+    if (!resolved) return;
+    const { poll } = resolved;
 
     const recruiterId = Number(req.params.recruiterId);
     if (!recruiterId || Number.isNaN(recruiterId)) {
@@ -677,8 +1020,8 @@ router.get(
       `SELECT r.*, pr.name, pr.email, pr.mobile, pr.company_name
        FROM poll_results r
        JOIN poll_recruiters pr ON pr.id = r.recruiter_id
-       WHERE r.recruiter_id = $1 AND pr.tenant_id = $2`,
-      [recruiterId, tenant.id]
+       WHERE r.recruiter_id = $1 AND pr.poll_id = $2`,
+      [recruiterId, poll.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Result not found — assessment not completed yet' });
 

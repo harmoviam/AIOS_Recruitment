@@ -931,6 +931,27 @@ export const ROLE_LABELS: Record<string, string> = {
 
 /* ── Recruiter Poll & Assessment ── */
 
+export type PollStatus = 'open' | 'closed' | 'archived';
+
+export interface PollSummary {
+  id: number;
+  title: string;
+  slug: string;
+  description?: string | null;
+  status?: PollStatus;
+  is_default?: boolean;
+}
+
+export interface Poll extends PollSummary {
+  status: PollStatus;
+  is_default: boolean;
+  created_at?: string;
+  updated_at?: string;
+  question_count?: number;
+  recruiter_count?: number;
+  attempt_count?: number;
+}
+
 export interface PollRecruiter {
   id: number;
   name: string;
@@ -938,6 +959,7 @@ export interface PollRecruiter {
   mobile: string;
   company_name: string;
   created_at: string;
+  poll_id?: number;
   score?: number | null;
   percentage?: number | null;
   status?: 'pass' | 'fail' | null;
@@ -988,6 +1010,7 @@ export interface PollMotivation {
 
 export interface PollDashboard {
   tenant?: { id: number; slug: string; name: string };
+  poll?: PollSummary;
   cards: {
     total_recruiters: number;
     total_attempts: number;

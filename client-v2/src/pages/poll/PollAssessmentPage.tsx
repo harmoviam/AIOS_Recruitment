@@ -7,10 +7,11 @@ import { showToast } from '../../utils/toast';
 import PollShell from './PollShell';
 
 export default function PollAssessmentPage() {
-  const { tenantSlug = '' } = useParams();
+  const { tenantSlug = '', pollSlug = '' } = useParams();
   const navigate = useNavigate();
-  const recruiterId = getPollRecruiterId(tenantSlug);
+  const recruiterId = getPollRecruiterId(tenantSlug, pollSlug);
   const [tenantName, setTenantName] = useState('');
+  const [pollTitle, setPollTitle] = useState('');
   const [questions, setQuestions] = useState<PollQuestionPublic[]>([]);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [index, setIndex] = useState(0);
@@ -23,22 +24,27 @@ export default function PollAssessmentPage() {
       navigate('/poll', { replace: true });
       return;
     }
-    if (!recruiterId) {
+    if (!pollSlug) {
       navigate(pollPath(tenantSlug), { replace: true });
       return;
     }
+    if (!recruiterId) {
+      navigate(pollPath(tenantSlug, pollSlug), { replace: true });
+      return;
+    }
     api
-      .pollGetQuestions(tenantSlug)
+      .pollGetQuestions(tenantSlug, pollSlug)
       .then((data) => {
         setQuestions(data.questions);
         setTenantName(data.tenant?.name || '');
+        setPollTitle(data.poll?.title || '');
         if (data.questions.length === 0) {
           setError('No assessment questions are available right now.');
         }
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load questions'))
       .finally(() => setLoading(false));
-  }, [tenantSlug, recruiterId, navigate]);
+  }, [tenantSlug, pollSlug, recruiterId, navigate]);
 
   const current = questions[index];
   const total = questions.length;
@@ -56,7 +62,7 @@ export default function PollAssessmentPage() {
   }
 
   async function submit() {
-    if (!tenantSlug || !recruiterId) return;
+    if (!tenantSlug || !pollSlug || !recruiterId) return;
     if (!allAnswered) {
       showToast('Please answer all questions before submitting', 'error');
       return;
@@ -67,9 +73,9 @@ export default function PollAssessmentPage() {
         question_id: q.id,
         selected_option: answers[q.id],
       }));
-      await api.pollSubmit(tenantSlug, recruiterId, payload);
+      await api.pollSubmit(tenantSlug, pollSlug, recruiterId, payload);
       showToast('Assessment submitted successfully', 'success');
-      navigate(pollPath(tenantSlug, '/result'));
+      navigate(pollPath(tenantSlug, pollSlug, '/result'));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submission failed';
       showToast(msg, 'error');
@@ -79,10 +85,14 @@ export default function PollAssessmentPage() {
     }
   }
 
-  if (!tenantSlug || !recruiterId) return null;
+  if (!tenantSlug || !pollSlug || !recruiterId) return null;
 
   return (
-    <PollShell subtitle="One question at a time" tenantSlug={tenantSlug} tenantName={tenantName}>
+    <PollShell
+      subtitle={pollTitle ? `Assessment · ${pollTitle}` : 'One question at a time'}
+      tenantSlug={tenantSlug}
+      tenantName={tenantName}
+    >
       <div className="poll-card">
         {loading ? (
           <div className="poll-loading">
@@ -92,7 +102,7 @@ export default function PollAssessmentPage() {
         ) : error && questions.length === 0 ? (
           <div>
             <p className="form-error">{error}</p>
-            <Link to={pollPath(tenantSlug)} className="button-pill button-secondary">
+            <Link to={pollPath(tenantSlug, pollSlug)} className="button-pill button-secondary">
               Back to registration
             </Link>
           </div>

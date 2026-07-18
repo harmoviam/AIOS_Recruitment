@@ -32,6 +32,7 @@ import PlatformDashboardPage from './pages/platform/PlatformDashboardPage';
 import TenantsPage from './pages/platform/TenantsPage';
 import PlatformPlansPage from './pages/platform/PlatformPlansPage';
 import PollEntryPage from './pages/poll/PollEntryPage';
+import PollListPage from './pages/poll/PollListPage';
 import PollRegisterPage from './pages/poll/PollRegisterPage';
 import PollAssessmentPage from './pages/poll/PollAssessmentPage';
 import PollResultPage from './pages/poll/PollResultPage';
@@ -81,10 +82,11 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/join/interview/:joinToken" element={<JoinInterviewPage />} />
       <Route path="/poll" element={<PollEntryPage />} />
-      <Route path="/poll/:tenantSlug" element={<PollRegisterPage />} />
-      <Route path="/poll/:tenantSlug/assessment" element={<PollAssessmentPage />} />
-      <Route path="/poll/:tenantSlug/result" element={<PollResultPage />} />
-      <Route path="/poll/:tenantSlug/dashboard" element={<PollRecruiterDashboardPage />} />
+      <Route path="/poll/:tenantSlug" element={<PollListPage />} />
+      <Route path="/poll/:tenantSlug/:pollSlug" element={<PollRegisterPage />} />
+      <Route path="/poll/:tenantSlug/:pollSlug/assessment" element={<PollAssessmentPage />} />
+      <Route path="/poll/:tenantSlug/:pollSlug/result" element={<PollResultPage />} />
+      <Route path="/poll/:tenantSlug/:pollSlug/dashboard" element={<PollRecruiterDashboardPage />} />
       <Route
         path="/interviews/:id/room"
         element={

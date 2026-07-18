@@ -1,22 +1,28 @@
-const recruiterKey = (tenantSlug: string) => `aios_poll_recruiter_id:${tenantSlug}`;
+const recruiterKey = (tenantSlug: string, pollSlug: string) =>
+  `aios_poll_recruiter_id:${tenantSlug}:${pollSlug}`;
 
-export function getPollRecruiterId(tenantSlug: string): number | null {
-  if (!tenantSlug) return null;
-  const raw = localStorage.getItem(recruiterKey(tenantSlug));
+export function getPollRecruiterId(tenantSlug: string, pollSlug: string): number | null {
+  if (!tenantSlug || !pollSlug) return null;
+  const raw = localStorage.getItem(recruiterKey(tenantSlug, pollSlug));
   if (!raw) return null;
   const id = Number(raw);
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-export function setPollRecruiterId(tenantSlug: string, id: number) {
-  localStorage.setItem(recruiterKey(tenantSlug), String(id));
+export function setPollRecruiterId(tenantSlug: string, pollSlug: string, id: number) {
+  localStorage.setItem(recruiterKey(tenantSlug, pollSlug), String(id));
 }
 
-export function clearPollRecruiterId(tenantSlug: string) {
-  localStorage.removeItem(recruiterKey(tenantSlug));
+export function clearPollRecruiterId(tenantSlug: string, pollSlug: string) {
+  localStorage.removeItem(recruiterKey(tenantSlug, pollSlug));
 }
 
-export function pollPath(tenantSlug: string, suffix = ''): string {
-  const base = `/poll/${encodeURIComponent(tenantSlug)}`;
-  return suffix ? `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}` : base;
+/** Build public poll paths: /poll/{tenant}, /poll/{tenant}/{pollSlug}, or with a suffix. */
+export function pollPath(tenantSlug: string, pollSlug?: string, suffix = ''): string {
+  let base = `/poll/${encodeURIComponent(tenantSlug)}`;
+  if (pollSlug) {
+    base += `/${encodeURIComponent(pollSlug)}`;
+  }
+  if (!suffix) return base;
+  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }

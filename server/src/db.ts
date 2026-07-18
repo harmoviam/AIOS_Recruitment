@@ -797,7 +797,83 @@ async function migratePollAssessment(client: pg.PoolClient) {
     CREATE INDEX IF NOT EXISTS poll_questions_tenant_idx ON poll_questions (tenant_id);
   `);
 
-  await seedPollQuestionsForAllTenants(client);
+  // Multi-poll: parent polls table + poll_id on questions/recruiters
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS polls (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed', 'archived')),
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, slug)
+    );
+  `);
+  await client.query(`CREATE INDEX IF NOT EXISTS polls_tenant_idx ON polls (tenant_id)`);
+  await client.query(`CREATE INDEX IF NOT EXISTS polls_tenant_status_idx ON polls (tenant_id, status)`);
+
+  await client.query(`ALTER TABLE poll_questions ADD COLUMN IF NOT EXISTS poll_id INTEGER REFERENCES polls(id) ON DELETE CASCADE`);
+  await client.query(`ALTER TABLE poll_recruiters ADD COLUMN IF NOT EXISTS poll_id INTEGER REFERENCES polls(id) ON DELETE CASCADE`);
+
+  // Ensure every active/trial tenant (and any with orphan poll rows) has a default poll.
+  const { rows: tenantsNeedingPoll } = await client.query(
+    `SELECT t.id
+     FROM tenants t
+     WHERE t.status IN ('active', 'trial')
+        OR EXISTS (SELECT 1 FROM poll_questions q WHERE q.tenant_id = t.id)
+        OR EXISTS (SELECT 1 FROM poll_recruiters r WHERE r.tenant_id = t.id)
+     ORDER BY t.id`
+  );
+  for (const t of tenantsNeedingPoll) {
+    const { rows: existing } = await client.query(
+      `SELECT id FROM polls WHERE tenant_id = $1 AND is_default = TRUE LIMIT 1`,
+      [t.id]
+    );
+    let pollId = existing[0]?.id as number | undefined;
+    if (!pollId) {
+      const { rows: bySlug } = await client.query(
+        `SELECT id FROM polls WHERE tenant_id = $1 AND slug = 'default' LIMIT 1`,
+        [t.id]
+      );
+      pollId = bySlug[0]?.id as number | undefined;
+    }
+    if (!pollId) {
+      const { rows: created } = await client.query(
+        `INSERT INTO polls (tenant_id, title, slug, description, status, is_default)
+         VALUES ($1, 'Recruiter Poll', 'default', NULL, 'open', TRUE)
+         ON CONFLICT (tenant_id, slug) DO UPDATE SET is_default = TRUE
+         RETURNING id`,
+        [t.id]
+      );
+      pollId = created[0].id as number;
+    }
+    await client.query(
+      `UPDATE poll_questions SET poll_id = $1 WHERE tenant_id = $2 AND poll_id IS NULL`,
+      [pollId, t.id]
+    );
+    await client.query(
+      `UPDATE poll_recruiters SET poll_id = $1 WHERE tenant_id = $2 AND poll_id IS NULL`,
+      [pollId, t.id]
+    );
+  }
+
+  // Drop tenant-level uniqueness; uniqueness is per poll.
+  await client.query(`DROP INDEX IF EXISTS poll_recruiters_tenant_email_uidx`);
+  await client.query(`DROP INDEX IF EXISTS poll_recruiters_tenant_mobile_uidx`);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_poll_email_uidx
+      ON poll_recruiters (poll_id, email);
+    CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_poll_mobile_uidx
+      ON poll_recruiters (poll_id, mobile);
+    CREATE INDEX IF NOT EXISTS poll_questions_poll_idx ON poll_questions (poll_id);
+    CREATE INDEX IF NOT EXISTS poll_recruiters_poll_idx ON poll_recruiters (poll_id);
+  `);
+
+  // Seed questions onto default poll only when that poll still has zero questions.
+  await seedPollQuestionsForDefaultPolls(client);
 }
 
 const POLL_QUESTION_SEEDS: Array<{
@@ -901,35 +977,36 @@ const POLL_QUESTION_SEEDS: Array<{
   },
 ];
 
-async function seedPollQuestionsForTenant(client: pg.PoolClient, tenantId: number) {
+async function seedPollQuestionsForPoll(client: pg.PoolClient, tenantId: number, pollId: number) {
   const { rows } = await client.query(
-    'SELECT COUNT(*)::int AS c FROM poll_questions WHERE tenant_id = $1',
-    [tenantId]
+    'SELECT COUNT(*)::int AS c FROM poll_questions WHERE poll_id = $1',
+    [pollId]
   );
   if (rows[0].c > 0) return 0;
 
   for (const q of POLL_QUESTION_SEEDS) {
     await client.query(
       `INSERT INTO poll_questions
-        (tenant_id, question, option1, option2, option3, option4, correct_option, sort_order, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)`,
-      [tenantId, q.question, q.option1, q.option2, q.option3, q.option4, q.correct_option, q.sort_order]
+        (tenant_id, poll_id, question, option1, option2, option3, option4, correct_option, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)`,
+      [tenantId, pollId, q.question, q.option1, q.option2, q.option3, q.option4, q.correct_option, q.sort_order]
     );
   }
   return POLL_QUESTION_SEEDS.length;
 }
 
-async function seedPollQuestionsForAllTenants(client: pg.PoolClient) {
-  const { rows: tenants } = await client.query(
-    `SELECT id, slug FROM tenants WHERE status IN ('active', 'trial') ORDER BY id`
+/** Legacy migration helper: seed default poll only when it has no questions yet. */
+async function seedPollQuestionsForDefaultPolls(client: pg.PoolClient) {
+  const { rows: polls } = await client.query(
+    `SELECT id, tenant_id FROM polls WHERE is_default = TRUE ORDER BY id`
   );
-  let seededTenants = 0;
-  for (const t of tenants) {
-    const count = await seedPollQuestionsForTenant(client, t.id);
-    if (count > 0) seededTenants += 1;
+  let seeded = 0;
+  for (const p of polls) {
+    const count = await seedPollQuestionsForPoll(client, p.tenant_id, p.id);
+    if (count > 0) seeded += 1;
   }
-  if (seededTenants > 0) {
-    console.log(`Seeded poll assessment questions for ${seededTenants} tenant(s)`);
+  if (seeded > 0) {
+    console.log(`Seeded poll assessment questions for ${seeded} default poll(s)`);
   }
 }
 

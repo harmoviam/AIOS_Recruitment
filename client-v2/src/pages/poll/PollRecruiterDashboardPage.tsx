@@ -14,11 +14,12 @@ function formatDate(value?: string | null) {
 }
 
 export default function PollRecruiterDashboardPage() {
-  const { tenantSlug = '' } = useParams();
+  const { tenantSlug = '', pollSlug = '' } = useParams();
   const navigate = useNavigate();
-  const recruiterId = getPollRecruiterId(tenantSlug);
+  const recruiterId = getPollRecruiterId(tenantSlug, pollSlug);
   const [result, setResult] = useState<PollResult | null>(null);
   const [tenantName, setTenantName] = useState('');
+  const [pollTitle, setPollTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -27,23 +28,35 @@ export default function PollRecruiterDashboardPage() {
       navigate('/poll', { replace: true });
       return;
     }
-    if (!recruiterId) {
+    if (!pollSlug) {
       navigate(pollPath(tenantSlug), { replace: true });
       return;
     }
-    Promise.all([api.pollGetMeta(tenantSlug), api.pollGetResult(tenantSlug, recruiterId)])
+    if (!recruiterId) {
+      navigate(pollPath(tenantSlug, pollSlug), { replace: true });
+      return;
+    }
+    Promise.all([
+      api.pollGetPollMeta(tenantSlug, pollSlug),
+      api.pollGetResult(tenantSlug, pollSlug, recruiterId),
+    ])
       .then(([meta, data]) => {
         setTenantName(meta.name);
+        setPollTitle(meta.poll?.title || '');
         setResult(data.result);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load dashboard'))
       .finally(() => setLoading(false));
-  }, [tenantSlug, recruiterId, navigate]);
+  }, [tenantSlug, pollSlug, recruiterId, navigate]);
 
-  if (!tenantSlug || !recruiterId) return null;
+  if (!tenantSlug || !pollSlug || !recruiterId) return null;
 
   return (
-    <PollShell subtitle="Your assessment dashboard" tenantSlug={tenantSlug} tenantName={tenantName}>
+    <PollShell
+      subtitle={pollTitle ? `Dashboard · ${pollTitle}` : 'Your assessment dashboard'}
+      tenantSlug={tenantSlug}
+      tenantName={tenantName}
+    >
       <div className="poll-card">
         <h1 className="poll-title">My Assessment Dashboard</h1>
         {loading ? (
@@ -54,14 +67,15 @@ export default function PollRecruiterDashboardPage() {
         ) : error || !result ? (
           <div>
             <p className="form-error">{error || 'No result yet'}</p>
-            <Link to={pollPath(tenantSlug, '/assessment')} className="button-pill button-primary">
+            <Link to={pollPath(tenantSlug, pollSlug, '/assessment')} className="button-pill button-primary">
               Start Assessment
             </Link>
           </div>
         ) : (
           <>
             <p className="poll-lead">
-              Hello{result.name ? `, ${result.name}` : ''} — results for {tenantName || 'this workspace'}.
+              Hello{result.name ? `, ${result.name}` : ''} — results for{' '}
+              {pollTitle || tenantName || 'this poll'}.
             </p>
             <div className="poll-dash-grid">
               <div className="card">
@@ -100,10 +114,10 @@ export default function PollRecruiterDashboardPage() {
               </div>
             </div>
             <div className="poll-nav" style={{ marginTop: '1.25rem' }}>
-              <Link to={pollPath(tenantSlug, '/result')} className="button-pill button-secondary">
+              <Link to={pollPath(tenantSlug, pollSlug, '/result')} className="button-pill button-secondary">
                 View Result Screen
               </Link>
-              <Link to={pollPath(tenantSlug, '/assessment')} className="button-pill button-primary">
+              <Link to={pollPath(tenantSlug, pollSlug, '/assessment')} className="button-pill button-primary">
                 Retake Assessment
               </Link>
             </div>
