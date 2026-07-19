@@ -58,6 +58,7 @@ export interface SourceRecommendation {
   responseRate?: number | null;
   estimatedCandidatePool?: number | null;
   channelType?: SourceChannelType;
+  website?: string | null;
 }
 
 export interface RecommendationResult {
@@ -110,9 +111,61 @@ export interface ContentRequest {
   experienceLabel?: string;
   shift?: string;
   languages?: string[];
+  variantCount?: number;
 }
 
 export interface ContentPack {
   provider: string;
-  items: Array<{ channel: ContentChannel; title: string; body: string }>;
+  items: Array<{ channel: ContentChannel; title: string; body: string; variants?: string[] }>;
+}
+
+/** PDL job_title_levels vocabulary — only these values are sent upstream. */
+export const PDL_SENIORITY_LEVELS = [
+  'entry',
+  'senior',
+  'manager',
+  'director',
+  'vp',
+  'cxo',
+  'owner',
+  'partner',
+  'training',
+  'unpaid',
+] as const;
+
+export type PdlSeniorityLevel = (typeof PDL_SENIORITY_LEVELS)[number];
+
+export interface PeopleSearchFilters {
+  jobTitle?: string;
+  skills?: string[];
+  seniorityLevels?: string[];
+  minExperienceYears?: number;
+  maxExperienceYears?: number;
+  city?: string;
+  region?: string;
+  country?: string;
+  size?: number;
+}
+
+/** Trimmed profile — no emails/phones persisted; linkedinUrl is the contact path. */
+export interface PersonProfile {
+  id: string;
+  fullName: string;
+  jobTitle: string | null;
+  company: string | null;
+  location: string | null;
+  skills: string[];
+  experienceYears: number | null;
+  linkedinUrl: string | null;
+}
+
+export interface PeopleSearchResult {
+  runId?: string;
+  provider: 'PDL' | 'SIMULATED';
+  mode: 'live' | 'simulated';
+  filters: PeopleSearchFilters;
+  profiles: PersonProfile[];
+  total: number | null;
+  creditsUsed: number;
+  error?: string;
 }

@@ -49,6 +49,7 @@ export interface SourceRecommendation {
   risk: 'LOW' | 'MEDIUM' | 'HIGH';
   reason: string;
   channelType?: string;
+  website?: string | null;
 }
 
 export interface RecommendationResult {
@@ -80,13 +81,61 @@ export interface StructuredIntent {
 
 export interface ContentPack {
   provider: string;
-  items: Array<{ channel: string; title: string; body: string }>;
+  items: Array<{ channel: string; title: string; body: string; variants?: string[] }>;
 }
 
 export interface CopilotPlanResponse {
   intent: StructuredIntent | null;
   recommendations: RecommendationResult;
   content: ContentPack | null;
+}
+
+export interface PeopleSearchFilters {
+  jobTitle?: string;
+  skills?: string[];
+  seniorityLevels?: string[];
+  minExperienceYears?: number;
+  maxExperienceYears?: number;
+  city?: string;
+  region?: string;
+  country?: string;
+  size?: number;
+}
+
+export interface PersonProfile {
+  id: string;
+  fullName: string;
+  jobTitle: string | null;
+  company: string | null;
+  location: string | null;
+  skills: string[];
+  experienceYears: number | null;
+  linkedinUrl: string | null;
+}
+
+export interface PeopleSearchResult {
+  runId?: string;
+  provider: 'PDL' | 'SIMULATED';
+  mode: 'live' | 'simulated';
+  filters: PeopleSearchFilters;
+  profiles: PersonProfile[];
+  total: number | null;
+  creditsUsed: number;
+  error?: string;
+}
+
+export interface CopilotPeopleResponse {
+  intent: StructuredIntent | null;
+  result: PeopleSearchResult;
+}
+
+export interface PeopleRunListItem {
+  id: string;
+  prompt_text: string | null;
+  result_count: number;
+  provider: string;
+  credits_used: number;
+  created_date: string;
 }
 
 export interface SourcingDashboardSummary {

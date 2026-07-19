@@ -196,6 +196,15 @@ jobs:
             echo "Razorpay secrets not found — billing page shows payments-disabled banner."
           fi
 
+          if gcloud secrets describe harmirecruit-pdl-api-key \
+              --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            echo "PDL secret found — enabling live candidate people search."
+            ENV_VARS="${ENV_VARS},PDL_MAX_RESULTS=10"
+            SECRETS="${SECRETS},PDL_API_KEY=harmirecruit-pdl-api-key:latest"
+          else
+            echo "PDL secret not found — people search runs in simulated (sample data) mode."
+          fi
+
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image ${IMAGE}:${{ github.sha }} \
             --region ${{ env.REGION }} \

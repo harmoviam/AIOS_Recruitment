@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { pool } from '../dbConfig.js';
+import { PDL_SENIORITY_LEVELS, type PeopleSearchFilters } from '../types/sourcing.js';
 
 /**
  * AI service — any OpenAI-compatible chat-completions endpoint.
@@ -815,4 +816,74 @@ export async function parseResume(
   }
 
   return { profile: result };
+}
+
+// ── People search filter extraction (Sourcing Copilot) ─────────────────
+
+const PEOPLE_FILTERS_SCHEMA = {
+  type: 'object',
+  properties: {
+    jobTitle: { type: ['string', 'null'], description: 'Job title being hired for' },
+    skills: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Technical or domain skills explicitly mentioned',
+    },
+    seniorityLevels: {
+      type: 'array',
+      items: { type: 'string', enum: [...PDL_SENIORITY_LEVELS] },
+      description: 'Seniority levels implied by the request',
+    },
+    minExperienceYears: { type: ['number', 'null'] },
+    maxExperienceYears: { type: ['number', 'null'] },
+    city: { type: ['string', 'null'] },
+    country: { type: ['string', 'null'] },
+  },
+  required: ['skills', 'seniorityLevels'],
+  additionalProperties: false,
+} as const;
+
+interface ExtractedPeopleFilters {
+  jobTitle?: string | null;
+  skills?: string[];
+  seniorityLevels?: string[];
+  minExperienceYears?: number | null;
+  maxExperienceYears?: number | null;
+  city?: string | null;
+  country?: string | null;
+}
+
+/** NL recruiter request → candidate-search filters. Null when AI is disabled or fails. */
+export async function extractPeopleSearchFilters(
+  text: string
+): Promise<Partial<PeopleSearchFilters> | null> {
+  if (aiMode() === 'disabled' || !text.trim()) return null;
+
+  const system =
+    'You extract candidate-search filters from a recruiter request. ' +
+    'Only include values explicitly stated or strongly implied — never invent skills, ' +
+    'locations, or experience ranges. Skills are lowercase short terms (e.g. "react", "voice process"). ' +
+    `Seniority levels must come from: ${PDL_SENIORITY_LEVELS.join(', ')}. ` +
+    '"5+ years" means minExperienceYears 5; "fresher" means maxExperienceYears 1.';
+
+  const result = await jsonCall<ExtractedPeopleFilters>(
+    system,
+    `Recruiter request: ${text.slice(0, 1000)}`,
+    PEOPLE_FILTERS_SCHEMA as unknown as Record<string, unknown>
+  );
+  if (!result) return null;
+
+  const filters: Partial<PeopleSearchFilters> = {};
+  if (result.jobTitle?.trim()) filters.jobTitle = result.jobTitle.trim();
+  if (result.skills?.length) filters.skills = result.skills.filter(Boolean).slice(0, 20);
+  if (result.seniorityLevels?.length) filters.seniorityLevels = result.seniorityLevels;
+  if (typeof result.minExperienceYears === 'number' && result.minExperienceYears >= 0) {
+    filters.minExperienceYears = result.minExperienceYears;
+  }
+  if (typeof result.maxExperienceYears === 'number' && result.maxExperienceYears >= 0) {
+    filters.maxExperienceYears = result.maxExperienceYears;
+  }
+  if (result.city?.trim()) filters.city = result.city.trim();
+  if (result.country?.trim()) filters.country = result.country.trim();
+  return filters;
 }

@@ -2,6 +2,7 @@ import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { DB_SCHEMA, pool, useSchema } from './dbConfig.js';
 import { migrateSourcingIntelligence } from './migrations/sourcingIntelligence.js';
+import { migratePeopleSearch } from './migrations/peopleSearch.js';
 import { seedMohaliSourcingPack } from './services/sourcing/seed/mohaliSeed.js';
 import { candidateJoinPath, extractJoinToken, generateJoinCode, normalizeMeetingLink } from './services/livekit.js';
 
@@ -203,6 +204,7 @@ export async function initDb() {
     await migrateCandidateSearch(client);
     await migratePerfIndexes(client);
     await migrateSourcingIntelligence(client);
+    await migratePeopleSearch(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 

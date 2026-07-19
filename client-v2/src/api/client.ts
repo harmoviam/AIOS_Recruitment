@@ -647,6 +647,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  sourcingCopilotPeople: (body: Record<string, unknown>) =>
+    request<import('../types/sourcing').CopilotPeopleResponse>('/sourcing/copilot/people', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  sourcingPeopleRuns: () =>
+    request<import('../types/sourcing').PeopleRunListItem[]>('/sourcing/copilot/people/runs'),
+  sourcingPeopleRun: (runId: string) =>
+    request<import('../types/sourcing').PeopleSearchResult & { promptText: string | null }>(
+      `/sourcing/copilot/people/runs/${runId}`
+    ),
   sourcingGenerateContent: (body: Record<string, unknown>) =>
     request<import('../types/sourcing').ContentPack>('/sourcing/content/generate', {
       method: 'POST',

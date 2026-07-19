@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { requireSourcingRead } from '../../services/sourcing/access.js';
 import { handleSourcingError } from '../../services/sourcing/httpErrors.js';
@@ -9,6 +10,9 @@ import {
   getRecommendationService,
 } from '../../services/sourcing/providers.js';
 import { pool } from '../../db.js';
+import { extractPeopleSearchFilters } from '../../services/ai.js';
+import { filtersFromIntent, mergeFilters } from '../../services/sourcing/people/filtersFromIntent.js';
+import { searchPeople } from '../../services/sourcing/people/peopleSearchService.js';
 
 const router = Router();
 const tid = (req: Request) => req.tenant!.id;
@@ -118,6 +122,112 @@ router.post(
       }
 
       res.json({ intent, recommendations, content });
+    } catch (err) {
+      handleSourcingError(res, err);
+    }
+  })
+);
+
+// Each live PDL profile costs a credit — keep the endpoint rate-limited per user.
+const peopleLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as Request).user?.id;
+    return userId != null ? String(userId) : ipKeyGenerator(req.ip ?? '');
+  },
+  message: { error: 'Too many people searches. Wait a minute and try again.' },
+});
+
+const peopleFiltersSchema = z.object({
+  jobTitle: z.string().max(160).optional(),
+  skills: z.array(z.string().min(1).max(60)).max(20).optional(),
+  seniorityLevels: z.array(z.string().max(20)).max(6).optional(),
+  minExperienceYears: z.number().min(0).max(50).optional(),
+  maxExperienceYears: z.number().min(0).max(60).optional(),
+  city: z.string().max(120).optional(),
+  region: z.string().max(120).optional(),
+  country: z.string().max(120).optional(),
+  size: z.number().int().min(1).max(25).optional(),
+});
+
+const peopleSchema = z
+  .object({
+    text: z.string().trim().min(3).max(1000).optional(),
+    filters: peopleFiltersSchema.optional(),
+  })
+  .refine((body) => body.text || body.filters, { message: 'text or filters required' });
+
+router.post(
+  '/people',
+  requireSourcingRead,
+  peopleLimiter,
+  asyncHandler(async (req, res) => {
+    try {
+      const body = peopleSchema.parse(req.body);
+      const context = { tenantId: tid(req), userId: req.user!.id };
+
+      let intent = null;
+      let heuristic = {};
+      let llmExtracted = null;
+      if (body.text) {
+        intent = await getConversationService().parse({ text: body.text }, context);
+        heuristic = filtersFromIntent(intent, body.text);
+        llmExtracted = await extractPeopleSearchFilters(body.text);
+      }
+
+      // Explicit filters from the client override everything extracted.
+      const filters = mergeFilters(heuristic, llmExtracted, body.filters);
+      const result = await searchPeople(filters, body.text ?? null, context);
+      res.json({ intent, result });
+    } catch (err) {
+      handleSourcingError(res, err);
+    }
+  })
+);
+
+router.get(
+  '/people/runs',
+  requireSourcingRead,
+  asyncHandler(async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, prompt_text, result_count, provider, credits_used, created_date
+           FROM people_search_run
+          WHERE tenant_id = $1 AND status = 'ACTIVE'
+          ORDER BY created_date DESC
+          LIMIT 20`,
+        [tid(req)]
+      );
+      res.json(rows);
+    } catch (err) {
+      handleSourcingError(res, err);
+    }
+  })
+);
+
+router.get(
+  '/people/runs/:runId',
+  requireSourcingRead,
+  asyncHandler(async (req, res) => {
+    try {
+      const runId = z.string().uuid().parse(req.params.runId);
+      const { rows } = await pool.query(
+        `SELECT id, prompt_text, result_json, created_date
+           FROM people_search_run
+          WHERE id = $1 AND tenant_id = $2`,
+        [runId, tid(req)]
+      );
+      if (!rows.length) return res.status(404).json({ error: 'People search run not found' });
+      const row = rows[0];
+      res.json({
+        runId: String(row.id),
+        promptText: row.prompt_text,
+        createdDate: row.created_date,
+        ...row.result_json,
+      });
     } catch (err) {
       handleSourcingError(res, err);
     }
