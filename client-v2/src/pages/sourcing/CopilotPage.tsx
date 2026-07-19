@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { showToast } from '../../utils/toast';
-import type { CopilotPeopleResponse, CopilotPlanResponse, StructuredIntent } from '../../types/sourcing';
-import { CandidateResultsTable, PlanSummaryCards, RecommendationsTable } from './components';
+import type { CopilotPlanResponse, StructuredIntent } from '../../types/sourcing';
+import { PlanSummaryCards, RecommendationsTable } from './components';
 
 const EXAMPLES = [
   'Need 50 International Voice Process candidates in Mohali within 15 days',
@@ -28,10 +28,7 @@ export default function SourcingCopilotPage() {
   const [text, setText] = useState('');
   const [intent, setIntent] = useState<StructuredIntent | null>(null);
   const [plan, setPlan] = useState<CopilotPlanResponse | null>(null);
-  const [people, setPeople] = useState<CopilotPeopleResponse | null>(null);
-  const [includePeople, setIncludePeople] = useState(true);
   const [error, setError] = useState('');
-  const [peopleError, setPeopleError] = useState('');
   const [parsing, setParsing] = useState(false);
   const [planning, setPlanning] = useState(false);
 
@@ -53,49 +50,24 @@ export default function SourcingCopilotPage() {
   async function generatePlan() {
     setPlanning(true);
     setError('');
-    setPeopleError('');
-    setPeople(null);
-
-    const planPromise = api.sourcingCopilotPlan({
-      text,
-      cityId: intent?.cityId,
-      roleId: intent?.roleId,
-      hiringCount: intent?.hiringCount,
-      joiningTimelineDays: intent?.joiningTimelineDays,
-      salaryMax: intent?.salaryHint,
-      includeContent: true,
-    });
-    // People search runs in parallel: a provider failure never blocks the channel plan.
-    const peoplePromise = includePeople ? api.sourcingCopilotPeople({ text }) : null;
-
-    const [planRes, peopleRes] = await Promise.allSettled([
-      planPromise,
-      peoplePromise ?? Promise.resolve(null),
-    ]);
-
-    if (planRes.status === 'fulfilled') {
-      const data = planRes.value;
+    try {
+      const data = await api.sourcingCopilotPlan({
+        text,
+        cityId: intent?.cityId,
+        roleId: intent?.roleId,
+        hiringCount: intent?.hiringCount,
+        joiningTimelineDays: intent?.joiningTimelineDays,
+        salaryMax: intent?.salaryHint,
+        includeContent: true,
+      });
       setPlan(data);
       if (data.intent) setIntent(data.intent);
       sessionStorage.setItem('sourcing_last_result', JSON.stringify(data.recommendations));
-    } else {
-      const err = planRes.reason;
+    } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not build a plan. Try adding a city and role.');
+    } finally {
+      setPlanning(false);
     }
-
-    if (peopleRes.status === 'fulfilled') {
-      if (peopleRes.value) {
-        setPeople(peopleRes.value);
-        sessionStorage.setItem('sourcing_last_people', JSON.stringify(peopleRes.value));
-      }
-    } else {
-      const err = peopleRes.reason;
-      setPeopleError(
-        err instanceof Error ? err.message : 'Candidate search failed. Try again in a minute.'
-      );
-    }
-
-    setPlanning(false);
   }
 
   function copyContent(body: string) {
@@ -112,8 +84,8 @@ export default function SourcingCopilotPage() {
         <h1 className="section-title">AI Sourcing Copilot</h1>
         <p className="section-description">
           Describe a hiring need in plain language. The copilot extracts the role, city, and headcount, then
-          recommends the best sourcing channels with funnel estimates, ready-to-post content, and matching
-          individual candidate profiles.
+          recommends the best sourcing channels with funnel estimates and ready-to-post content. For
+          individual profiles, use Candidate Profiles in the menu.
         </p>
 
         <div className="card" style={{ display: 'grid', gap: '0.85rem' }}>
@@ -142,24 +114,6 @@ export default function SourcingCopilotPage() {
               </button>
             ))}
           </div>
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              fontSize: '0.85rem',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={includePeople}
-              onChange={(e) => setIncludePeople(e.target.checked)}
-              disabled={busy}
-            />
-            Also find individual candidate profiles
-          </label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
             <button
               className="button-pill button-primary"
@@ -183,6 +137,13 @@ export default function SourcingCopilotPage() {
               onClick={() => navigate('/sourcing/search')}
             >
               Prefer a structured form? Open Find Sources →
+            </button>
+            <button
+              className="link-button"
+              type="button"
+              onClick={() => navigate('/sourcing/people')}
+            >
+              Looking for individual profiles? Open Candidate Profiles →
             </button>
           </div>
         </div>
@@ -255,20 +216,6 @@ export default function SourcingCopilotPage() {
                 </button>
               </div>
             )}
-          </div>
-        )}
-
-        {peopleError && (
-          <div className="alert-banner danger" style={{ marginTop: '1rem' }}>{peopleError}</div>
-        )}
-        {planning && includePeople && (
-          <div className="card" style={{ marginTop: '1rem' }}>
-            <p className="empty-inline">Searching candidate databases…</p>
-          </div>
-        )}
-        {!planning && people && (
-          <div style={{ marginTop: '1rem' }}>
-            <CandidateResultsTable result={people.result} />
           </div>
         )}
       </div>

@@ -37,7 +37,9 @@ const navSections: NavSection[] = [
     orgOnly: true,
     items: [
       { to: '/sourcing/copilot', label: 'Copilot', orgOnly: true, adminOnly: true },
+      { to: '/sourcing/people', label: 'Candidate Profiles', orgOnly: true, adminOnly: true },
       { to: '/sourcing/search', label: 'Find Sources', orgOnly: true, adminOnly: true },
+      { to: '/sourcing/campaigns', label: 'Campaigns', orgOnly: true, adminOnly: true },
       { to: '/sourcing/dashboard', label: 'Sourcing Dashboard', orgOnly: true, adminOnly: true },
       { to: '/sourcing/sources', label: 'Channels', orgOnly: true, adminOnly: true },
       { to: '/sourcing/content', label: 'Content Studio', orgOnly: true, adminOnly: true },

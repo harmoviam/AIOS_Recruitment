@@ -138,6 +138,58 @@ export interface PeopleRunListItem {
   created_date: string;
 }
 
+export interface CampaignSource {
+  id: string;
+  campaignId: string;
+  sourceId: string;
+  sourceName: string;
+  channelType: string;
+  priority: number;
+  allocatedTarget: number | null;
+  notes: string | null;
+}
+
+export interface SourcingCampaign {
+  id: string;
+  recruiterUserId: number;
+  roleId: string;
+  cityId: string;
+  experienceLevelId: string | null;
+  name: string;
+  hiringCount: number;
+  joiningTimelineDays: number | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  shiftType: string | null;
+  genderPreference: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  notes: string | null;
+  createdDate: string;
+  modifiedDate: string;
+  status: string;
+  version: number;
+}
+
+export interface PublishedCampaignJob {
+  id: number;
+  title: string;
+  status: string;
+}
+
+export interface SourcingCampaignDetail extends SourcingCampaign {
+  sources: CampaignSource[];
+  publishedJob?: PublishedCampaignJob | null;
+}
+
+export interface SourcingPage<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
 export interface SourcingDashboardSummary {
   topSources: Array<{ id: string; name: string; score: number; joinings: number }>;
   topCities: Array<{ id: string; name: string; sourceCount: number }>;

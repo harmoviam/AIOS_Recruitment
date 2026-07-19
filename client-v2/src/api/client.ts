@@ -665,6 +665,32 @@ export const api = {
     }),
   sourcingCreateCampaign: (body: Record<string, unknown>) =>
     request<unknown>('/sourcing/campaigns', { method: 'POST', body: JSON.stringify(body) }),
+  sourcingListCampaigns: (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<import('../types/sourcing').SourcingPage<import('../types/sourcing').SourcingCampaign>>(
+      `/sourcing/campaigns${q}`
+    );
+  },
+  sourcingCampaign: (id: string) =>
+    request<import('../types/sourcing').SourcingCampaignDetail>(`/sourcing/campaigns/${id}`),
+  sourcingUpdateCampaign: (id: string, body: Record<string, unknown>) =>
+    request<import('../types/sourcing').SourcingCampaignDetail>(`/sourcing/campaigns/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  sourcingAttachCampaignSource: (id: string, body: Record<string, unknown>) =>
+    request<import('../types/sourcing').SourcingCampaignDetail>(`/sourcing/campaigns/${id}/sources`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  sourcingDetachCampaignSource: (id: string, sourceId: string) =>
+    request<{ ok: boolean }>(`/sourcing/campaigns/${id}/sources/${sourceId}`, { method: 'DELETE' }),
+  sourcingPublishCampaign: (id: string) =>
+    request<{
+      job: import('../types/sourcing').PublishedCampaignJob;
+      publicPath: string;
+      created: boolean;
+    }>(`/sourcing/campaigns/${id}/publish`, { method: 'POST' }),
   sourcingLogActivity: (body: Record<string, unknown>) =>
     request<unknown>('/sourcing/activities', { method: 'POST', body: JSON.stringify(body) }),
   sourcingListSources: (params?: Record<string, string>) => {

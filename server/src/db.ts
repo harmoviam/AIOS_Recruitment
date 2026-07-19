@@ -205,6 +205,13 @@ export async function initDb() {
     await migratePerfIndexes(client);
     await migrateSourcingIntelligence(client);
     await migratePeopleSearch(client);
+    // Campaign → careers-page publishing: a job can originate from a campaign.
+    await client.query(
+      `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS sourcing_campaign_id UUID REFERENCES sourcing_campaign(id) ON DELETE SET NULL`
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS ix_jobs_sourcing_campaign ON jobs(sourcing_campaign_id)`
+    );
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 

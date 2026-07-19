@@ -43,6 +43,8 @@ import PollRecruiterDashboardPage from './pages/poll/PollRecruiterDashboardPage'
 import PollAdminDashboardPage from './pages/poll/PollAdminDashboardPage';
 import SourcingSearchPage from './pages/sourcing/SearchPage';
 import SourcingCopilotPage from './pages/sourcing/CopilotPage';
+import SourcingPeoplePage from './pages/sourcing/PeoplePage';
+import SourcingCampaignsPage from './pages/sourcing/CampaignsPage';
 import SourcingDashboardPage from './pages/sourcing/DashboardPage';
 import SourcingContentStudioPage from './pages/sourcing/ContentStudioPage';
 import SourcingSourcesPage from './pages/sourcing/SourcesPage';
@@ -137,6 +139,8 @@ function AppRoutes() {
         <Route path="sourcing" element={<OrgWorkspaceRoute><AdminRoute><SourcingDashboardPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/search" element={<OrgWorkspaceRoute><AdminRoute><SourcingSearchPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/copilot" element={<OrgWorkspaceRoute><AdminRoute><SourcingCopilotPage /></AdminRoute></OrgWorkspaceRoute>} />
+        <Route path="sourcing/people" element={<OrgWorkspaceRoute><AdminRoute><SourcingPeoplePage /></AdminRoute></OrgWorkspaceRoute>} />
+        <Route path="sourcing/campaigns" element={<OrgWorkspaceRoute><AdminRoute><SourcingCampaignsPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/dashboard" element={<OrgWorkspaceRoute><AdminRoute><SourcingDashboardPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/content" element={<OrgWorkspaceRoute><AdminRoute><SourcingContentStudioPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/sources" element={<OrgWorkspaceRoute><AdminRoute><SourcingSourcesPage /></AdminRoute></OrgWorkspaceRoute>} />
