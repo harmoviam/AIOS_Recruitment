@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { platformAdminOnly } from '../middleware/tenant.js';
+import { platformAdminOnly, publicTenantLogoUrl } from '../middleware/tenant.js';
 import { pool } from '../db.js';
 
 const router = Router();
@@ -39,6 +39,7 @@ router.get('/tenants', async (_req, res) => {
       status: t.status,
       primaryColor: t.primary_color,
       logoInitials: t.logo_initials,
+      logoUrl: publicTenantLogoUrl(t.slug, t.logo_path),
       usersCount: t.users_count,
       candidatesCount: t.candidates_count,
       createdAt: t.created_at,
@@ -65,6 +66,7 @@ router.get('/tenants/:slug', async (req, res) => {
     status: t.status,
     primaryColor: t.primary_color,
     logoInitials: t.logo_initials,
+    logoUrl: publicTenantLogoUrl(t.slug, t.logo_path),
     usersCount: t.users_count,
     candidatesCount: t.candidates_count,
     createdAt: t.created_at,

@@ -1,14 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { PublicJob } from '../../types';
-
-interface CareersTenant {
-  slug: string;
-  name: string;
-  primary_color: string;
-  logo_initials: string;
-}
+import { mixWithWhite, withAlpha } from '../../lib/brandColor';
+import type { CareersTenant, PublicJob } from '../../types';
 
 export default function CareersJobPage() {
   const { tenantSlug, jobId } = useParams();
@@ -51,50 +45,103 @@ export default function CareersJobPage() {
     }
   };
 
-  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading…</div>;
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Loading…</div>
+    );
+  }
   if (error || !tenant || !job) {
     return (
       <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
         <h1>Job not found</h1>
-        <p>{error || 'This position is no longer available.'}</p>
+        <p style={{ color: '#6b7280' }}>{error || 'This position is no longer available.'}</p>
       </div>
     );
   }
 
   const brand = tenant.primary_color || '#2563EB';
+  const wash = mixWithWhite(brand, 0.92);
+  const soft = mixWithWhite(brand, 0.85);
   const input = {
-    width: '100%', padding: '0.6rem 0.75rem', borderRadius: 8,
-    border: '1px solid #d1d5db', fontSize: '0.95rem', boxSizing: 'border-box' as const,
+    width: '100%',
+    padding: '0.7rem 0.85rem',
+    borderRadius: 10,
+    border: `1px solid ${soft}`,
+    fontSize: '0.95rem',
+    boxSizing: 'border-box' as const,
+    background: '#fff',
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f4f6fb' }}>
-      <header style={{ background: brand, color: '#fff', padding: '1.75rem 1.5rem' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: `radial-gradient(900px 420px at 20% -5%, ${withAlpha(brand, 0.22)}, transparent 55%), linear-gradient(180deg, ${wash} 0%, #f8fafc 40%, #f8fafc 100%)`,
+        fontFamily: '"Source Sans 3", "Segoe UI", sans-serif',
+        color: '#0f172a',
+      }}
+    >
+      <header
+        style={{
+          background: `linear-gradient(160deg, ${brand} 0%, ${mixWithWhite(brand, 0.18)} 100%)`,
+          color: '#fff',
+          padding: '1.75rem 1.5rem 2rem',
+        }}
+      >
         <div style={{ maxWidth: 760, margin: '0 auto' }}>
-          <Link to={`/careers/${tenantSlug}`} style={{ color: '#fff', opacity: 0.85, textDecoration: 'none', fontSize: '0.85rem' }}>
+          <Link
+            to={`/careers/${tenantSlug}`}
+            style={{ color: '#fff', opacity: 0.9, textDecoration: 'none', fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}
+          >
+            {tenant.logo_url ? (
+              <img
+                src={tenant.logo_url}
+                alt=""
+                width={28}
+                height={28}
+                style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 3 }}
+              />
+            ) : null}
             ← All jobs at {tenant.name}
           </Link>
-          <h1 style={{ margin: '0.5rem 0 0', fontSize: '1.6rem' }}>{job.title}</h1>
-          <p style={{ margin: '0.35rem 0 0', opacity: 0.9 }}>📍 {job.location}</p>
+          <h1
+            style={{
+              margin: '0.85rem 0 0',
+              fontSize: 'clamp(1.5rem, 3.5vw, 2rem)',
+              fontFamily: '"Fraunces", Georgia, serif',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+            }}
+          >
+            {job.title}
+          </h1>
+          <p style={{ margin: '0.4rem 0 0', opacity: 0.92 }}>{job.location}</p>
         </div>
       </header>
 
-      <main style={{ maxWidth: 760, margin: '0 auto', padding: '2rem 1rem', display: 'grid', gap: '1.25rem' }}>
+      <main style={{ maxWidth: 760, margin: '0 auto', padding: '2rem 1rem 3rem', display: 'grid', gap: '1.25rem' }}>
         {job.description && (
-          <section style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', border: '1px solid #e6e9f0' }}>
-            <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>About this role</h2>
-            <div style={{ whiteSpace: 'pre-wrap', color: '#374151', lineHeight: 1.65, fontSize: '0.95rem' }}>
+          <section>
+            <h2 style={{ marginTop: 0, fontSize: '1.05rem', color: brand }}>About this role</h2>
+            <div style={{ whiteSpace: 'pre-wrap', color: '#334155', lineHeight: 1.7, fontSize: '0.97rem' }}>
               {job.description}
             </div>
           </section>
         )}
 
-        <section style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', border: '1px solid #e6e9f0' }}>
+        <section
+          style={{
+            background: '#fff',
+            borderRadius: 16,
+            padding: '1.5rem',
+            border: `1px solid ${soft}`,
+            boxShadow: `0 10px 30px ${withAlpha(brand, 0.08)}`,
+          }}
+        >
           {applied ? (
-            <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
-              <div style={{ fontSize: '2.5rem' }}>🎉</div>
-              <h2 style={{ margin: '0.5rem 0' }}>Application received!</h2>
-              <p style={{ color: '#6b7280' }}>
+            <div style={{ textAlign: 'center', padding: '1.25rem 0' }}>
+              <h2 style={{ margin: '0.25rem 0', fontFamily: '"Fraunces", Georgia, serif' }}>Application received</h2>
+              <p style={{ color: '#64748b', lineHeight: 1.55 }}>
                 Thanks {name.split(' ')[0]} — the {tenant.name} recruitment team will review your profile and get in touch.
               </p>
             </div>
@@ -129,7 +176,6 @@ export default function CareersJobPage() {
                     onChange={(e) => setResume(e.target.files?.[0] || null)}
                   />
                 </div>
-                {/* Honeypot — humans never see it, bots fill it */}
                 <input
                   type="text"
                   name="website"
@@ -142,8 +188,13 @@ export default function CareersJobPage() {
                   type="submit"
                   disabled={submitting}
                   style={{
-                    background: brand, color: '#fff', border: 0, borderRadius: 999,
-                    padding: '0.75rem 1.5rem', fontSize: '1rem', fontWeight: 600,
+                    background: brand,
+                    color: '#fff',
+                    border: 0,
+                    borderRadius: 999,
+                    padding: '0.8rem 1.5rem',
+                    fontSize: '1rem',
+                    fontWeight: 600,
                     cursor: submitting ? 'wait' : 'pointer',
                   }}
                 >
@@ -154,7 +205,7 @@ export default function CareersJobPage() {
           )}
         </section>
 
-        <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: '0.8rem' }}>Powered by HarmiRecruit</p>
+        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.78rem' }}>Powered by HarmiRecruit</p>
       </main>
     </div>
   );
