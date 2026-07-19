@@ -3,24 +3,28 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts';
 import { api } from '../../api/client';
 import type { SourcingDashboardSummary } from '../../types/sourcing';
 
-const COLORS = ['#2563EB', '#0D9488', '#EA580C', '#7C3AED', '#CA8A04', '#DC2626'];
+// Categorical palette validated for CVD separation & contrast (fixed order, never cycled)
+const CATEGORICAL = ['#4f46e5', '#0d9488', '#ea580c', '#be185d', '#65a30d', '#0369a1'];
+const AXIS_TICK = { fontSize: 11, fill: '#666b85' };
 
 export default function SourcingDashboardPage() {
   const [summary, setSummary] = useState<SourcingDashboardSummary | null>(null);
   const [sourceChart, setSourceChart] = useState<{ name: string; applications: number; joinings: number }[]>([]);
   const [cityChart, setCityChart] = useState<{ name: string; value: number }[]>([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -40,73 +44,150 @@ export default function SourcingDashboardPage() {
             joinings: src.series?.find((x) => x.name === 'Joinings')?.data[i] ?? 0,
           }))
         );
-        setCityChart(city || []);
+        setCityChart((city || []).slice(0, 6));
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (error) return <div className="page-content"><div className="alert alert-error">{error}</div></div>;
-  if (!summary) return <div className="page-content">Loading sourcing dashboard…</div>;
+  if (error) {
+    return (
+      <>
+        <div className="topbar"><div className="search-bar">Sourcing Dashboard</div></div>
+        <div className="page-content"><div className="alert-banner danger">{error}</div></div>
+      </>
+    );
+  }
+
+  if (loading || !summary) {
+    return (
+      <>
+        <div className="topbar"><div className="search-bar">Sourcing Dashboard</div></div>
+        <div className="page-content"><p className="empty-inline">Loading sourcing dashboard…</p></div>
+      </>
+    );
+  }
 
   return (
     <>
       <div className="topbar"><div className="search-bar">Sourcing Dashboard</div></div>
       <div className="page-content">
-        <h1 className="section-title">Sourcing Intelligence Dashboard</h1>
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
-          <div className="card"><div className="card-title">Applications</div><div className="card-value">{summary.applications}</div></div>
-          <div className="card"><div className="card-title">Interviews</div><div className="card-value">{summary.interviews}</div></div>
-          <div className="card"><div className="card-title">Joinings</div><div className="card-value">{summary.joinings}</div></div>
-          <div className="card"><div className="card-title">Conversion %</div><div className="card-value">{summary.conversionPct}</div></div>
+        <h1 className="section-title">Sourcing Dashboard</h1>
+        <p className="section-description">
+          Funnel performance across your sourcing channels, cities, and campaigns.
+        </p>
+
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+          <div className="card"><div className="card-title">Applications</div><div className="card-value">{summary.applications.toLocaleString()}</div></div>
+          <div className="card"><div className="card-title">Interviews</div><div className="card-value">{summary.interviews.toLocaleString()}</div></div>
+          <div className="card"><div className="card-title">Joinings</div><div className="card-value">{summary.joinings.toLocaleString()}</div></div>
+          <div className="card"><div className="card-title">Conversion</div><div className="card-value">{summary.conversionPct}%</div></div>
         </div>
 
         <div className="section-split" style={{ marginTop: '1.5rem' }}>
           <div className="card">
             <div className="card-title">Source Performance</div>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={sourceChart}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={60} />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="applications" fill="#2563EB" name="Applications" />
-                <Bar dataKey="joinings" fill="#0D9488" name="Joinings" />
-              </BarChart>
-            </ResponsiveContainer>
+            {sourceChart.length === 0 ? (
+              <p className="empty-inline">No activity logged yet. Log outcomes on the Channels page to see performance.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={sourceChart} barGap={2}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e6e8f2" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    tick={AXIS_TICK}
+                    interval={0}
+                    angle={-20}
+                    textAnchor="end"
+                    height={60}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e6e8f2' }}
+                  />
+                  <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip cursor={{ fill: 'rgba(79, 70, 229, 0.06)' }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="applications" name="Applications" fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="joinings" name="Joinings" fill={CATEGORICAL[1]} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
           <div className="card">
             <div className="card-title">City Distribution</div>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={cityChart} dataKey="value" nameKey="name" outerRadius={90} label>
-                  {cityChart.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {cityChart.length === 0 ? (
+              <p className="empty-inline">No city data yet.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={cityChart}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={55}
+                    outerRadius={90}
+                    paddingAngle={2}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  >
+                    {cityChart.map((_, i) => (
+                      <Cell key={i} fill={CATEGORICAL[i % CATEGORICAL.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        <div className="section-split" style={{ marginTop: '1rem' }}>
-          <div className="card">
+        <div className="section-split" style={{ marginTop: '1.25rem' }}>
+          <div className="card table-wrap">
             <div className="card-title">Top Sources</div>
-            <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
-              {summary.topSources.map((s) => (
-                <li key={s.id}>{s.name} — score {s.score.toFixed(1)}, joinings {s.joinings}</li>
-              ))}
-              {summary.topSources.length === 0 && <li>No scored sources yet — log activities to learn.</li>}
-            </ul>
+            {summary.topSources.length === 0 ? (
+              <p className="empty-inline">No scored sources yet — log recruiter activity to start learning.</p>
+            ) : (
+              <table className="data-table compact">
+                <thead>
+                  <tr><th>Source</th><th>Score</th><th>Joinings</th></tr>
+                </thead>
+                <tbody>
+                  {summary.topSources.map((s) => (
+                    <tr key={s.id}>
+                      <td style={{ fontWeight: 600 }}>{s.name}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{s.score.toFixed(1)}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{s.joinings}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-          <div className="card">
+          <div className="card table-wrap">
             <div className="card-title">Top Campaigns</div>
-            <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
-              {summary.topCampaigns.map((c) => (
-                <li key={c.id}>{c.name} ({c.hiringCount} hires) — {c.status}</li>
-              ))}
-              {summary.topCampaigns.length === 0 && <li>No campaigns yet.</li>}
-            </ul>
+            {summary.topCampaigns.length === 0 ? (
+              <p className="empty-inline">No campaigns yet — create one from Find Sources.</p>
+            ) : (
+              <table className="data-table compact">
+                <thead>
+                  <tr><th>Campaign</th><th>Hires</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {summary.topCampaigns.map((c) => (
+                    <tr key={c.id}>
+                      <td style={{ fontWeight: 600 }}>{c.name}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{c.hiringCount}</td>
+                      <td>
+                        <span className="status-badge">
+                          <span className="status-dot" />
+                          {c.status.charAt(0) + c.status.slice(1).toLowerCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>

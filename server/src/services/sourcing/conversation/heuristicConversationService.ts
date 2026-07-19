@@ -34,7 +34,11 @@ export const heuristicConversationService: ConversationService = {
     if (!roleName) unresolved.push('roleName');
 
     let cityName: string | undefined;
-    const inMatch = text.match(/\bin\s+([A-Za-z][A-Za-z\s]{1,40}?)(?:\.|,|$)/i);
+    // City = words after "in", ending at punctuation, a qualifier keyword, a number, or end of text
+    // (e.g. "in Mohali within 15 days", "in Pune, salary up to 22000").
+    const inMatch = text.match(
+      /\bin\s+([A-Za-z][A-Za-z\s]{1,40}?)(?:\.|,|$|\s+(?:within|by|for|with|salary|budget|under|before|paying|needing)\b|\s+\d)/i
+    );
     if (inMatch) cityName = inMatch[1].trim();
     if (!cityName) unresolved.push('cityName');
 
