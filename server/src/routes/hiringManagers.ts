@@ -3,6 +3,9 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantMiddleware } from '../middleware/tenant.js';
+import { sendEmail, userInviteEmail } from '../services/email.js';
+import { appPublicUrl } from '../services/livekit.js';
+import { enforceUserLimit } from '../middleware/planLimits.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -45,7 +48,7 @@ router.get('/', async (req, res) => {
   })));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', enforceUserLimit(), async (req, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ error: 'Organization Admin access required' });
   }
@@ -60,6 +63,19 @@ router.post('/', async (req, res) => {
        VALUES ($1, $2, $3, 'hiring_manager', $4, $5) RETURNING id, email, name, role, company_id`,
       [email, hash, name, tid(req), company_id || null]
     );
+    const tpl = userInviteEmail({
+      name,
+      email,
+      workspaceName: req.tenant!.name,
+      loginUrl: `${appPublicUrl(req)}/login/${req.tenant!.slug}`,
+    });
+    await sendEmail({
+      tenantId: tid(req),
+      to: email,
+      template: 'user_invite',
+      subject: tpl.subject,
+      html: tpl.html,
+    });
     res.status(201).json(rows[0]);
   } catch (err: unknown) {
     if ((err as { code?: string }).code === '23505') {

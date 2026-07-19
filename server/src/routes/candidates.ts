@@ -25,6 +25,7 @@ import {
   getScreeningQuestionsForCandidate,
 } from '../services/screeningQuestions.js';
 import {
+  extractResumeText,
   finalizePendingResume,
   isAllowedMimeType,
   readResumeFile,
@@ -32,6 +33,12 @@ import {
   saveCandidateResume,
   savePendingResume,
 } from '../services/fileStorage.js';
+import {
+  createAdditionalApplications,
+  syncApplicationsForCandidates,
+  syncPrimaryApplication,
+} from '../services/applications.js';
+import { enforceCandidateLimit } from '../middleware/planLimits.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -42,6 +49,29 @@ const resumeUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: RESUME_MAX_BYTES },
 });
+
+/** Extract and store plain resume text so search_tsv covers resume content. */
+async function populateResumeText(tenantId: number, candidateId: number): Promise<void> {
+  try {
+    const { rows } = await pool.query(
+      'SELECT resume_meta FROM candidates WHERE id = $1 AND tenant_id = $2',
+      [candidateId, tenantId]
+    );
+    const meta = rows[0]?.resume_meta as { storage_path?: string; mime_type?: string } | null;
+    if (!meta?.storage_path || !meta.mime_type) return;
+    const buffer = await readResumeFile(meta.storage_path);
+    const text = await extractResumeText(buffer, meta.mime_type);
+    if (text) {
+      await pool.query('UPDATE candidates SET resume_text = $1 WHERE id = $2 AND tenant_id = $3', [
+        text.slice(0, 200_000),
+        candidateId,
+        tenantId,
+      ]);
+    }
+  } catch (err) {
+    console.warn('populateResumeText failed:', (err as Error).message);
+  }
+}
 
 const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
 // Red-flag signals observed in the first 3 minutes of the call, scored 1-5.
@@ -76,10 +106,10 @@ function statusFilterClause(status: string, i: number): { sql: string; nextIndex
 }
 
 router.get('/', async (req, res) => {
-  const { job_id, stage, status, search, recruiter_id, scope, hot } = req.query;
+  const { job_id, stage, status, search, recruiter_id, scope, hot, limit, offset } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
-    SELECT c.*, j.title AS job_title, u.name AS recruiter_name,
+    SELECT c.*, COUNT(*) OVER() AS total_count, j.title AS job_title, u.name AS recruiter_name,
       COALESCE(
         (SELECT MIN(iv.scheduled_at) FROM interviews iv
          WHERE iv.candidate_id = c.id AND iv.scheduled_at >= NOW() AND iv.status <> 'cancelled'),
@@ -108,9 +138,12 @@ router.get('/', async (req, res) => {
     i = clause.nextIndex;
   }
   if (search) {
-    sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
-    params.push(`%${search}%`);
-    i++;
+    // Substring match on identity fields plus full-text over skills/resume text
+    // (search_tsv covers name, contact, skills, and parsed resume content).
+    sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i} OR c.phone ILIKE $${i}
+      OR c.search_tsv @@ websearch_to_tsquery('english', $${i + 1}))`;
+    params.push(`%${search}%`, String(search));
+    i += 2;
   }
   if (hot === 'true') {
     sql += ' AND c.is_hot = TRUE';
@@ -151,7 +184,22 @@ router.get('/', async (req, res) => {
 
   sql += ' ORDER BY c.updated_at DESC';
 
+  // Paged envelope when the client asks for it; legacy bare array (defensively
+  // capped) otherwise, so existing pages keep working until they migrate.
+  const lim = Math.min(Math.max(Number(limit) || 0, 0), 500);
+  const off = Math.max(Number(offset) || 0, 0);
+  if (lim > 0) {
+    sql += ` LIMIT $${i++} OFFSET $${i++}`;
+    params.push(lim, off);
+    const { rows } = await pool.query(sql, params);
+    const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
+    for (const r of rows) delete r.total_count;
+    return res.json({ rows, total, limit: lim, offset: off });
+  }
+
+  sql += ' LIMIT 500';
   const { rows } = await pool.query(sql, params);
+  for (const r of rows) delete r.total_count;
   res.json(rows);
 });
 
@@ -314,7 +362,7 @@ router.post('/import/validate', async (req, res) => {
   res.json({ valid, errors: issues.filter((i) => i.severity === 'error').length, warnings: issues.filter((i) => i.severity === 'warning').length, issues });
 });
 
-router.post('/import', async (req, res) => {
+router.post('/import', enforceCandidateLimit(), async (req, res) => {
   const { rows: rowData, skip_errors, default_job_id } = req.body as {
     rows: Record<string, string>[];
     skip_errors?: boolean;
@@ -363,7 +411,8 @@ router.post('/import', async (req, res) => {
     const createdAt = parsed.applied_at || new Date().toISOString();
     const { rows: inserted } = await pool.query(
       `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, job_id, recruiter_id, notes, salary_expectation, tenant_id, source, created_at, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, 'import', $13, $13) RETURNING id`,
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, 'import', $13, $13)
+       RETURNING id, job_id, stage, ai_score, recruiter_id, source`,
       [
         parsed.name,
         parsed.email || null,
@@ -390,6 +439,7 @@ router.post('/import', async (req, res) => {
       await promoteToInterviewStage(inserted[0].id, tenantId);
     }
 
+    await syncPrimaryApplication(tenantId, inserted[0]);
     void rescoreCandidate(tenantId, inserted[0].id);
     imported++;
   }
@@ -462,6 +512,8 @@ router.patch('/bulk', async (req, res) => {
       }
     }
   }
+
+  await syncApplicationsForCandidates(tid(req), ids.map(Number));
 
   res.json({ updated: rowCount });
 });
@@ -779,6 +831,7 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
     );
 
     void rescoreCandidate(tid(req), candidateId);
+    void populateResumeText(tid(req), candidateId);
 
     res.json({
       candidate: updated[0],
@@ -839,6 +892,7 @@ router.put('/:id/screening', async (req, res) => {
     'UPDATE candidates SET screening = $1::jsonb, updated_at = NOW() WHERE id = $2 AND tenant_id = $3 RETURNING *',
     [JSON.stringify(screening), candidateId, tid(req)]
   );
+  await syncApplicationsForCandidates(tid(req), [candidateId]);
 
   await pool.query(
     'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
@@ -879,7 +933,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', enforceCandidateLimit(), async (req, res) => {
   const {
     name,
     email,
@@ -927,8 +981,23 @@ router.post('/', async (req, res) => {
 
   if (!name) return res.status(400).json({ error: 'Name required' });
 
-  if (job_id && !(await assertJobInTenant(Number(job_id), tid(req)))) {
-    return res.status(400).json({ error: 'Invalid job for this workspace' });
+  // Multi-job submit: job_ids[] creates one application per job; the first
+  // (or legacy job_id) becomes the candidate's primary application.
+  const jobIds: number[] = Array.isArray(req.body.job_ids)
+    ? [
+        ...new Set(
+          (req.body.job_ids as unknown[])
+            .map(Number)
+            .filter((n): n is number => Number.isFinite(n))
+        ),
+      ]
+    : [];
+  const primaryJobId = job_id ? Number(job_id) : jobIds[0] || null;
+
+  for (const jid of new Set([...(primaryJobId ? [primaryJobId] : []), ...jobIds])) {
+    if (!(await assertJobInTenant(jid, tid(req)))) {
+      return res.status(400).json({ error: 'Invalid job for this workspace' });
+    }
   }
 
   const skillList = Array.isArray(skills) ? skills : [];
@@ -957,7 +1026,7 @@ router.post('/', async (req, res) => {
       JSON.stringify(skillList),
       experience_years || 0,
       ai_score,
-      job_id || null,
+      primaryJobId,
       recruiter_id || req.user!.id,
       notes || null,
       salary_expectation || null,
@@ -1018,6 +1087,25 @@ router.post('/', async (req, res) => {
     }
   }
 
+  await syncPrimaryApplication(tid(req), {
+    id: rows[0].id,
+    job_id: primaryJobId,
+    stage: rows[0].stage,
+    ai_score,
+    recruiter_id: rows[0].recruiter_id,
+    source: rows[0].source,
+  });
+  const extraJobs = jobIds.filter((jid) => jid !== primaryJobId);
+  if (extraJobs.length > 0) {
+    await createAdditionalApplications(
+      tid(req),
+      rows[0].id,
+      extraJobs,
+      rows[0].recruiter_id,
+      rows[0].source || 'manual'
+    );
+  }
+
   const activityDesc = fromResume
     ? `${name} added from resume parse`
     : `${name} added to pipeline`;
@@ -1027,6 +1115,7 @@ router.post('/', async (req, res) => {
   );
 
   void rescoreCandidate(tid(req), rows[0].id);
+  void populateResumeText(tid(req), rows[0].id);
 
   res.status(201).json(rows[0]);
 });
@@ -1339,6 +1428,17 @@ router.patch('/:id', async (req, res) => {
     if (offer_status === 'left_company') {
       await closeOpenFollowUps(tid(req), rows[0].id, ['onboarding'], 'auto_closed');
     }
+  }
+
+  // Keep the applications table in step with the legacy per-job columns.
+  if (
+    stage !== undefined ||
+    job_id !== undefined ||
+    offer_status !== undefined ||
+    expected_joining_at !== undefined ||
+    recruiter_id !== undefined
+  ) {
+    await syncPrimaryApplication(tid(req), rows[0]);
   }
 
   // Profile substance changed → refresh the AI fit score in the background.

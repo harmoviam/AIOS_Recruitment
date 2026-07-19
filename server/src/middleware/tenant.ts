@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { pool } from '../db.js';
+import { enforceSubscriptionActive } from './planLimits.js';
 
 export interface TenantRecord {
   id: number;
@@ -9,7 +10,17 @@ export interface TenantRecord {
   status: string;
   primary_color: string;
   logo_initials: string;
+  logo_path: string | null;
   features: string[];
+  trial_ends_at?: string | null;
+  plan_expires_at?: string | null;
+}
+
+/** Public URL for a tenant logo, cache-busted by storage key. */
+export function publicTenantLogoUrl(slug: string, logoPath: string | null | undefined): string | null {
+  if (!logoPath) return null;
+  const v = logoPath.split('/').pop()?.replace(/\W/g, '').slice(-12) || '1';
+  return `/api/public/${encodeURIComponent(slug)}/logo?v=${v}`;
 }
 
 declare global {
@@ -22,7 +33,8 @@ declare global {
 
 export async function loadTenantBySlug(slug: string): Promise<TenantRecord | null> {
   const { rows } = await pool.query(
-    `SELECT id, slug, name, plan, status, primary_color, logo_initials, features
+    `SELECT id, slug, name, plan, status, primary_color, logo_initials, logo_path, features,
+            trial_ends_at, plan_expires_at
      FROM tenants WHERE slug = $1 AND status != 'churned'`,
     [slug]
   );
@@ -30,13 +42,15 @@ export async function loadTenantBySlug(slug: string): Promise<TenantRecord | nul
   const r = rows[0];
   return {
     ...r,
+    logo_path: r.logo_path || null,
     features: Array.isArray(r.features) ? r.features : JSON.parse(r.features || '[]'),
   };
 }
 
 export async function loadTenantById(id: number): Promise<TenantRecord | null> {
   const { rows } = await pool.query(
-    `SELECT id, slug, name, plan, status, primary_color, logo_initials, features
+    `SELECT id, slug, name, plan, status, primary_color, logo_initials, logo_path, features,
+            trial_ends_at, plan_expires_at
      FROM tenants WHERE id = $1`,
     [id]
   );
@@ -44,6 +58,7 @@ export async function loadTenantById(id: number): Promise<TenantRecord | null> {
   const r = rows[0];
   return {
     ...r,
+    logo_path: r.logo_path || null,
     features: Array.isArray(r.features) ? r.features : JSON.parse(r.features || '[]'),
   };
 }
@@ -85,10 +100,18 @@ export async function tenantMiddleware(req: Request, res: Response, next: NextFu
   }
 }
 
-/** Ensures req.tenant is set — use on all tenant-data routes. */
+/**
+ * Ensures req.tenant is set — use on all tenant-data routes.
+ * Also the single enforcement point for subscription state: expired trials and
+ * lapsed plans get read-only access (402 on writes). Billing stays writable so
+ * a lapsed tenant can always pay.
+ */
 export function requireTenant(req: Request, res: Response, next: NextFunction) {
   if (!req.tenant) {
     return res.status(400).json({ error: 'Workspace context required' });
+  }
+  if (!req.baseUrl.startsWith('/api/billing')) {
+    return enforceSubscriptionActive(req, res, next);
   }
   next();
 }

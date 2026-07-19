@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { pool } from '../db.js';
 import { authMiddleware, signToken, toAuthUser } from '../middleware/auth.js';
 import { loadTenantBySlug } from '../middleware/tenant.js';
+import { emailMode, passwordResetEmail, sendEmail } from '../services/email.js';
 
 const router = Router();
 
@@ -172,6 +173,18 @@ router.post('/forgot-password', async (req, res) => {
       [rows[0].id, token, expires.toISOString()]
     );
     const resetUrl = `${process.env.APP_URL || 'http://localhost:5173'}/forgot-password?token=${token}`;
+    if (emailMode() === 'live') {
+      const tpl = passwordResetEmail(resetUrl);
+      await sendEmail({
+        tenantId: null,
+        to: rows[0].email,
+        template: 'password_reset',
+        subject: tpl.subject,
+        html: tpl.html,
+      });
+      return res.json({ message: 'If an account exists, a reset link has been sent.' });
+    }
+    // Email not configured: keep the dev-mode reset link, but never in production.
     return res.json({
       message: 'If an account exists, a reset link has been sent.',
       ...(process.env.NODE_ENV !== 'production' ? { resetUrl, token } : {}),

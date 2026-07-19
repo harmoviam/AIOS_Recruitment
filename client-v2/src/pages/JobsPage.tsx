@@ -93,6 +93,16 @@ export default function JobsPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [viewingJd, setViewingJd] = useState<Job | null>(null);
+  const [copiedJobId, setCopiedJobId] = useState<number | null>(null);
+
+  const copyApplyLink = (job: Job) => {
+    const slug = localStorage.getItem('aios_tenant_slug') || '';
+    const url = `${window.location.origin}/careers/${slug}/jobs/${job.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedJobId(job.id);
+      setTimeout(() => setCopiedJobId((prev) => (prev === job.id ? null : prev)), 2000);
+    });
+  };
   const [jdScreeningQuestions, setJdScreeningQuestions] = useState<import('../types').JobScreeningQuestions | null>(null);
   const [loadingJdQuestions, setLoadingJdQuestions] = useState(false);
   const [regeneratingQuestions, setRegeneratingQuestions] = useState(false);
@@ -452,6 +462,14 @@ export default function JobsPage() {
                   <Link to={`/pipeline?job_id=${job.id}`} className="button-pill button-secondary btn-sm">
                     View pipeline
                   </Link>
+                  <button
+                    type="button"
+                    className="button-pill button-secondary btn-sm"
+                    title="Copy the public apply link — share it on WhatsApp, LinkedIn, or job boards"
+                    onClick={() => copyApplyLink(job)}
+                  >
+                    {copiedJobId === job.id ? 'Link copied ✓' : 'Copy apply link'}
+                  </button>
                   {canManageJobs && (
                     <>
                       <button

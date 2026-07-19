@@ -4,6 +4,8 @@ import { TenantProvider } from './context/TenantContext';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import CareersPage from './pages/public/CareersPage';
+import CareersJobPage from './pages/public/CareersJobPage';
 import WalkthroughPage from './pages/WalkthroughPage';
 import { loginRedirectPath } from './utils/tenantUrl';
 import DashboardPage from './pages/DashboardPage';
@@ -81,6 +83,8 @@ function AppRoutes() {
       <Route path="/walkthrough/:role" element={<WalkthroughPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/join/interview/:joinToken" element={<JoinInterviewPage />} />
+      <Route path="/careers/:tenantSlug" element={<CareersPage />} />
+      <Route path="/careers/:tenantSlug/jobs/:jobId" element={<CareersJobPage />} />
       <Route path="/poll" element={<PollEntryPage />} />
       <Route path="/poll/:tenantSlug" element={<PollListPage />} />
       <Route path="/poll/:tenantSlug/:pollSlug" element={<PollRegisterPage />} />

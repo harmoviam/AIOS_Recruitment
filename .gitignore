@@ -16,3 +16,4 @@ server/uploads/
 
 # OS
 .DS_Store
+scripts/.venv/

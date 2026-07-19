@@ -308,6 +308,12 @@ export async function rescoreCandidate(tenantId: number, candidateId: number): P
       'UPDATE candidates SET ai_score = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3',
       [result.score, candidateId, tenantId]
     );
+    await pool.query(
+      `UPDATE applications a SET ai_score = $1, updated_at = NOW()
+       FROM candidates c
+       WHERE c.id = $2 AND c.tenant_id = $3 AND a.candidate_id = c.id AND a.job_id = c.job_id`,
+      [result.score, candidateId, tenantId]
+    );
     const detail = [
       result.summary,
       result.strengths.length ? `Strengths: ${result.strengths.slice(0, 3).join('; ')}` : null,

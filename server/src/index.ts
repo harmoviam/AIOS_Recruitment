@@ -23,6 +23,9 @@ import organizationRoutes from './routes/organization.js';
 import reportRoutes from './routes/reports.js';
 import whatsappWebhookRoutes from './routes/whatsappWebhook.js';
 import notificationRoutes from './routes/notifications.js';
+import applicationRoutes from './routes/applications.js';
+import publicRoutes from './routes/public.js';
+import billingRoutes from './routes/billing.js';
 import pollRoutes from './routes/poll.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
@@ -52,6 +55,9 @@ app.use('/api/organization', organizationRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/whatsapp', whatsappWebhookRoutes); // unauthenticated — called by Meta's servers
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/applications', applicationRoutes);
+app.use('/api/public', publicRoutes); // unauthenticated — tenant careers pages
+app.use('/api/billing', billingRoutes);
 app.use('/api/poll', pollRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));

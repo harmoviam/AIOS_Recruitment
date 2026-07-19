@@ -46,6 +46,7 @@ export default function AddCandidatePage() {
     ResumeParseResponse,
     'pending_resume_id' | 'pending_ext' | 'original_filename' | 'mime_type' | 'file_size_bytes'
   > | null>(null);
+  const [extraJobIds, setExtraJobIds] = useState<number[]>([]);
   const [form, setForm] = useState({
     name: '',
     phone: '',
@@ -105,6 +106,7 @@ export default function AddCandidatePage() {
         phone: form.phone,
         email: form.email || undefined,
         job_id: form.job_id ? Number(form.job_id) : undefined,
+        job_ids: extraJobIds.length > 0 ? extraJobIds : undefined,
         experience_years: form.experience_years,
         skills,
         notes: form.notes || undefined,
@@ -241,6 +243,29 @@ export default function AddCandidatePage() {
                 ))}
               </select>
             </div>
+            {form.job_id && jobs.length > 1 && (
+              <div className="form-group">
+                <label className="form-label">Also submit to</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '140px', overflowY: 'auto' }}>
+                  {jobs
+                    .filter((j) => String(j.id) !== form.job_id)
+                    .map((j) => (
+                      <label key={j.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={extraJobIds.includes(j.id)}
+                          onChange={(e) =>
+                            setExtraJobIds((prev) =>
+                              e.target.checked ? [...prev, j.id] : prev.filter((id) => id !== j.id)
+                            )
+                          }
+                        />
+                        {j.title} — {j.client}
+                      </label>
+                    ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <h3 className="card-heading" style={{ marginTop: '1.5rem' }}>Professional</h3>

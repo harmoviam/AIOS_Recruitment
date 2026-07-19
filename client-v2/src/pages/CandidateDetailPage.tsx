@@ -7,10 +7,13 @@ import RecommendedJobsPanel from '../components/RecommendedJobsPanel';
 import Tabs from '../components/ui/Tabs';
 import ScorePicker from '../components/ui/ScorePicker';
 import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel, type ScreeningQuestionDef } from '../types';
-import type { Candidate, Interview, Message, TimelineEvent } from '../types';
+import type { Application, Candidate, Interview, Job, Message, TimelineEvent } from '../types';
+
+const APPLICATION_STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
 
 const DETAIL_TABS = [
   { id: 'profile', label: 'Profile' },
+  { id: 'jobs', label: 'Jobs' },
   { id: 'screening', label: 'Screening' },
   { id: 'timeline', label: 'Timeline' },
   { id: 'communication', label: 'Communication' },
@@ -75,6 +78,11 @@ export default function CandidateDetailPage() {
   const [staySaving, setStaySaving] = useState(false);
   const [stayError, setStayError] = useState('');
   const [staySaved, setStaySaved] = useState(false);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [allJobs, setAllJobs] = useState<Job[]>([]);
+  const [submitJobId, setSubmitJobId] = useState('');
+  const [appsError, setAppsError] = useState('');
+  const [appsBusy, setAppsBusy] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -107,7 +115,52 @@ export default function CandidateDetailPage() {
     api.getMessages(cid).then(setMessages);
     api.getCandidateTimeline(cid).then(setTimeline);
     api.getCandidateSuggestions(cid).then((r) => setSuggestions(r.suggestions));
+    api.getCandidateApplications(cid).then(setApplications).catch(() => setApplications([]));
+    api.getJobs().then(setAllJobs).catch(() => setAllJobs([]));
   }, [id]);
+
+  const reloadApplications = () => {
+    if (id) api.getCandidateApplications(Number(id)).then(setApplications).catch(() => undefined);
+  };
+
+  const handleSubmitToJob = async () => {
+    if (!id || !submitJobId) return;
+    setAppsBusy(true);
+    setAppsError('');
+    try {
+      await api.submitCandidateToJob(Number(id), Number(submitJobId));
+      setSubmitJobId('');
+      reloadApplications();
+      api.getCandidate(Number(id)).then(setCandidate);
+    } catch (err) {
+      setAppsError((err as Error).message);
+    } finally {
+      setAppsBusy(false);
+    }
+  };
+
+  const handleApplicationStage = async (app: Application, stage: string) => {
+    setAppsError('');
+    try {
+      await api.updateApplication(app.id, { stage });
+      reloadApplications();
+      api.getCandidate(Number(id)).then(setCandidate);
+    } catch (err) {
+      setAppsError((err as Error).message);
+    }
+  };
+
+  const handleWithdraw = async (app: Application) => {
+    if (!window.confirm(`Withdraw ${candidate?.name || 'candidate'} from ${app.job_title || 'this job'}?`)) return;
+    setAppsError('');
+    try {
+      await api.withdrawApplication(app.id);
+      reloadApplications();
+      api.getCandidate(Number(id)).then(setCandidate);
+    } catch (err) {
+      setAppsError((err as Error).message);
+    }
+  };
 
   if (!candidate) return <div className="page-content">Loading…</div>;
 
@@ -489,6 +542,96 @@ export default function CandidateDetailPage() {
                 </p>
               )}
             </div>
+          </div>
+        )}
+
+        {tab === 'jobs' && (
+          <div className="card">
+            <div className="card-title">Job applications</div>
+            <p className="section-description" style={{ marginBottom: '1rem' }}>
+              A candidate can be submitted to multiple jobs — each application tracks its own stage.
+            </p>
+            {appsError && <div className="form-error" style={{ marginBottom: '0.75rem' }}>{appsError}</div>}
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <select
+                className="input-field"
+                style={{ maxWidth: '320px' }}
+                value={submitJobId}
+                onChange={(e) => setSubmitJobId(e.target.value)}
+              >
+                <option value="">Select a job to submit to…</option>
+                {allJobs
+                  .filter((j) => !applications.some((a) => a.job_id === j.id))
+                  .map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.title} — {j.client}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                className="button-pill button-primary"
+                disabled={!submitJobId || appsBusy}
+                onClick={handleSubmitToJob}
+              >
+                {appsBusy ? 'Submitting…' : 'Submit to job'}
+              </button>
+            </div>
+
+            {applications.length === 0 ? (
+              <p className="section-description">Not submitted to any job yet.</p>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Client</th>
+                    <th>Stage</th>
+                    <th>AI score</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {applications.map((app) => (
+                    <tr key={app.id}>
+                      <td>
+                        {app.job_title || `Job #${app.job_id}`}
+                        {candidate.job_id === app.job_id && (
+                          <span className="status-badge" style={{ marginLeft: '0.5rem' }}>Primary</span>
+                        )}
+                      </td>
+                      <td>{app.job_client || '—'}</td>
+                      <td>
+                        <select
+                          className="input-field"
+                          value={app.stage}
+                          onChange={(e) => handleApplicationStage(app, e.target.value)}
+                        >
+                          {APPLICATION_STAGES.map((s) => (
+                            <option key={s} value={s}>
+                              {s.charAt(0).toUpperCase() + s.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>{app.ai_score != null ? `${Number(app.ai_score).toFixed(1)}/10` : '—'}</td>
+                      <td>{new Date(app.updated_at).toLocaleDateString()}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-pill button-secondary"
+                          onClick={() => handleWithdraw(app)}
+                        >
+                          Withdraw
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
 

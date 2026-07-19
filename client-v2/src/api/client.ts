@@ -118,6 +118,24 @@ async function uploadRequest<T>(path: string, formData: FormData, method = 'POST
   return data as T;
 }
 
+async function publicUpload<T>(path: string, formData: FormData): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, { method: 'POST', body: formData });
+  } catch {
+    throw new Error(networkErrorMessage());
+  }
+  const text = await res.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    if (!res.ok) throw new Error(parseApiError(res, data, text));
+  }
+  if (!res.ok) throw new Error(parseApiError(res, data, text));
+  return data as T;
+}
+
 export const api = {
   login: (email: string, password: string, workspace?: string) =>
     request<{ token: string; user: import('../types').User }>('/auth/login', {
@@ -155,10 +173,19 @@ export const api = {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
     return request<import('../types').Candidate[]>(`/candidates${q}`);
   },
+  getCandidatesPaged: (params: Record<string, string>) => {
+    const q = '?' + new URLSearchParams(params).toString();
+    return request<{
+      rows: import('../types').Candidate[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/candidates${q}`);
+  },
   getCandidate: (id: number) => request<import('../types').Candidate>(`/candidates/${id}`),
   getCandidateTimeline: (id: number) =>
     request<import('../types').TimelineEvent[]>(`/candidates/${id}/timeline`),
-  createCandidate: (data: Partial<import('../types').Candidate>) =>
+  createCandidate: (data: Partial<import('../types').Candidate> & { job_ids?: number[] }) =>
     request<import('../types').Candidate>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate: (id: number, data: Partial<import('../types').Candidate>) =>
     request<import('../types').Candidate>(`/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -357,11 +384,92 @@ export const api = {
   getSettings: () => request<Record<string, unknown>>('/settings'),
   updateSetting: (key: string, value: unknown) =>
     request(`/settings/${key}`, { method: 'PUT', body: JSON.stringify(value) }),
+  uploadTenantLogo: (file: File) => {
+    const form = new FormData();
+    form.append('logo', file);
+    return uploadRequest<{ logoUrl: string }>('/settings/logo', form);
+  },
+  deleteTenantLogo: () =>
+    request<{ logoUrl: null }>('/settings/logo', { method: 'DELETE' }),
   getUsers: () => request<import('../types').User[]>('/settings/users/list'),
   createUser: (data: { email: string; password: string; name: string; role?: string }) =>
     request('/settings/users/list', { method: 'POST', body: JSON.stringify(data) }),
   updateUser: (id: number, data: Partial<{ name: string; role: string; password: string; wa_signature: string }>) =>
     request(`/settings/users/list/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  /* Applications (candidate <-> job many-to-many) */
+  getCandidateApplications: (candidateId: number) =>
+    request<import('../types').Application[]>(`/applications/candidate/${candidateId}`),
+  submitCandidateToJob: (candidateId: number, jobId: number) =>
+    request<import('../types').Application>(`/applications/candidate/${candidateId}`, {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
+    }),
+  updateApplication: (
+    id: number,
+    data: { stage?: string; offer_status?: string | null; expected_joining_at?: string | null }
+  ) =>
+    request<import('../types').Application>(`/applications/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  withdrawApplication: (id: number) =>
+    request<{ deleted: boolean }>(`/applications/${id}`, { method: 'DELETE' }),
+  getJobPipeline: (jobId: number) =>
+    request<{ job: { id: number; title: string }; applications: import('../types').JobPipelineApplication[] }>(
+      `/jobs/${jobId}/pipeline`
+    ),
+
+  /* Billing (Razorpay orders + checkout + verify) */
+  getBilling: () => request<import('../types').BillingInfo>('/billing'),
+  createBillingOrder: (plan: string, cycle: 'monthly' | 'annual') =>
+    request<import('../types').BillingOrder>('/billing/order', {
+      method: 'POST',
+      body: JSON.stringify({ plan, cycle }),
+    }),
+  verifyBillingPayment: (data: {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+  }) =>
+    request<{ activated: boolean; plan: string; period_end: string }>('/billing/verify', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateGstin: (gstin: string) =>
+    request<{ gstin: string | null }>('/billing/gstin', {
+      method: 'PATCH',
+      body: JSON.stringify({ gstin }),
+    }),
+
+  /* Public careers pages (unauthenticated) */
+  careersGetTenant: (slug: string) =>
+    publicRequest<{
+      slug: string;
+      name: string;
+      primary_color: string;
+      logo_initials: string;
+      logo_url: string | null;
+    }>(`/public/${encodeURIComponent(slug)}`),
+  careersGetJobs: (slug: string) =>
+    publicRequest<import('../types').PublicJob[]>(`/public/${encodeURIComponent(slug)}/jobs`),
+  careersGetJob: (slug: string, jobId: number) =>
+    publicRequest<import('../types').PublicJob>(`/public/${encodeURIComponent(slug)}/jobs/${jobId}`),
+  careersApply: (
+    slug: string,
+    jobId: number,
+    data: { name: string; email: string; phone: string; resume?: File | null }
+  ) => {
+    const form = new FormData();
+    form.append('name', data.name);
+    form.append('email', data.email);
+    form.append('phone', data.phone);
+    if (data.resume) form.append('resume', data.resume);
+    return publicUpload<{ applied: boolean }>(
+      `/public/${encodeURIComponent(slug)}/jobs/${jobId}/apply`,
+      form
+    );
+  },
 
   /* Recruiter Poll & Assessment (tenant + poll scoped) */
   pollGetMeta: (tenantSlug: string) =>

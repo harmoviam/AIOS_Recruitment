@@ -90,7 +90,7 @@ router.get('/', async (req, res) => {
     i += 2;
   }
 
-  sql += ' ORDER BY f.due_at DESC';
+  sql += ' ORDER BY f.due_at DESC LIMIT 500';
 
   const { rows } = await pool.query(sql, params);
   const mapped = rows.map((r) => ({

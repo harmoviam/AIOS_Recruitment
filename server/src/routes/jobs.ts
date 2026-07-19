@@ -217,6 +217,34 @@ router.post('/:id/generate-screening-questions', canManageJobs, async (req, res)
   res.json({ job_id: jobId, job_title: rows[0].title, questions });
 });
 
+/** Applications for one job's pipeline, grouped client-side by stage. */
+router.get('/:id/pipeline', async (req, res) => {
+  const jobId = Number(req.params.id);
+  if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
+
+  const { rows: job } = await pool.query('SELECT id, title FROM jobs WHERE id = $1 AND tenant_id = $2', [
+    jobId,
+    tid(req),
+  ]);
+  if (!job[0]) return res.status(404).json({ error: 'Job not found' });
+
+  const { rows } = await pool.query(
+    `SELECT a.id AS application_id, a.stage, a.ai_score, a.offer_status,
+            a.expected_joining_at, a.joined_at, a.updated_at,
+            c.id AS candidate_id, c.name, c.email, c.phone, c.skills,
+            c.experience_years, c.is_hot,
+            u.name AS recruiter_name
+     FROM applications a
+     JOIN candidates c ON c.id = a.candidate_id AND c.tenant_id = a.tenant_id
+     LEFT JOIN users u ON u.id = a.recruiter_id AND u.tenant_id = a.tenant_id
+     WHERE a.tenant_id = $1 AND a.job_id = $2
+     ORDER BY a.updated_at DESC
+     LIMIT 500`,
+    [tid(req), jobId]
+  );
+  res.json({ job: job[0], applications: rows });
+});
+
 router.get('/:id', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT j.*, u.name AS assigned_name FROM jobs j

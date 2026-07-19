@@ -24,6 +24,7 @@ import {
   normalizeMeetingLink,
 } from '../services/livekit.js';
 import { getScreeningQuestionsForInterview } from '../services/screeningQuestions.js';
+import { buildInterviewIcs, interviewInviteEmail, sendEmail } from '../services/email.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -117,7 +118,7 @@ router.get('/', async (req, res) => {
     sql += ` AND i.scheduled_at::date = $${idx++}::date`;
     params.push(date);
   }
-  sql += ' ORDER BY i.scheduled_at ASC';
+  sql += ' ORDER BY i.scheduled_at ASC LIMIT 500';
 
   const { rows } = await pool.query(sql, params);
   res.json(await withNormalizedMeetingLinks(req, rows));
@@ -265,7 +266,7 @@ router.post('/', async (req, res) => {
   await promoteToInterviewStage(Number(candidate_id), tid(req));
 
   const { rows: candidateRows } = await pool.query(
-    `SELECT c.name, c.phone, j.title AS job_title
+    `SELECT c.name, c.phone, c.email, j.title AS job_title
      FROM candidates c
      LEFT JOIN jobs j ON j.id = c.job_id
      WHERE c.id = $1`,
@@ -300,6 +301,36 @@ router.post('/', async (req, res) => {
       content: body,
     });
     whatsapp = { status: result.waStatus, error: result.wa.error };
+  }
+
+  if (candidate?.email) {
+    const startAt = new Date(scheduled_at);
+    const companyName = req.tenant?.name || 'HarmiRecruit';
+    const tpl = interviewInviteEmail({
+      candidateName: candidate.name,
+      jobTitle: candidate.job_title,
+      companyName,
+      scheduledAt: startAt,
+      durationMinutes: duration,
+      roundType: interview.round_type,
+      joinLink: interview.meeting_link,
+    });
+    await sendEmail({
+      tenantId: tid(req),
+      to: candidate.email,
+      template: 'interview_invite',
+      subject: tpl.subject,
+      html: tpl.html,
+      ics: buildInterviewIcs({
+        uid: `harmirecruit-interview-${interview.id}@harmirecruit`,
+        title: `${interview.round_type} interview — ${companyName}`,
+        description: candidate.job_title ? `Position: ${candidate.job_title}` : undefined,
+        location: interview.meeting_link || undefined,
+        start: startAt,
+        durationMinutes: duration,
+        organizerName: companyName,
+      }),
+    });
   }
 
   res.status(201).json({ ...(await withNormalizedMeetingLinks(req, [interview]))[0], whatsapp });

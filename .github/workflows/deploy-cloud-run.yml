@@ -168,6 +168,34 @@ jobs:
             echo "LiveKit secrets not found — video calls disabled (screening still works)."
           fi
 
+          # Durable resume storage — without this bucket, resumes live on the
+          # container's ephemeral disk and are lost on scale-to-zero.
+          RESUME_BUCKET="harmirecruit-resumes"
+          if gcloud storage buckets describe "gs://${RESUME_BUCKET}" \
+              --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            echo "Resume bucket found — storing resumes in GCS."
+            ENV_VARS="${ENV_VARS},GCS_BUCKET=${RESUME_BUCKET}"
+          else
+            echo "WARNING: gs://${RESUME_BUCKET} not found — resumes will be EPHEMERAL. Create it with:"
+            echo "  gcloud storage buckets create gs://${RESUME_BUCKET} --project ${PROJECT_ID} --location us-central1 --uniform-bucket-level-access"
+          fi
+
+          if gcloud secrets describe harmirecruit-email-api-key \
+              --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            echo "Email secrets found — enabling transactional email."
+            SECRETS="${SECRETS},EMAIL_API_KEY=harmirecruit-email-api-key:latest,EMAIL_FROM=harmirecruit-email-from:latest"
+          else
+            echo "Email secrets not found — email disabled (password reset stays dev-mode)."
+          fi
+
+          if gcloud secrets describe harmirecruit-razorpay-key-secret \
+              --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            echo "Razorpay secrets found — enabling online billing."
+            SECRETS="${SECRETS},RAZORPAY_KEY_ID=harmirecruit-razorpay-key-id:latest,RAZORPAY_KEY_SECRET=harmirecruit-razorpay-key-secret:latest"
+          else
+            echo "Razorpay secrets not found — billing page shows payments-disabled banner."
+          fi
+
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image ${IMAGE}:${{ github.sha }} \
             --region ${{ env.REGION }} \

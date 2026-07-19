@@ -10,6 +10,13 @@ export async function promoteToInterviewStage(candidateId: number, tenantId: num
      WHERE id = $1 AND tenant_id = $2 AND stage = ANY($3::text[])`,
     [candidateId, tenantId, EARLIER_STAGES]
   );
+  await pool.query(
+    `UPDATE applications a SET stage = 'interview', updated_at = NOW()
+     FROM candidates c
+     WHERE c.id = $1 AND c.tenant_id = $2
+       AND a.candidate_id = c.id AND a.job_id = c.job_id AND a.stage = ANY($3::text[])`,
+    [candidateId, tenantId, EARLIER_STAGES]
+  );
 }
 
 /** Repair candidates who have active interviews but were never moved to the interview stage. */

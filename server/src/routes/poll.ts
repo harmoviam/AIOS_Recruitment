@@ -2,7 +2,13 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { loadTenantBySlug, requireTenant, tenantMiddleware, type TenantRecord } from '../middleware/tenant.js';
+import {
+  loadTenantBySlug,
+  publicTenantLogoUrl,
+  requireTenant,
+  tenantMiddleware,
+  type TenantRecord,
+} from '../middleware/tenant.js';
 
 const router = Router();
 
@@ -158,7 +164,7 @@ function tenantBranding(tenant: TenantRecord) {
     name: tenant.name,
     logoInitials: tenant.logo_initials,
     primaryColor: tenant.primary_color,
-    logoUrl: TENANT_LOGO_PATHS[tenant.slug] || null,
+    logoUrl: publicTenantLogoUrl(tenant.slug, tenant.logo_path) || TENANT_LOGO_PATHS[tenant.slug] || null,
   };
 }
 

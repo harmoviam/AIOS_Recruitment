@@ -10,11 +10,20 @@ export interface Tenant {
   status: TenantStatus;
   primaryColor: string;
   logoInitials: string;
+  logoUrl?: string | null;
   usersCount: number;
   candidatesCount: number;
   createdAt: string;
   trialEndsAt?: string;
   features: string[];
+}
+
+export interface CareersTenant {
+  slug: string;
+  name: string;
+  primary_color: string;
+  logo_initials: string;
+  logo_url: string | null;
 }
 
 export interface User {
@@ -1031,4 +1040,88 @@ export interface PollDashboard {
       full_question: string;
     }[];
   };
+}
+
+/* ── Applications (candidate <-> job many-to-many) ─────────────────── */
+
+export interface Application {
+  id: number;
+  tenant_id: number;
+  candidate_id: number;
+  job_id: number;
+  stage: string;
+  ai_score: number | null;
+  offer_status: string | null;
+  expected_joining_at: string | null;
+  joined_at: string | null;
+  recruiter_id: number | null;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
+  job_title?: string;
+  job_client?: string;
+  job_location?: string;
+}
+
+export interface JobPipelineApplication {
+  application_id: number;
+  stage: string;
+  ai_score: number | null;
+  offer_status: string | null;
+  expected_joining_at: string | null;
+  joined_at: string | null;
+  updated_at: string;
+  candidate_id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  skills: string[];
+  experience_years: number;
+  is_hot: boolean;
+  recruiter_name: string | null;
+}
+
+/* ── Billing ───────────────────────────────────────────────────────── */
+
+export interface BillingPayment {
+  id: number;
+  plan: string;
+  cycle: string;
+  amount_inr: string | number;
+  status: string;
+  period_start: string | null;
+  period_end: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export interface BillingInfo {
+  mode: 'live' | 'disabled';
+  plan: string;
+  status: string;
+  trial_ends_at: string | null;
+  plan_expires_at: string | null;
+  gstin: string | null;
+  payments: BillingPayment[];
+}
+
+export interface BillingOrder {
+  orderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+  plan: string;
+  cycle: string;
+  tenantName: string;
+}
+
+/* ── Public careers pages ──────────────────────────────────────────── */
+
+export interface PublicJob {
+  id: number;
+  title: string;
+  location: string;
+  description: string | null;
+  open_positions: number;
+  created_at: string;
 }

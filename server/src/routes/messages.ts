@@ -32,7 +32,8 @@ router.get('/conversations', async (req, res) => {
         AND m.sent_at > NOW() - INTERVAL '7 days') AS unread_hint
     FROM candidates c
     WHERE ${t.sql} AND EXISTS (SELECT 1 FROM messages m WHERE m.candidate_id = c.id)
-    ORDER BY last_message_at DESC NULLS LAST`,
+    ORDER BY last_message_at DESC NULLS LAST
+    LIMIT 300`,
     [t.param]
   );
   res.json(rows);
@@ -147,7 +148,9 @@ router.get('/:candidateId', async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    'SELECT * FROM messages WHERE candidate_id = $1 ORDER BY sent_at ASC',
+    `SELECT * FROM (
+       SELECT * FROM messages WHERE candidate_id = $1 ORDER BY sent_at DESC LIMIT 500
+     ) latest ORDER BY sent_at ASC`,
     [req.params.candidateId]
   );
   res.json(rows);

@@ -193,6 +193,12 @@ export async function initDb() {
     await migrateJobRecommendation(client);
     await migrateCompanyGeo(client);
     await migratePollAssessment(client);
+    await migrateEmailLog(client);
+    await migrateApplications(client);
+    await migrateBilling(client);
+    await migrateTenantLogo(client);
+    await migrateCandidateSearch(client);
+    await migratePerfIndexes(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 
@@ -254,6 +260,164 @@ async function ensureTodayInterviews(client: pg.PoolClient) {
       );
     }
   }
+}
+
+async function migrateEmailLog(client: pg.PoolClient) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS email_log (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+      to_email TEXT NOT NULL,
+      template TEXT NOT NULL,
+      subject TEXT,
+      status TEXT NOT NULL,
+      provider_id TEXT,
+      error TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+}
+
+/**
+ * Candidate <-> job goes many-to-many. Per-job state (stage, score, screening,
+ * offer/joining tracking) lives on applications; candidates keep identity,
+ * contact, skills, and resume. candidates.job_id/stage stay as the "primary
+ * application" during the transition — routes dual-write both.
+ */
+async function migrateApplications(client: pg.PoolClient) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS applications (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+      job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      stage TEXT NOT NULL DEFAULT 'applied',
+      ai_score REAL,
+      screening JSONB,
+      offer_status TEXT,
+      expected_joining_at TIMESTAMPTZ,
+      joined_at TIMESTAMPTZ,
+      recruiter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      source TEXT DEFAULT 'manual',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (candidate_id, job_id)
+    )
+  `);
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_app_tenant_job_stage ON applications (tenant_id, job_id, stage)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_app_tenant_candidate ON applications (tenant_id, candidate_id)`
+  );
+
+  // One-time backfill from the legacy single job_id column.
+  const { rows } = await client.query('SELECT COUNT(*)::int AS c FROM applications');
+  if (rows[0].c === 0) {
+    await client.query(`
+      INSERT INTO applications (tenant_id, candidate_id, job_id, stage, ai_score, screening,
+        offer_status, expected_joining_at, joined_at, recruiter_id, source, created_at, updated_at)
+      SELECT c.tenant_id, c.id, c.job_id, c.stage, c.ai_score, c.screening,
+        c.offer_status, c.expected_joining_at, c.joined_at, c.recruiter_id,
+        COALESCE(c.source, 'manual'), c.created_at, c.updated_at
+      FROM candidates c
+      JOIN jobs j ON j.id = c.job_id
+      WHERE c.tenant_id IS NOT NULL
+      ON CONFLICT (candidate_id, job_id) DO NOTHING
+    `);
+  }
+
+  await client.query(
+    `ALTER TABLE interviews ADD COLUMN IF NOT EXISTS application_id INTEGER REFERENCES applications(id) ON DELETE SET NULL`
+  );
+  await client.query(
+    `ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS application_id INTEGER REFERENCES applications(id) ON DELETE SET NULL`
+  );
+  // Attach existing rows to the candidate's primary application.
+  await client.query(`
+    UPDATE interviews i SET application_id = a.id
+    FROM candidates c
+    JOIN applications a ON a.candidate_id = c.id AND a.job_id = c.job_id
+    WHERE i.candidate_id = c.id AND i.application_id IS NULL
+  `);
+  await client.query(`
+    UPDATE follow_ups f SET application_id = a.id
+    FROM candidates c
+    JOIN applications a ON a.candidate_id = c.id AND a.job_id = c.job_id
+    WHERE f.candidate_id = c.id AND f.application_id IS NULL
+  `);
+}
+
+async function migrateBilling(client: pg.PoolClient) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS billing_payments (
+      id SERIAL PRIMARY KEY,
+      tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      razorpay_order_id TEXT UNIQUE NOT NULL,
+      razorpay_payment_id TEXT UNIQUE,
+      plan TEXT NOT NULL,
+      cycle TEXT NOT NULL,
+      amount_inr NUMERIC NOT NULL,
+      status TEXT NOT NULL DEFAULT 'created',
+      period_start TIMESTAMPTZ,
+      period_end TIMESTAMPTZ,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      paid_at TIMESTAMPTZ
+    )
+  `);
+  await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`);
+  await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ`);
+  await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS gstin TEXT`);
+  // Existing trial tenants predate trial tracking — give them a fresh window.
+  await client.query(
+    `UPDATE tenants SET trial_ends_at = NOW() + INTERVAL '14 days'
+     WHERE status = 'trial' AND trial_ends_at IS NULL`
+  );
+}
+
+async function migrateTenantLogo(client: pg.PoolClient) {
+  await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_path TEXT`);
+}
+
+async function migrateCandidateSearch(client: pg.PoolClient) {
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS resume_text TEXT`);
+  await client.query(`
+    ALTER TABLE candidates ADD COLUMN IF NOT EXISTS search_tsv tsvector
+      GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', coalesce(name, '')), 'A') ||
+        setweight(to_tsvector('simple', coalesce(email, '') || ' ' || coalesce(phone, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(skills::text, '')), 'B') ||
+        setweight(to_tsvector('english', left(coalesce(resume_text, ''), 100000)), 'C')
+      ) STORED
+  `);
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_cand_search ON candidates USING GIN (search_tsv)`
+  );
+}
+
+async function migratePerfIndexes(client: pg.PoolClient) {
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_cand_tenant_updated ON candidates (tenant_id, updated_at DESC)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_cand_tenant_stage ON candidates (tenant_id, stage)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_cand_tenant_recruiter ON candidates (tenant_id, recruiter_id)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_messages_candidate ON messages (candidate_id, sent_at DESC)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_followups_tenant_due ON follow_ups (tenant_id, status, due_at)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_activities_tenant_created ON activities (tenant_id, created_at DESC)`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_interviews_candidate ON interviews (candidate_id, scheduled_at)`
+  );
 }
 
 async function migratePhase1Tables(client: pg.PoolClient) {

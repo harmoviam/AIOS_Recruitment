@@ -26,6 +26,7 @@ function mapApiTenant(t: Record<string, unknown>): Tenant {
     status: t.status as Tenant['status'],
     primaryColor: (t.primaryColor as string) || (t.primary_color as string) || '#2563EB',
     logoInitials: (t.logoInitials as string) || (t.logo_initials as string) || 'AI',
+    logoUrl: (t.logoUrl as string) || (t.logo_url as string) || null,
     usersCount: (t.usersCount as number) || 0,
     candidatesCount: (t.candidatesCount as number) || 0,
     createdAt: (t.createdAt as string) || '',
