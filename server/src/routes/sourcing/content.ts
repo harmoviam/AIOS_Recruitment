@@ -17,6 +17,7 @@ const schema = z.object({
   experienceLabel: z.string().optional(),
   shift: z.string().optional(),
   languages: z.array(z.string()).optional(),
+  variantCount: z.number().int().min(1).max(5).optional(),
 });
 
 router.post(

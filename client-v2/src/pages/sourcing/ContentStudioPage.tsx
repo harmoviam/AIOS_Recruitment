@@ -18,12 +18,16 @@ export default function SourcingContentStudioPage() {
   const [roleName, setRoleName] = useState(preset.roleName || '');
   const [hiringCount, setHiringCount] = useState(preset.hiringCount || 50);
   const [salaryMax, setSalaryMax] = useState(preset.salaryMax || 25000);
+  const [variantCount, setVariantCount] = useState(3);
   const [pack, setPack] = useState<ContentPack | null>(null);
   const [tab, setTab] = useState('');
+  const [variantIndex, setVariantIndex] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const active = useMemo(() => pack?.items.find((i) => i.channel === tab) || pack?.items[0], [pack, tab]);
+  const activeVariants = active?.variants?.length ? active.variants : active ? [active.body] : [];
+  const activeBody = activeVariants[Math.min(variantIndex, activeVariants.length - 1)] || '';
 
   async function generate() {
     setLoading(true);
@@ -37,9 +41,11 @@ export default function SourcingContentStudioPage() {
         experienceLabel: 'Fresher',
         sourceName: preset.sourceName,
         languages: ['English'],
+        variantCount,
       });
       setPack(data);
       setTab(data.items[0]?.channel || '');
+      setVariantIndex(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate content');
     } finally {
@@ -48,9 +54,9 @@ export default function SourcingContentStudioPage() {
   }
 
   function copyActive() {
-    if (!active) return;
+    if (!activeBody) return;
     navigator.clipboard
-      .writeText(active.body)
+      .writeText(activeBody)
       .then(() => showToast('Copied to clipboard', 'success'))
       .catch(() => showToast('Copy failed', 'error'));
   }
@@ -115,8 +121,21 @@ export default function SourcingContentStudioPage() {
                 onChange={(e) => setSalaryMax(Number(e.target.value))}
               />
             </div>
+            <div>
+              <label className="form-label" htmlFor="cs-variants">Templates per channel</label>
+              <select
+                id="cs-variants"
+                className="form-input"
+                value={variantCount}
+                onChange={(e) => setVariantCount(Number(e.target.value))}
+              >
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div style={{ marginTop: '1.1rem' }}>
+          <div style={{ marginTop: '1.1rem', display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
             <button
               className="button-pill button-primary"
               type="button"
@@ -125,6 +144,17 @@ export default function SourcingContentStudioPage() {
             >
               {loading ? 'Generating…' : 'Generate content pack'}
             </button>
+            {pack && (
+              <button
+                className="button-pill button-secondary"
+                type="button"
+                onClick={generate}
+                disabled={loading}
+                title="Generate a fresh random set of templates"
+              >
+                🎲 Shuffle templates
+              </button>
+            )}
           </div>
         </div>
 
@@ -138,7 +168,10 @@ export default function SourcingContentStudioPage() {
                   key={item.channel}
                   type="button"
                   className={`tab-item${(active?.channel === item.channel) ? ' active' : ''}`}
-                  onClick={() => setTab(item.channel)}
+                  onClick={() => {
+                    setTab(item.channel);
+                    setVariantIndex(0);
+                  }}
                 >
                   {item.title}
                 </button>
@@ -146,6 +179,21 @@ export default function SourcingContentStudioPage() {
             </div>
             {active && (
               <>
+                {activeVariants.length > 1 && (
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.75rem 0' }}>
+                    {activeVariants.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`button-pill ${idx === Math.min(variantIndex, activeVariants.length - 1) ? 'button-primary' : 'button-secondary'}`}
+                        style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                        onClick={() => setVariantIndex(idx)}
+                      >
+                        Template {idx + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <pre
                   style={{
                     whiteSpace: 'pre-wrap',
@@ -159,7 +207,7 @@ export default function SourcingContentStudioPage() {
                     lineHeight: 1.55,
                   }}
                 >
-                  {active.body}
+                  {activeBody}
                 </pre>
                 <div style={{ marginTop: '0.85rem' }}>
                   <button type="button" className="button-pill button-secondary" onClick={copyActive}>

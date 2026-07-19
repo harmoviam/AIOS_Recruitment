@@ -123,6 +123,7 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
       quality: 8.2,
       response: 55,
       pool: 3500,
+      website: 'https://www.facebook.com/groups/search/groups_home/?q=mohali%20voice%20jobs',
     },
     {
       name: 'Mohali BPO WhatsApp Community',
@@ -133,6 +134,7 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
       quality: 7.5,
       response: 70,
       pool: 900,
+      website: null,
     },
     {
       name: 'Naukri — Voice Process Mohali',
@@ -143,6 +145,7 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
       quality: 7.8,
       response: 40,
       pool: 2500,
+      website: 'https://www.naukri.com/voice-process-jobs-in-mohali',
     },
     {
       name: 'C-DAC / Local Degree College Drives',
@@ -153,6 +156,7 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
       quality: 6.5,
       response: 45,
       pool: 600,
+      website: null,
     },
     {
       name: 'Employee Referral — Voice Floor',
@@ -163,6 +167,7 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
       quality: 8.8,
       response: 75,
       pool: 400,
+      website: null,
     },
   ];
 
@@ -174,13 +179,20 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
     let sourceId: string;
     if (existing.rows[0]) {
       sourceId = existing.rows[0].id;
+      if (s.website) {
+        await client.query(
+          `UPDATE source SET website = $1, modified_date = NOW()
+           WHERE id = $2 AND website IS NULL`,
+          [s.website, sourceId]
+        );
+      }
     } else {
       const { rows } = await client.query(
         `INSERT INTO source (
            tenant_id, source_category_id, city_id, state_id, name, channel_type,
            member_count, daily_active_members, quality_rating, response_rate,
-           estimated_candidate_pool, last_verified, created_by
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CURRENT_DATE,'seed')
+           estimated_candidate_pool, website, last_verified, created_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_DATE,'seed')
          RETURNING id`,
         [
           tenantId,
@@ -194,6 +206,7 @@ export async function seedMohaliSourcingPack(client: pg.PoolClient, tenantId: nu
           s.quality,
           s.response,
           s.pool,
+          s.website,
         ]
       );
       sourceId = rows[0].id;

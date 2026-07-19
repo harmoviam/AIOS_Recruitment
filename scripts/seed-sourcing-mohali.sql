@@ -102,12 +102,14 @@ BEGIN
     -- ---------------------------------------------------------------- sources
     FOR src IN
       SELECT * FROM (VALUES
-        ('Mohali Voice Jobs Facebook Group',    'FACEBOOK',   'FACEBOOK',   42000,   1200, 8.2, 55, 3500),
-        ('Mohali BPO WhatsApp Community',       'WHATSAPP',   'WHATSAPP',   800,     350,  7.5, 70, 900),
-        ('Naukri — Voice Process Mohali',       'JOB_PORTAL', 'JOB_PORTAL', NULL,    200,  7.8, 40, 2500),
-        ('C-DAC / Local Degree College Drives', 'COLLEGE',    'COLLEGE',    NULL,    80,   6.5, 45, 600),
-        ('Employee Referral — Voice Floor',     'REFERRAL',   'REFERRAL',   NULL,    40,   8.8, 75, 400)
-      ) AS s(name, channel, cat, members, dam, quality, response, pool)
+        ('Mohali Voice Jobs Facebook Group',    'FACEBOOK',   'FACEBOOK',   42000,   1200, 8.2, 55, 3500,
+         'https://www.facebook.com/groups/search/groups_home/?q=mohali%20voice%20jobs'),
+        ('Mohali BPO WhatsApp Community',       'WHATSAPP',   'WHATSAPP',   800,     350,  7.5, 70, 900,  NULL),
+        ('Naukri — Voice Process Mohali',       'JOB_PORTAL', 'JOB_PORTAL', NULL,    200,  7.8, 40, 2500,
+         'https://www.naukri.com/voice-process-jobs-in-mohali'),
+        ('C-DAC / Local Degree College Drives', 'COLLEGE',    'COLLEGE',    NULL,    80,   6.5, 45, 600,  NULL),
+        ('Employee Referral — Voice Floor',     'REFERRAL',   'REFERRAL',   NULL,    40,   8.8, 75, 400,  NULL)
+      ) AS s(name, channel, cat, members, dam, quality, response, pool, website)
     LOOP
       SELECT id INTO v_source_cat_id FROM source_category
       WHERE tenant_id = t.id AND code = src.cat;
@@ -119,12 +121,15 @@ BEGIN
         INSERT INTO source (
           tenant_id, source_category_id, city_id, state_id, name, channel_type,
           member_count, daily_active_members, quality_rating, response_rate,
-          estimated_candidate_pool, last_verified, created_by
+          estimated_candidate_pool, website, last_verified, created_by
         ) VALUES (
           t.id, v_source_cat_id, v_city_id, v_state_id, src.name, src.channel,
           src.members, src.dam, src.quality, src.response,
-          src.pool, CURRENT_DATE, 'seed'
+          src.pool, src.website, CURRENT_DATE, 'seed'
         ) RETURNING id INTO v_source_id;
+      ELSE
+        UPDATE source SET website = src.website, modified_date = NOW()
+        WHERE id = v_source_id AND website IS NULL AND src.website IS NOT NULL;
       END IF;
 
       INSERT INTO source_role (tenant_id, source_id, role_id, created_by)

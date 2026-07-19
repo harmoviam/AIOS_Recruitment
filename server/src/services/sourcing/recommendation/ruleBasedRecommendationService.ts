@@ -142,6 +142,7 @@ export const ruleBasedRecommendationService: RecommendationService = {
         responseRate: source.responseRate,
         estimatedCandidatePool: source.estimatedCandidatePool,
         channelType: source.channelType as SourceRecommendation['channelType'],
+        website: source.website,
       });
     }
 
