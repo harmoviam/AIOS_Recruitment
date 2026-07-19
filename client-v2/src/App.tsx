@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import CareersPage from './pages/public/CareersPage';
 import CareersJobPage from './pages/public/CareersJobPage';
+import AIReadinessPage from './pages/public/AIReadinessPage';
 import WalkthroughPage from './pages/WalkthroughPage';
 import { loginRedirectPath } from './utils/tenantUrl';
 import DashboardPage from './pages/DashboardPage';
@@ -85,6 +86,7 @@ function AppRoutes() {
       <Route path="/join/interview/:joinToken" element={<JoinInterviewPage />} />
       <Route path="/careers/:tenantSlug" element={<CareersPage />} />
       <Route path="/careers/:tenantSlug/jobs/:jobId" element={<CareersJobPage />} />
+      <Route path="/ai-readiness" element={<AIReadinessPage />} />
       <Route path="/poll" element={<PollEntryPage />} />
       <Route path="/poll/:tenantSlug" element={<PollListPage />} />
       <Route path="/poll/:tenantSlug/:pollSlug" element={<PollRegisterPage />} />

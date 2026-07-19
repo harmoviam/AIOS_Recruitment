@@ -196,6 +196,7 @@ export async function initDb() {
     await migrateEmailLog(client);
     await migrateApplications(client);
     await migrateBilling(client);
+    await migrateReadinessAssessments(client);
     await migrateTenantLogo(client);
     await migrateCandidateSearch(client);
     await migratePerfIndexes(client);
@@ -374,6 +375,23 @@ async function migrateBilling(client: pg.PoolClient) {
     `UPDATE tenants SET trial_ends_at = NOW() + INTERVAL '14 days'
      WHERE status = 'trial' AND trial_ends_at IS NULL`
   );
+}
+
+/** Public AI Hiring Readiness self-assessment submissions — sales leads, not tenant data. */
+async function migrateReadinessAssessments(client: pg.PoolClient) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS readiness_assessments (
+      id SERIAL PRIMARY KEY,
+      org_name TEXT NOT NULL,
+      contact_name TEXT,
+      email TEXT,
+      phone TEXT,
+      answers JSONB NOT NULL,
+      total_score INTEGER NOT NULL,
+      tier TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 }
 
 async function migrateTenantLogo(client: pg.PoolClient) {

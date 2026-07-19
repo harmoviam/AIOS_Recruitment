@@ -27,6 +27,7 @@ import applicationRoutes from './routes/applications.js';
 import publicRoutes from './routes/public.js';
 import billingRoutes from './routes/billing.js';
 import pollRoutes from './routes/poll.js';
+import readinessRoutes from './routes/readiness.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -57,6 +58,7 @@ app.use('/api/whatsapp', whatsappWebhookRoutes); // unauthenticated — called b
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/public', publicRoutes); // unauthenticated — tenant careers pages
+app.use('/api/readiness', readinessRoutes); // unauthenticated — AI readiness self-assessment
 app.use('/api/billing', billingRoutes);
 app.use('/api/poll', pollRoutes);
 

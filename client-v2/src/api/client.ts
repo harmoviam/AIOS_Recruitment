@@ -471,6 +471,22 @@ export const api = {
     );
   },
 
+  /* Public AI Hiring Readiness self-assessment (unauthenticated) */
+  readinessSubmit: (data: {
+    org_name: string;
+    contact_name?: string;
+    email?: string;
+    phone?: string;
+    answers: Record<string, number>;
+  }) =>
+    publicRequest<{
+      submitted: boolean;
+      total: number;
+      tier: string;
+      tier_label: string;
+      recommendations: { dimension: string; score: number; module: string }[];
+    }>('/readiness', { method: 'POST', body: JSON.stringify(data) }),
+
   /* Recruiter Poll & Assessment (tenant + poll scoped) */
   pollGetMeta: (tenantSlug: string) =>
     publicRequest<{
