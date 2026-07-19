@@ -181,7 +181,7 @@ export default function BillingPage() {
               {p.id === tenant.plan && billing?.status === 'active' ? (
                 <button type="button" className="button-pill button-secondary" disabled>Current plan</button>
               ) : p.monthly == null ? (
-                <a className="button-pill button-secondary" href="mailto:sales@harmirecruit.com?subject=Enterprise plan">
+                <a className="button-pill button-secondary" href="mailto:sales@harmoviajobs.com?subject=Enterprise plan">
                   Contact sales
                 </a>
               ) : (
