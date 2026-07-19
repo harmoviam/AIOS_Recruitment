@@ -626,7 +626,7 @@ export const FOLLOW_UP_CATEGORIES: { id: FollowUpCategory; label: string; hint: 
   { id: 'interview_day', label: 'Interview: same day', hint: 'Final confirmation on interview day' },
   { id: 'no_response', label: 'Not picking calls', hint: 'Escalations when candidate is unreachable' },
   { id: 'offer_followup', label: 'Selected → joining', hint: '1 week before, 1 day before & joining day' },
-  { id: 'onboarding', label: 'Post-joining check-ins', hint: 'Day 7 / 15 / 30 / 45 / 61 / 80 / 91 — trimmed to the job tenure' },
+  { id: 'onboarding', label: 'Post-joining check-ins', hint: 'Day 7–90, then months 4/5/6 — trimmed to the job tenure' },
   { id: 'manual', label: 'Manual', hint: 'Created by recruiters' },
 ];
 
@@ -662,7 +662,7 @@ export const FOLLOW_UP_FLOWS: {
     label: 'Post-Joining',
     icon: '🏁',
     tagline: 'Joined → retention check-ins',
-    steps: ['Day 7', 'Day 15', 'Day 30', 'Day 45', 'Day 61', 'Day 80', 'Day 91'],
+    steps: ['Day 7', 'Day 15', 'Day 30', 'Day 45', 'Day 60', 'Day 75', 'Day 90', 'Month 4', 'Month 5', 'Month 6'],
     categories: ['onboarding'],
   },
   {

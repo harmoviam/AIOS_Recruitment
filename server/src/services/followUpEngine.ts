@@ -23,20 +23,23 @@ import { aiMode } from './ai.js';
  *     escalated retry follow-up is created (see followUps route PATCH).
  *  D. onboarding — joined candidates get check-in follow-ups after their
  *     joining date; recruiters record the outcome of each. The schedule is
- *     derived from the job's tenure (30/45/60/90 days): every base check-in
- *     day within the tenure, plus a final confirmation the day after the
- *     tenure ends (e.g. 90 → 91, 60 → 61). Jobs without a tenure use the
- *     full 90-day plan. These check-ins are fixed — they cannot be
- *     rescheduled (see followUps route PATCH).
+ *     derived from the job's tenure (30/45/60/90/120/150/180 days): dense
+ *     check-ins through day 90 (7, 15, 30, 45, 60, 75, 90), then monthly at
+ *     months 4/5/6 (120, 150, 180). Only days within the tenure are
+ *     scheduled. Jobs without a tenure use the 90-day plan. These check-ins
+ *     are fixed — they cannot be rescheduled (see followUps route PATCH).
  */
 
-const BASE_ONBOARDING_CHECKINS = [7, 15, 30, 45, 61, 80];
+const EARLY_ONBOARDING_CHECKINS = [7, 15, 30, 45, 60, 75, 90];
+const MONTHLY_ONBOARDING_CHECKINS = [120, 150, 180]; // months 4, 5, 6
+/** Legacy milestone days from the old schedule — close open rows on sync. */
+const OBSOLETE_ONBOARDING_DAYS = [61, 80, 91];
 export const DEFAULT_TENURE_DAYS = 90;
 
-/** Check-in days for a job tenure: base days inside the tenure + tenure end + 1. */
+/** Check-in days for a job tenure: early (≤90) + monthly (120/150/180), trimmed to tenure. */
 export function onboardingMilestonesForTenure(tenureDays: number | null | undefined): number[] {
   const tenure = tenureDays || DEFAULT_TENURE_DAYS;
-  return [...BASE_ONBOARDING_CHECKINS.filter((d) => d < tenure), tenure + 1];
+  return [...EARLY_ONBOARDING_CHECKINS, ...MONTHLY_ONBOARDING_CHECKINS].filter((d) => d <= tenure);
 }
 
 /** Days relative to the expected joining date: 1 week before, 1 day before, joining day. */
@@ -213,6 +216,16 @@ async function syncOfferFollowUps(tenantId: number): Promise<void> {
 
 /** Rule D: post-joining check-ins, scheduled from the job's tenure (see onboardingMilestonesForTenure). */
 async function syncOnboardingMilestones(tenantId: number): Promise<void> {
+  // Drop open rows for retired milestone days (Day 61 / 80 / 91).
+  await pool.query(
+    `UPDATE follow_ups
+     SET status = 'completed', completed_at = NOW(), outcome = 'auto_closed'
+     WHERE tenant_id = $1 AND category = 'onboarding'
+       AND milestone_day = ANY($2::int[])
+       AND completed_at IS NULL AND status NOT IN ('completed', 'missed')`,
+    [tenantId, OBSOLETE_ONBOARDING_DAYS]
+  );
+
   const { rows: joined } = await pool.query(
     `SELECT c.id, c.recruiter_id, c.joined_at, j.tenure_days
      FROM candidates c

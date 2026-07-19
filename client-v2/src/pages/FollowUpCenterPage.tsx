@@ -123,8 +123,16 @@ function journeySteps(f: FollowUp, all: FollowUp[]): JourneyStep[] | null {
   }
 
   if (flow === 'post_joining') {
+    // Hide retired Day 61 / 80 / 91 rows from the journey stepper.
+    const obsoleteDays = new Set([61, 80, 91]);
     const milestones = all
-      .filter((x) => x.candidate_id === f.candidate_id && x.category === 'onboarding')
+      .filter(
+        (x) =>
+          x.candidate_id === f.candidate_id &&
+          x.category === 'onboarding' &&
+          x.milestone_day != null &&
+          !obsoleteDays.has(x.milestone_day)
+      )
       .sort((a, b) => (a.milestone_day ?? 0) - (b.milestone_day ?? 0));
     if (milestones.length < 2) return null;
     return milestones.map((m) => ({ label: `Day ${m.milestone_day}`, state: stateOf(m) }));

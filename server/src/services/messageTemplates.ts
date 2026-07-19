@@ -13,8 +13,8 @@
  *    telephonic round / scheduling), Step 2 evening reminder (day before),
  *    Step 3 morning reminder (interview day), plus the unreachable retry.
  *  - Post-selected  — joining-date chase and the -7 / -1 / 0 milestones.
- *  - Post-joining   — retention check-ins on Day 7 / 15 / 30 / 45 / 61 / 80
- *    and the tenure-completion message on tenure end + 1 (e.g. Day 91).
+ *  - Post-joining   — retention check-ins on Day 7 / 15 / 30 / 45 / 60 / 75 / 90,
+ *    then monthly at months 4 / 5 / 6 (Day 120 / 150 / 180), trimmed to tenure.
  */
 
 const fmtDate = (d: Date) =>
@@ -146,19 +146,43 @@ Keep up the great work!`,
 You are now 45 days into ${role} — well done on the steady progress!
 
 How are things going with your work and team? If there is anything on your mind, we are just a message away.`,
-  61: (n, role) => `Hi ${n},
+  60: (n, role) => `Hi ${n},
 
 Two months completed in ${role} — well done!
 
 We hope you are feeling settled and confident in your work. Do share a quick update on how things are going, and let us know if there is anything we can support you with.`,
-  80: (n, role) => `Hi ${n},
+  75: (n, role) => `Hi ${n},
 
-You are almost at the 90-day milestone in ${role} — just a couple of weeks to go!
+You are approaching the 90-day milestone in ${role} — just a couple of weeks to go!
 
 How is everything at work? If there is anything you would like to discuss before completing your first quarter, we are here to help.`,
+  90: (n, role) => `Hi ${n},
+
+Congratulations on completing your first 90 days in ${role}! 🎉
+
+It has been wonderful seeing your journey from the interview to today. We wish you continued success ahead.
+
+Thank you for being a great part of this journey!`,
+  120: (n, role) => `Hi ${n},
+
+You have completed 4 months in ${role} — great going!
+
+How are things progressing with your work and team? If there is anything on your mind, we are just a message away.`,
+  150: (n, role) => `Hi ${n},
+
+Five months into ${role} — well done on the steady progress!
+
+We would love a quick update on how things are going. Reply here if there is anything we can support you with.`,
+  180: (n, role) => `Hi ${n},
+
+Congratulations on completing 6 months in ${role}! 🎉
+
+It has been wonderful seeing your journey so far. We wish you continued success ahead.
+
+Thank you for being a great part of this journey!`,
 };
 
-/** Tenure-completion message (milestone = tenure end + 1, e.g. Day 91). */
+/** Fallback for unknown / legacy milestone days. */
 function tenureCompleteMessage(n: string, role: string, tenureDays: number): string {
   return `Hi ${n},
 
@@ -179,9 +203,8 @@ function onboardingMessage(
   if (milestoneDay != null && ONBOARDING_MESSAGES[milestoneDay]) {
     return ONBOARDING_MESSAGES[milestoneDay](n, role);
   }
-  // Any day outside the base schedule is the tenure-end confirmation
-  // (91 for 90-day tenure, 61 for 60, 46 for 45, 31 for 30).
-  const tenure = milestoneDay != null ? milestoneDay - 1 : 90;
+  // Legacy rows (e.g. old Day 61 / 80 / 91) fall back to a tenure-style note.
+  const tenure = milestoneDay ?? 90;
   return tenureCompleteMessage(n, role, tenure);
 }
 

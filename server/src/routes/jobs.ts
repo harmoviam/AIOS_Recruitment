@@ -25,7 +25,7 @@ router.use(requireTenant);
 const tid = (req: Request) => req.tenant!.id;
 
 // Placement tenure options; drives the post-joining check-in schedule per job.
-const TENURE_OPTIONS = [30, 45, 60, 90];
+const TENURE_OPTIONS = [30, 45, 60, 90, 120, 150, 180];
 
 // Only org admins and hiring managers may create, edit, or delete jobs.
 function canManageJobs(req: Request, res: Response, next: NextFunction) {

@@ -366,7 +366,10 @@ export default function JobsPage() {
                 <option value="30">30 days</option>
                 <option value="45">45 days</option>
                 <option value="60">60 days</option>
-                <option value="90">90 days</option>
+                <option value="90">90 days (3 months)</option>
+                <option value="120">120 days (4 months)</option>
+                <option value="150">150 days (5 months)</option>
+                <option value="180">180 days (6 months)</option>
               </select>
             </div>
             <JobLocationPicker
