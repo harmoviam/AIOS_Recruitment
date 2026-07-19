@@ -33,6 +33,17 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: 'Sourcing Copilot',
+    orgOnly: true,
+    items: [
+      { to: '/sourcing/copilot', label: 'Copilot', orgOnly: true, adminOnly: true },
+      { to: '/sourcing/search', label: 'Find Sources', orgOnly: true, adminOnly: true },
+      { to: '/sourcing/dashboard', label: 'Sourcing Dashboard', orgOnly: true, adminOnly: true },
+      { to: '/sourcing/sources', label: 'Channels', orgOnly: true, adminOnly: true },
+      { to: '/sourcing/content', label: 'Content Studio', orgOnly: true, adminOnly: true },
+    ],
+  },
+  {
     title: 'Workspace',
     orgOnly: true,
     items: [
@@ -104,6 +115,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
 }
 
 function iconFor(to: string): string {
+  if (to.startsWith('/sourcing')) return 'chart';
   const path = to.split('?')[0];
   switch (path) {
     case '/': return 'home';

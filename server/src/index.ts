@@ -28,6 +28,7 @@ import publicRoutes from './routes/public.js';
 import billingRoutes from './routes/billing.js';
 import pollRoutes from './routes/poll.js';
 import readinessRoutes from './routes/readiness.js';
+import sourcingRoutes from './routes/sourcing/index.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -61,6 +62,7 @@ app.use('/api/public', publicRoutes); // unauthenticated — tenant careers page
 app.use('/api/readiness', readinessRoutes); // unauthenticated — AI readiness self-assessment
 app.use('/api/billing', billingRoutes);
 app.use('/api/poll', pollRoutes);
+app.use('/api/sourcing', sourcingRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

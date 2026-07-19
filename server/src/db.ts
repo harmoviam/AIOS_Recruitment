@@ -1,6 +1,8 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { DB_SCHEMA, pool, useSchema } from './dbConfig.js';
+import { migrateSourcingIntelligence } from './migrations/sourcingIntelligence.js';
+import { seedMohaliSourcingPack } from './services/sourcing/seed/mohaliSeed.js';
 import { candidateJoinPath, extractJoinToken, generateJoinCode, normalizeMeetingLink } from './services/livekit.js';
 
 export { pool, DB_SCHEMA };
@@ -200,6 +202,7 @@ export async function initDb() {
     await migrateTenantLogo(client);
     await migrateCandidateSearch(client);
     await migratePerfIndexes(client);
+    await migrateSourcingIntelligence(client);
     if (allowDemoSeed) {
       await ensureAllTenantsSeeded(client);
 
@@ -208,6 +211,11 @@ export async function initDb() {
       else await seedPhase1Extras(client);
 
       await ensureTodayInterviews(client);
+
+      const { rows: sourcingTenants } = await client.query(`SELECT id FROM tenants WHERE status != 'churned'`);
+      for (const t of sourcingTenants) {
+        await seedMohaliSourcingPack(client, t.id);
+      }
     }
   } finally {
     client.release();

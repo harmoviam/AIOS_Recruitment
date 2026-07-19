@@ -614,4 +614,52 @@ export const api = {
     }),
   pollAdminDeleteQuestion: (id: number) =>
     request<void>(`/poll/admin/questions/${id}`, { method: 'DELETE' }),
+
+  // AI Sourcing Intelligence
+  sourcingListCities: (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<{ items: import('../types/sourcing').SourcingCity[]; total: number }>(`/sourcing/cities${q}`);
+  },
+  sourcingListRoles: (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<{ items: import('../types/sourcing').SourcingRole[]; total: number }>(`/sourcing/roles${q}`);
+  },
+  sourcingListExperienceLevels: () =>
+    request<{ items: import('../types/sourcing').SourcingNamed[]; total: number }>(
+      '/sourcing/experience-levels?pageSize=100'
+    ),
+  sourcingSearch: (body: import('../types/sourcing').SourcingSearchBody) =>
+    request<import('../types/sourcing').RecommendationResult>('/sourcing/search', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  sourcingDashboardSummary: () =>
+    request<import('../types/sourcing').SourcingDashboardSummary>('/sourcing/dashboard/summary'),
+  sourcingChart: (name: 'source-performance' | 'city-distribution' | 'role-distribution' | 'campaign-performance') =>
+    request<unknown>(`/sourcing/dashboard/charts/${name}`),
+  sourcingCopilotParse: (text: string) =>
+    request<import('../types/sourcing').StructuredIntent>('/sourcing/copilot/parse', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  sourcingCopilotPlan: (body: Record<string, unknown>) =>
+    request<import('../types/sourcing').CopilotPlanResponse>('/sourcing/copilot/plan', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  sourcingGenerateContent: (body: Record<string, unknown>) =>
+    request<import('../types/sourcing').ContentPack>('/sourcing/content/generate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  sourcingCreateCampaign: (body: Record<string, unknown>) =>
+    request<unknown>('/sourcing/campaigns', { method: 'POST', body: JSON.stringify(body) }),
+  sourcingLogActivity: (body: Record<string, unknown>) =>
+    request<unknown>('/sourcing/activities', { method: 'POST', body: JSON.stringify(body) }),
+  sourcingListSources: (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<{ items: import('../types/sourcing').SourcingSource[]; total: number }>(
+      `/sourcing/sources${q}`
+    );
+  },
 };
