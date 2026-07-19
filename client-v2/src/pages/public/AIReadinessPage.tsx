@@ -21,6 +21,7 @@ const QUESTIONS = [
     dimension: 'Data hygiene',
     question: 'Where do candidate resumes and profiles live today?',
     low: 'Scattered — drives, WhatsApp, email',
+    mid: 'One tracker, files in folders',
     high: 'One searchable system',
     module: 'AI Resume Parser + Careers apply',
   },
@@ -29,6 +30,7 @@ const QUESTIONS = [
     dimension: 'Channel discipline',
     question: 'Where do recruiter–candidate chats happen?',
     low: 'Personal WhatsApp / mixed',
+    mid: 'Mix of org email + personal chats',
     high: 'Org inbox, auditable',
     module: 'WhatsApp inbox (Meta API)',
   },
@@ -37,6 +39,7 @@ const QUESTIONS = [
     dimension: 'Screening consistency',
     question: 'How are candidates shortlisted for a role?',
     low: 'Gut feel / keyword scan',
+    mid: 'Checklist exists, applied unevenly',
     high: 'Structured score vs JD',
     module: 'AI Match Score /10',
   },
@@ -45,6 +48,7 @@ const QUESTIONS = [
     dimension: 'HM collaboration',
     question: 'How do hiring managers see pipeline status?',
     low: 'Chase recruiters / status calls',
+    mid: 'Weekly status sheet or emails',
     high: 'Live shared pipeline',
     module: 'HM dashboard + scorecards',
   },
@@ -53,6 +57,7 @@ const QUESTIONS = [
     dimension: 'Follow-up ownership',
     question: 'Who owns candidate nurturing from offer to Day 90?',
     low: 'Ad-hoc — often drops',
+    mid: 'Recruiter-dependent, no milestones',
     high: 'Milestones + ownership',
     module: 'Follow-up engine + AI scripts',
   },
@@ -61,6 +66,7 @@ const QUESTIONS = [
     dimension: 'AI trust',
     question: 'Would your team use AI drafts if every suggestion is editable?',
     low: 'Low trust / blocked',
+    mid: 'Open to trying with review',
     high: 'Human-in-the-loop OK',
     module: 'AI drafts — WhatsApp replies, JDs, screening Qs',
   },
@@ -69,6 +75,7 @@ const QUESTIONS = [
     dimension: 'Measurement',
     question: 'Do you track source → submit → interview → select → join?',
     low: 'Partial / anecdotal',
+    mid: 'Track joins, not the full funnel',
     high: 'Funnel + recruiter KPIs',
     module: 'Analytics + recruiter leaderboard',
   },
@@ -77,10 +84,45 @@ const QUESTIONS = [
     dimension: 'Scale pressure',
     question: 'Can current headcount absorb next quarter’s hiring volume?',
     low: 'No — burnout / backlog',
+    mid: 'Stretched but coping',
     high: 'Yes — with better tools',
     module: 'AI layer across every seat',
   },
 ];
+
+/** Optional deeper-picture questions — never counted in the /40 score. */
+const EXTRAS = [
+  {
+    key: 'sponsorship',
+    dimension: 'Sponsorship',
+    question: 'Does AI adoption have a named owner and budget?',
+    low: 'No owner / no budget',
+    mid: 'Interested, no owner yet',
+    high: 'Named owner + budget',
+    watchout: 'No named owner or budget for AI — rollouts stall without one.',
+  },
+  {
+    key: 'compliance',
+    dimension: 'Data privacy',
+    question: 'Is candidate data handling ready for privacy rules (DPDP)?',
+    low: 'Never assessed',
+    mid: 'Policies exist, unevenly applied',
+    high: 'Consent + retention in place',
+    watchout: 'Privacy readiness is low — sort consent and retention before scaling AI.',
+  },
+  {
+    key: 'integration',
+    dimension: 'Integration',
+    question: 'How easily can new tools connect to your current HRMS / ATS?',
+    low: 'No system / manual exports',
+    mid: 'CSV exports possible',
+    high: 'APIs + IT support available',
+    watchout: 'Connecting to your current systems looks hard — plan exports and APIs early.',
+  },
+];
+
+const COMPANY_SIZES = ['1–10', '11–50', '51–200', '200+'];
+const HIRING_VOLUMES = ['< 10 / month', '10–50 / month', '51–200 / month', '200+ / month'];
 
 const TIERS = [
   {
@@ -89,7 +131,7 @@ const TIERS = [
     range: '8–18',
     color: CORAL,
     blurb:
-      'Spreadsheets + personal WhatsApp. Start with day-one wins: parse resumes into one searchable system and run a single shared pipeline.',
+      'You have the most to gain — quick wins first: parse resumes into one searchable system and run a single shared pipeline.',
   },
   {
     tier: 'tool_ready',
@@ -97,7 +139,7 @@ const TIERS = [
     range: '19–28',
     color: GOLD,
     blurb:
-      'You have process — AI is still optional. Automate your three biggest gaps below and measure the lift before scaling further.',
+      'You have process — automate the three highest-ROI areas below and measure the lift before scaling further.',
   },
   {
     tier: 'ai_ambitious',
@@ -105,7 +147,7 @@ const TIERS = [
     range: '29–40',
     color: TEAL,
     blurb:
-      'Ready for governed AI at scale. Roll the AI layer across every seat — with humans approving every send.',
+      'Ready for governed AI at scale — roll the AI layer across every seat, with humans approving every send.',
   },
 ];
 
@@ -123,14 +165,110 @@ const inputStyle: React.CSSProperties = {
   fontSize: '0.95rem',
   fontFamily: 'inherit',
   boxSizing: 'border-box',
+  background: '#fff',
+  color: '#0f172a',
 };
+
+function RatingCard({
+  eyebrow,
+  question,
+  low,
+  mid,
+  high,
+  value,
+  onPick,
+}: {
+  eyebrow: string;
+  question: string;
+  low: string;
+  mid: string;
+  high: string;
+  value: number | undefined;
+  onPick: (n: number) => void;
+}) {
+  return (
+    <section
+      style={{
+        background: '#fff',
+        borderRadius: 14,
+        padding: '1.25rem 1.4rem 1.15rem',
+        marginBottom: '0.9rem',
+        border: `1px solid ${value ? TEAL_LIGHT : '#e2e8f0'}`,
+        boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
+        transition: 'border-color 160ms ease',
+      }}
+    >
+      <p
+        style={{
+          margin: 0,
+          fontSize: '0.72rem',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: TEAL,
+        }}
+      >
+        {eyebrow}
+      </p>
+      <h2 style={{ margin: '0.45rem 0 0.9rem', fontSize: '1.08rem', fontWeight: 600 }}>
+        {question}
+      </h2>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        {[1, 2, 3, 4, 5].map((n) => {
+          const active = value === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onPick(n)}
+              aria-pressed={active}
+              style={{
+                flex: 1,
+                padding: '0.6rem 0',
+                borderRadius: 10,
+                border: `1.5px solid ${active ? NAVY : '#cbd5e1'}`,
+                background: active ? NAVY : '#f8fafc',
+                color: active ? '#fff' : '#334155',
+                fontSize: '1rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 140ms ease',
+              }}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          marginTop: '0.55rem',
+          fontSize: '0.78rem',
+          color: '#64748b',
+        }}
+      >
+        <span style={{ flex: 1 }}>1 · {low}</span>
+        <span style={{ flex: 1, textAlign: 'center' }}>3 · {mid}</span>
+        <span style={{ flex: 1, textAlign: 'right' }}>5 · {high}</span>
+      </div>
+    </section>
+  );
+}
 
 export default function AIReadinessPage() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [extras, setExtras] = useState<Record<string, number>>({});
+  const [showExtras, setShowExtras] = useState(false);
   const [orgName, setOrgName] = useState('');
   const [contactName, setContactName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [companySize, setCompanySize] = useState('');
+  const [hiresPerMonth, setHiresPerMonth] = useState('');
+  const [industry, setIndustry] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
@@ -173,7 +311,11 @@ export default function AIReadinessPage() {
         contact_name: contactName.trim() || undefined,
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
+        company_size: companySize || undefined,
+        hires_per_month: hiresPerMonth || undefined,
+        industry: industry.trim() || undefined,
         answers,
+        extras: Object.keys(extras).length ? extras : undefined,
       });
       setSubmitted(true);
     } catch (err) {
@@ -232,79 +374,64 @@ export default function AIReadinessPage() {
       </header>
 
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '2rem 1rem 0' }}>
-        {QUESTIONS.map((q, i) => {
-          const value = answers[q.key];
-          return (
-            <section
-              key={q.key}
+        {QUESTIONS.map((q, i) => (
+          <RatingCard
+            key={q.key}
+            eyebrow={`${i + 1} · ${q.dimension}`}
+            question={q.question}
+            low={q.low}
+            mid={q.mid}
+            high={q.high}
+            value={answers[q.key]}
+            onPick={(n) => pick(q.key, n)}
+          />
+        ))}
+
+        {/* Optional deeper picture — sponsorship, privacy, integration */}
+        {!showExtras ? (
+          <button
+            type="button"
+            onClick={() => setShowExtras(true)}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: `1.5px dashed #94a3b8`,
+              borderRadius: 14,
+              padding: '0.85rem 1rem',
+              color: '#475569',
+              fontSize: '0.92rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            + 3 optional questions for a fuller picture (sponsorship · privacy · integration)
+          </button>
+        ) : (
+          <>
+            <p
               style={{
-                background: '#fff',
-                borderRadius: 14,
-                padding: '1.25rem 1.4rem 1.15rem',
-                marginBottom: '0.9rem',
-                border: `1px solid ${value ? TEAL_LIGHT : '#e2e8f0'}`,
-                boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
-                transition: 'border-color 160ms ease',
+                margin: '1.4rem 0 0.7rem',
+                fontSize: '0.85rem',
+                color: '#64748b',
+                textAlign: 'center',
               }}
             >
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: '0.72rem',
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                  color: TEAL,
-                }}
-              >
-                {i + 1} · {q.dimension}
-              </p>
-              <h2 style={{ margin: '0.45rem 0 0.9rem', fontSize: '1.08rem', fontWeight: 600 }}>
-                {q.question}
-              </h2>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {[1, 2, 3, 4, 5].map((n) => {
-                  const active = value === n;
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => pick(q.key, n)}
-                      aria-pressed={active}
-                      style={{
-                        flex: 1,
-                        padding: '0.6rem 0',
-                        borderRadius: 10,
-                        border: `1.5px solid ${active ? NAVY : '#cbd5e1'}`,
-                        background: active ? NAVY : '#f8fafc',
-                        color: active ? '#fff' : '#334155',
-                        fontSize: '1rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        transition: 'all 140ms ease',
-                      }}
-                    >
-                      {n}
-                    </button>
-                  );
-                })}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: '1rem',
-                  marginTop: '0.55rem',
-                  fontSize: '0.78rem',
-                  color: '#64748b',
-                }}
-              >
-                <span>1 · {q.low}</span>
-                <span style={{ textAlign: 'right' }}>5 · {q.high}</span>
-              </div>
-            </section>
-          );
-        })}
+              Optional — these don’t change your score, but sharpen the picture.
+            </p>
+            {EXTRAS.map((q) => (
+              <RatingCard
+                key={q.key}
+                eyebrow={`Optional · ${q.dimension}`}
+                question={q.question}
+                low={q.low}
+                mid={q.mid}
+                high={q.high}
+                value={extras[q.key]}
+                onPick={(n) => setExtras((prev) => ({ ...prev, [q.key]: n }))}
+              />
+            ))}
+          </>
+        )}
 
         {/* Result — revealed once all 8 questions are answered */}
         <div ref={resultRef} style={{ scrollMarginTop: '1rem' }}>
@@ -374,7 +501,7 @@ export default function AIReadinessPage() {
               </div>
 
               <h3 style={{ margin: '1.5rem 0 0.2rem', fontSize: '1.05rem', fontWeight: 600 }}>
-                Your 3 biggest gaps — and the modules that close them
+                Your 3 highest-ROI areas — where AI pays back first
               </h3>
               {gaps.map((g) => (
                 <div
@@ -400,6 +527,30 @@ export default function AIReadinessPage() {
                   </span>
                 </div>
               ))}
+
+              {EXTRAS.some((q) => (extras[q.key] ?? 5) <= 2) && (
+                <>
+                  <h3 style={{ margin: '1.4rem 0 0.2rem', fontSize: '1.05rem', fontWeight: 600 }}>
+                    Watch-outs beyond the score
+                  </h3>
+                  {EXTRAS.filter((q) => (extras[q.key] ?? 5) <= 2).map((q) => (
+                    <p
+                      key={q.key}
+                      style={{
+                        margin: '0.55rem 0 0',
+                        padding: '0.6rem 0.9rem',
+                        background: 'rgba(255,255,255,0.06)',
+                        borderLeft: `3px solid ${GOLD}`,
+                        borderRadius: 8,
+                        fontSize: '0.9rem',
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {q.watchout}
+                    </p>
+                  ))}
+                </>
+              )}
             </section>
           )}
 
@@ -456,6 +607,38 @@ export default function AIReadinessPage() {
                     placeholder="Phone / WhatsApp"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
+                  />
+                  <select
+                    style={{ ...inputStyle, color: companySize ? '#0f172a' : '#8a94a6' }}
+                    value={companySize}
+                    onChange={(e) => setCompanySize(e.target.value)}
+                    aria-label="Team size"
+                  >
+                    <option value="">Team size</option>
+                    {COMPANY_SIZES.map((s) => (
+                      <option key={s} value={s}>
+                        {s} people
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    style={{ ...inputStyle, color: hiresPerMonth ? '#0f172a' : '#8a94a6' }}
+                    value={hiresPerMonth}
+                    onChange={(e) => setHiresPerMonth(e.target.value)}
+                    aria-label="Hiring volume"
+                  >
+                    <option value="">Hiring volume</option>
+                    {HIRING_VOLUMES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    style={inputStyle}
+                    placeholder="Industry / focus area"
+                    value={industry}
+                    onChange={(e) => setIndustry(e.target.value)}
                   />
                 </div>
                 {error && (

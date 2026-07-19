@@ -392,6 +392,11 @@ async function migrateReadinessAssessments(client: pg.PoolClient) {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Firmographics + optional deeper-picture answers (sponsorship/compliance/integration).
+  await client.query(`ALTER TABLE readiness_assessments ADD COLUMN IF NOT EXISTS company_size TEXT`);
+  await client.query(`ALTER TABLE readiness_assessments ADD COLUMN IF NOT EXISTS hires_per_month TEXT`);
+  await client.query(`ALTER TABLE readiness_assessments ADD COLUMN IF NOT EXISTS industry TEXT`);
+  await client.query(`ALTER TABLE readiness_assessments ADD COLUMN IF NOT EXISTS extras JSONB`);
 }
 
 async function migrateTenantLogo(client: pg.PoolClient) {

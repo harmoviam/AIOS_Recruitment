@@ -39,6 +39,9 @@ export function readinessTier(total: number): { tier: string; label: string } {
   return { tier: 'ai_ambitious', label: 'AI-ambitious' };
 }
 
+/** Optional deeper-picture questions — stored, never counted in the /40 score. */
+const EXTRA_KEYS = ['sponsorship', 'compliance', 'integration'] as const;
+
 router.post('/', submitLimiter, async (req, res) => {
   // Honeypot: bots fill every field; humans never see this one.
   if ((req.body?.website || '').trim() !== '') {
@@ -59,6 +62,10 @@ router.post('/', submitLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Invalid phone number' });
   }
 
+  const companySize = String(req.body?.company_size || '').trim().slice(0, 40);
+  const hiresPerMonth = String(req.body?.hires_per_month || '').trim().slice(0, 40);
+  const industry = String(req.body?.industry || '').trim().slice(0, 120);
+
   const raw = req.body?.answers;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return res.status(400).json({ error: 'Answers are required' });
@@ -72,6 +79,20 @@ router.post('/', submitLimiter, async (req, res) => {
     answers[q.key] = value;
   }
 
+  const rawExtras = req.body?.extras;
+  const extras: Record<string, number> = {};
+  if (rawExtras && typeof rawExtras === 'object' && !Array.isArray(rawExtras)) {
+    for (const key of EXTRA_KEYS) {
+      const value = (rawExtras as Record<string, unknown>)[key];
+      if (value === undefined || value === null) continue;
+      const num = Number(value);
+      if (!Number.isInteger(num) || num < 1 || num > 5) {
+        return res.status(400).json({ error: 'Optional answers must score 1–5' });
+      }
+      extras[key] = num;
+    }
+  }
+
   const total = Object.values(answers).reduce((sum, v) => sum + v, 0);
   const { tier, label } = readinessTier(total);
   const recommendations = [...READINESS_QUESTIONS]
@@ -80,9 +101,23 @@ router.post('/', submitLimiter, async (req, res) => {
     .map((q) => ({ dimension: q.dimension, score: answers[q.key], module: q.module }));
 
   await pool.query(
-    `INSERT INTO readiness_assessments (org_name, contact_name, email, phone, answers, total_score, tier)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-    [orgName, contactName || null, email || null, phone || null, JSON.stringify(answers), total, tier]
+    `INSERT INTO readiness_assessments
+       (org_name, contact_name, email, phone, company_size, hires_per_month, industry,
+        answers, extras, total_score, tier)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11)`,
+    [
+      orgName,
+      contactName || null,
+      email || null,
+      phone || null,
+      companySize || null,
+      hiresPerMonth || null,
+      industry || null,
+      JSON.stringify(answers),
+      Object.keys(extras).length ? JSON.stringify(extras) : null,
+      total,
+      tier,
+    ]
   );
 
   res.status(201).json({ submitted: true, total, tier, tier_label: label, recommendations });

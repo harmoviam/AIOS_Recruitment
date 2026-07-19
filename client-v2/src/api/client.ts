@@ -477,7 +477,11 @@ export const api = {
     contact_name?: string;
     email?: string;
     phone?: string;
+    company_size?: string;
+    hires_per_month?: string;
+    industry?: string;
     answers: Record<string, number>;
+    extras?: Record<string, number>;
   }) =>
     publicRequest<{
       submitted: boolean;
