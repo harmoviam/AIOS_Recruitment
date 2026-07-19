@@ -6,9 +6,9 @@ import type { NearbyCompaniesResponse } from '../types';
 type DistanceFilter = '10' | '20' | '50' | '100';
 
 interface Props {
-  /** When set, load companies near this saved candidate. */
+  /** Fallback origin: load companies near this saved candidate. */
   candidateId?: number;
-  /** Used on Add Candidate before save (live after Places pick). */
+  /** Live coordinates (e.g. after a Places pick); take priority over candidateId. */
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -19,9 +19,9 @@ export default function NearbyCompaniesPanel({ candidateId, latitude, longitude 
   const [error, setError] = useState('');
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>('50');
 
-  const hasOrigin =
-    candidateId != null ||
-    (latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude));
+  const hasCoords =
+    latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude);
+  const hasOrigin = hasCoords || candidateId != null;
 
   const load = useCallback(() => {
     if (!hasOrigin) {
@@ -35,10 +35,9 @@ export default function NearbyCompaniesPanel({ candidateId, latitude, longitude 
     setError('');
     const params = { max_distance_km: distanceFilter };
 
-    const req =
-      candidateId != null
-        ? api.getCompaniesNearCandidate(candidateId, params)
-        : api.getNearbyCompanies(latitude!, longitude!, params);
+    const req = hasCoords
+      ? api.getNearbyCompanies(latitude!, longitude!, params)
+      : api.getCompaniesNearCandidate(candidateId!, params);
 
     req
       .then(setData)
@@ -47,7 +46,7 @@ export default function NearbyCompaniesPanel({ candidateId, latitude, longitude 
         setError(err.message || 'Failed to load nearby companies');
       })
       .finally(() => setLoading(false));
-  }, [candidateId, latitude, longitude, distanceFilter, hasOrigin]);
+  }, [candidateId, latitude, longitude, distanceFilter, hasOrigin, hasCoords]);
 
   useEffect(() => {
     load();

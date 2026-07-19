@@ -673,8 +673,9 @@ export default function CandidateDetailPage() {
             </div>
 
             <NearbyCompaniesPanel
-              key={`${candidate.latitude}-${candidate.longitude}`}
               candidateId={candidate.id}
+              latitude={stayLocation.latitude}
+              longitude={stayLocation.longitude}
             />
             <RecommendedJobsPanel
               candidateId={candidate.id}
