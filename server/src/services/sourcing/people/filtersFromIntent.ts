@@ -30,9 +30,12 @@ const SKILL_KEYWORDS = [
   'data entry',
 ];
 
-const EXPERIENCE_RE = /(\d+)\s*\+?\s*(?:years?|yrs?)/i;
+const EXPERIENCE_RE = /(\d+)\s*(\+)?\s*(?:years?|yrs?)/i;
 const SENIOR_RE = /\b(senior|sr\.?|lead|principal|staff)\b/i;
 const JUNIOR_RE = /\b(junior|jr\.?|fresher|entry[- ]level|trainee)\b/i;
+/** Qualifier immediately before the number that flips it into a ceiling, not a floor. */
+const MAX_EXPERIENCE_QUALIFIER_RE =
+  /(?:under|less\s+than|up\s*to|upto|max(?:imum)?|within|below|no\s+more\s+than|not\s+more\s+than)\s*$/i;
 
 /**
  * Regex-only fallback mapping when the LLM is disabled or fails; the LLM
@@ -51,8 +54,15 @@ export function filtersFromIntent(
   const expMatch = EXPERIENCE_RE.exec(rawText);
   if (expMatch) {
     const years = Number(expMatch[1]);
+    const hasPlus = Boolean(expMatch[2]);
     if (Number.isFinite(years) && years >= 0 && years <= 50) {
-      filters.minExperienceYears = years;
+      const precedingText = rawText.slice(0, expMatch.index);
+      const isMaxBound = !hasPlus && MAX_EXPERIENCE_QUALIFIER_RE.test(precedingText);
+      if (isMaxBound) {
+        filters.maxExperienceYears = years;
+      } else {
+        filters.minExperienceYears = years;
+      }
     }
   }
 

@@ -110,6 +110,24 @@ describe('filtersFromIntent', () => {
     const filters = filtersFromIntent(intent(), 'need node developers');
     expect(filters.skills).toEqual(['node.js']);
   });
+
+  it('maps "less than N years" to a max, not a min', () => {
+    const filters = filtersFromIntent(intent(), 'candidates with less than 3 years experience');
+    expect(filters.maxExperienceYears).toBe(3);
+    expect(filters.minExperienceYears).toBeUndefined();
+  });
+
+  it('maps "under/up to/max N years" to a max', () => {
+    expect(filtersFromIntent(intent(), 'under 4 years experience').maxExperienceYears).toBe(4);
+    expect(filtersFromIntent(intent(), 'up to 4 years experience').maxExperienceYears).toBe(4);
+    expect(filtersFromIntent(intent(), 'max 4 years experience').maxExperienceYears).toBe(4);
+  });
+
+  it('still treats a bare or "+" experience figure as a min', () => {
+    expect(filtersFromIntent(intent(), '5+ years experience').minExperienceYears).toBe(5);
+    expect(filtersFromIntent(intent(), 'at least 5 years experience').minExperienceYears).toBe(5);
+    expect(filtersFromIntent(intent(), 'candidates with 5 years experience').minExperienceYears).toBe(5);
+  });
 });
 
 describe('mergeFilters', () => {

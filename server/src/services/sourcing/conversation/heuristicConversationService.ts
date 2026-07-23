@@ -9,17 +9,58 @@ const ROLE_ALIASES: Array<{ pattern: RegExp; hint: string }> = [
   { pattern: /software\s*engineer|developer/i, hint: 'Software Engineer' },
 ];
 
+/** Nouns that mark a number as a headcount, not a day/year/salary figure. */
+const COUNT_NOUNS =
+  '(?:candidates?|hires?|openings?|positions?|agents?|associates?|executives?|staff|employees?|reps?|resources?|people|headcount)';
+const COUNT_VERBS = '(?:need|needs|needed|hire|hiring|require|requires|required|looking for|want|wants|seeking)';
+
+/**
+ * A bare "first number in the text" is unreliable — it just as often lands on a
+ * day count or salary figure. Require the number to sit near a counting word:
+ * either a count noun shortly after it ("50 ... candidates"), or a hiring verb
+ * shortly before it ("Hire 20"). Filler words between the number and the noun
+ * must not themselves be numbers, so an intervening figure (e.g. "20" in
+ * "15 days for 20 openings") claims the noun instead of the earlier one.
+ */
+export function extractHiringCount(text: string): number | undefined {
+  const afterMatch = text.match(
+    new RegExp(`\\b(\\d{1,4})\\b(?:\\s+(?!\\d+\\b)\\S+){0,5}?\\s+${COUNT_NOUNS}\\b`, 'i')
+  );
+  if (afterMatch) return Number(afterMatch[1]);
+
+  const beforeMatch = text.match(new RegExp(`${COUNT_VERBS}(?:\\s+\\S+){0,2}?\\s+\\b(\\d{1,4})\\b`, 'i'));
+  if (beforeMatch) return Number(beforeMatch[1]);
+
+  return undefined;
+}
+
+/**
+ * Salary must be anchored to a currency/pay keyword or a pay-period suffix —
+ * a bare 4-6 digit number is just as likely to be a headcount or PIN code
+ * (e.g. "5000 candidates ... salary 18000/month" was previously misread as
+ * salary 5000).
+ */
+export function extractSalaryHint(text: string): number | undefined {
+  const prefixMatch = text.match(
+    /(?:₹|rs\.?|inr|salary|budget|pay|ctc|package)\s*(?:of|is|up ?to|around|:)?\s*(\d{4,6})/i
+  );
+  if (prefixMatch) return Number(prefixMatch[1]);
+
+  const suffixMatch = text.match(/(\d{4,6})\s*(?:\/|-)?\s*(?:per\s*)?(?:month|pm)\b/i);
+  if (suffixMatch) return Number(suffixMatch[1]);
+
+  return undefined;
+}
+
 export const heuristicConversationService: ConversationService = {
   async parse(query, context) {
     const text = query.text.trim();
     const unresolved: string[] = [];
 
-    const countMatch = text.match(/(\d{1,4})\s*(candidates?|hires?|openings?|positions?)?/i);
-    const hiringCount = countMatch ? Number(countMatch[1]) : undefined;
+    const hiringCount = extractHiringCount(text);
     if (!hiringCount) unresolved.push('hiringCount');
 
-    const salaryMatch = text.match(/(?:₹|rs\.?|inr)?\s*(\d{4,6})\s*(?:\/|-)?\s*(?:month|pm)?/i);
-    const salaryHint = salaryMatch ? Number(salaryMatch[1]) : undefined;
+    const salaryHint = extractSalaryHint(text);
 
     const daysMatch = text.match(/(\d{1,3})\s*days?/i);
     const joiningTimelineDays = daysMatch ? Number(daysMatch[1]) : undefined;
