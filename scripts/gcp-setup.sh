@@ -193,9 +193,9 @@ if [[ "${DEPLOY}" =~ ^([Yy]|1|true|yes)$ ]]; then
   gcloud builds submit \
     --config=cloudbuild.yaml \
     --project="${APP_PROJECT_ID}" \
-    --substitutions="_IMAGE_TAG=initial"
+    --substitutions="_IMAGE_TAG=canary"
 
-  IMAGE="us-central1-docker.pkg.dev/${APP_PROJECT_ID}/${GAR_REPO}/${SERVICE_NAME}:initial"
+  IMAGE="us-central1-docker.pkg.dev/${APP_PROJECT_ID}/${GAR_REPO}/${SERVICE_NAME}:canary"
 
   DEPLOY_ENV_VARS="NODE_ENV=production"
   DEPLOY_SECRETS="DATABASE_URL=${DB_SECRET}:latest,JWT_SECRET=${JWT_SECRET}:latest"
@@ -229,6 +229,7 @@ if [[ "${DEPLOY}" =~ ^([Yy]|1|true|yes)$ ]]; then
     --concurrency 80 \
     --min-instances 0 \
     --max-instances 10 \
+    --tag=canary \
     --allow-unauthenticated \
     --port 8080 \
     --execution-environment gen2 \

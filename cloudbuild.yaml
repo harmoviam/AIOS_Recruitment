@@ -2,7 +2,7 @@
 # Usage: gcloud builds submit --config=cloudbuild.yaml --project=harmoviajobs
 
 substitutions:
-  _IMAGE_TAG: 'latest'
+  _IMAGE_TAG: 'canary'
   _REGION: 'us-central1'
   _GAR_REPO: 'platform-repo'
   _SERVICE_NAME: 'harmirecruit'
@@ -19,8 +19,6 @@ steps:
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}'
       - '-t'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:latest'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:$BUILD_ID'
       - '-f'
       - 'Dockerfile'
       - '.'
@@ -34,7 +32,6 @@ steps:
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}'
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:latest'
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_GAR_REPO}/${_SERVICE_NAME}:$BUILD_ID'
 
 options:
   machineType: 'E2_HIGHCPU_8'

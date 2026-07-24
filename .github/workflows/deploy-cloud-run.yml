@@ -75,14 +75,14 @@ jobs:
             --cache-from ${IMAGE}:latest \
             --build-arg VITE_GOOGLE_MAPS_API_KEY="${VITE_GOOGLE_MAPS_API_KEY}" \
             -t ${IMAGE}:latest \
-            -t ${IMAGE}:${{ github.sha }} \
+            -t ${IMAGE}:canary \
             -f Dockerfile \
             .
 
       - name: Push Docker image
         run: |
           docker push ${IMAGE}:latest
-          docker push ${IMAGE}:${{ github.sha }}
+          docker push ${IMAGE}:canary
 
       - name: Build & push parser service image
         env:
@@ -92,10 +92,10 @@ jobs:
           docker build \
             --cache-from ${PARSER_IMAGE}:latest \
             -t ${PARSER_IMAGE}:latest \
-            -t ${PARSER_IMAGE}:${{ github.sha }} \
+            -t ${PARSER_IMAGE}:canary \
             parser-service
           docker push ${PARSER_IMAGE}:latest
-          docker push ${PARSER_IMAGE}:${{ github.sha }}
+          docker push ${PARSER_IMAGE}:canary
 
       - name: Deploy parser service to Cloud Run
         run: |
@@ -103,7 +103,7 @@ jobs:
 
           # Private service: only the main app's service account may invoke it.
           gcloud run deploy ${{ env.PARSER_SERVICE_NAME }} \
-            --image ${PARSER_IMAGE}:${{ github.sha }} \
+            --image ${PARSER_IMAGE}:canary \
             --region ${{ env.REGION }} \
             --project ${PROJECT_ID} \
             --service-account "${SA_EMAIL}" \
@@ -113,6 +113,7 @@ jobs:
             --concurrency 20 \
             --min-instances 0 \
             --max-instances 3 \
+            --tag=canary \
             --no-allow-unauthenticated \
             --port 8080 \
             --execution-environment gen2 \
@@ -206,7 +207,7 @@ jobs:
           fi
 
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${IMAGE}:${{ github.sha }} \
+            --image ${IMAGE}:canary \
             --region ${{ env.REGION }} \
             --project ${PROJECT_ID} \
             --service-account "${SA_EMAIL}" \
@@ -219,6 +220,7 @@ jobs:
             --concurrency 80 \
             --min-instances 0 \
             --max-instances 10 \
+            --tag=canary \
             --allow-unauthenticated \
             --port 8080 \
             --execution-environment gen2 \
