@@ -992,11 +992,10 @@ async function migratePollAssessment(client: pg.PoolClient) {
     END $$;
   `);
 
+  // Non-unique tenant indexes only. Tenant-level unique indexes were transitional
+  // and crash startup when legacy duplicate emails/mobiles exist; uniqueness is
+  // enforced per poll after poll_id backfill below.
   await client.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_tenant_email_uidx
-      ON poll_recruiters (tenant_id, email);
-    CREATE UNIQUE INDEX IF NOT EXISTS poll_recruiters_tenant_mobile_uidx
-      ON poll_recruiters (tenant_id, mobile);
     CREATE INDEX IF NOT EXISTS poll_recruiters_tenant_idx ON poll_recruiters (tenant_id);
     CREATE INDEX IF NOT EXISTS poll_questions_tenant_idx ON poll_questions (tenant_id);
   `);
@@ -1064,7 +1063,11 @@ async function migratePollAssessment(client: pg.PoolClient) {
     );
   }
 
-  // Drop tenant-level uniqueness; uniqueness is per poll.
+  // Collapse legacy duplicate recruiters before unique indexes (keep earliest id).
+  await dedupePollRecruiters(client, 'email');
+  await dedupePollRecruiters(client, 'mobile');
+
+  // Drop any leftover tenant-level uniqueness; uniqueness is per poll.
   await client.query(`DROP INDEX IF EXISTS poll_recruiters_tenant_email_uidx`);
   await client.query(`DROP INDEX IF EXISTS poll_recruiters_tenant_mobile_uidx`);
   await client.query(`
@@ -1078,6 +1081,44 @@ async function migratePollAssessment(client: pg.PoolClient) {
 
   // Seed questions onto default poll only when that poll still has zero questions.
   await seedPollQuestionsForDefaultPolls(client);
+}
+
+/** Keep earliest recruiter per (poll_id, field); reassign responses/results; drop dups. */
+async function dedupePollRecruiters(client: pg.PoolClient, field: 'email' | 'mobile') {
+  const { rows: dups } = await client.query<{ keep_id: number; drop_id: number }>(
+    `WITH ranked AS (
+       SELECT id,
+              FIRST_VALUE(id) OVER (
+                PARTITION BY poll_id, lower(${field})
+                ORDER BY id
+              ) AS keep_id
+       FROM poll_recruiters
+       WHERE poll_id IS NOT NULL AND ${field} IS NOT NULL AND btrim(${field}) <> ''
+     )
+     SELECT keep_id, id AS drop_id
+     FROM ranked
+     WHERE id <> keep_id`
+  );
+  for (const { keep_id, drop_id } of dups) {
+    await client.query(
+      `UPDATE poll_responses SET recruiter_id = $1
+       WHERE recruiter_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM poll_responses existing
+           WHERE existing.recruiter_id = $1 AND existing.question_id = poll_responses.question_id
+         )`,
+      [keep_id, drop_id]
+    );
+    await client.query(`DELETE FROM poll_responses WHERE recruiter_id = $1`, [drop_id]);
+    await client.query(
+      `UPDATE poll_results SET recruiter_id = $1
+       WHERE recruiter_id = $2
+         AND NOT EXISTS (SELECT 1 FROM poll_results existing WHERE existing.recruiter_id = $1)`,
+      [keep_id, drop_id]
+    );
+    await client.query(`DELETE FROM poll_results WHERE recruiter_id = $1`, [drop_id]);
+    await client.query(`DELETE FROM poll_recruiters WHERE id = $1`, [drop_id]);
+  }
 }
 
 const POLL_QUESTION_SEEDS: Array<{
