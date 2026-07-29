@@ -38,14 +38,17 @@ router.get('/overview', async (req, res) => {
     pool.query(
       `SELECT u.id, u.name, u.email, co.name AS company,
         (SELECT COUNT(*)::int FROM users r WHERE r.tenant_id = u.tenant_id AND r.role = 'recruiter'
-          AND (r.managed_by_id = u.id OR (r.company_id = u.company_id AND u.company_id IS NOT NULL))) AS recruiter_count,
+          AND (r.managed_by_id = u.id OR
+            (r.managed_by_id IS NULL AND r.company_id = u.company_id AND u.company_id IS NOT NULL))) AS recruiter_count,
         (SELECT COUNT(*)::int FROM candidates c
           JOIN users r ON r.id = c.recruiter_id
-          WHERE c.tenant_id = u.tenant_id AND (r.managed_by_id = u.id OR r.company_id = u.company_id)
+          WHERE c.tenant_id = u.tenant_id
+            AND (r.managed_by_id = u.id OR (r.managed_by_id IS NULL AND r.company_id = u.company_id))
           AND c.stage = 'joined' AND c.updated_at >= DATE_TRUNC('month', NOW())) AS team_joinings_mtd,
         (SELECT COUNT(*)::int FROM candidates c
           JOIN users r ON r.id = c.recruiter_id
-          WHERE c.tenant_id = u.tenant_id AND (r.managed_by_id = u.id OR r.company_id = u.company_id)) AS team_candidates
+          WHERE c.tenant_id = u.tenant_id
+            AND (r.managed_by_id = u.id OR (r.managed_by_id IS NULL AND r.company_id = u.company_id))) AS team_candidates
        FROM users u
        LEFT JOIN companies co ON co.id = u.company_id
        WHERE u.tenant_id = $1 AND u.role = 'hiring_manager'

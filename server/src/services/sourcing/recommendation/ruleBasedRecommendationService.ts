@@ -143,6 +143,7 @@ export const ruleBasedRecommendationService: RecommendationService = {
         estimatedCandidatePool: source.estimatedCandidatePool,
         channelType: source.channelType as SourceRecommendation['channelType'],
         website: source.website,
+        isSampleData: source.createdBy === 'seed',
       });
     }
 

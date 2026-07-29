@@ -47,7 +47,7 @@ describe('job recommendation integration (in-memory)', () => {
       min_experience: 0,
       max_experience: 3,
       required_skills: ['Communication'],
-      salary: '420000',
+      salary: '720000',
       shift: 'Day',
       job_type: 'On-site',
       gender_preference: null,
@@ -62,7 +62,7 @@ describe('job recommendation integration (in-memory)', () => {
       title: 'Customer Support Executive',
       company: 'ABC Ltd',
       matchScore: expect.any(Number),
-      salary: '420000',
+      salary: '720000',
     });
     expect(recommendations[0].distance).toBeLessThan(5);
     expect(recommendations[0].reason.length).toBeGreaterThan(0);

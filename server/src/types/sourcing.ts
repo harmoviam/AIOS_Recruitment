@@ -59,6 +59,7 @@ export interface SourceRecommendation {
   estimatedCandidatePool?: number | null;
   channelType?: SourceChannelType;
   website?: string | null;
+  isSampleData?: boolean;
 }
 
 export interface RecommendationResult {

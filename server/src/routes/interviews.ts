@@ -42,7 +42,8 @@ function interviewAccessSql(req: Request, t: ReturnType<typeof tenantClause>, id
   } else if (req.user!.role === 'hiring_manager') {
     sql += ` AND c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${idx + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1}))
+      AND (r.managed_by_id = $${idx + 1} OR
+        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1})))
     )`;
     params.push(tid(req), req.user!.id);
   }
@@ -104,7 +105,8 @@ router.get('/', async (req, res) => {
   } else if (req.user!.role === 'hiring_manager') {
     sql += ` AND c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${idx + 1} OR r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1}))
+      AND (r.managed_by_id = $${idx + 1} OR
+        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1})))
     )`;
     params.push(tid(req), req.user!.id);
     idx += 2;

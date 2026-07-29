@@ -6,6 +6,8 @@ type DistanceFilter = 'all' | '5' | '10' | '20' | '50';
 
 interface Props {
   candidateId: number;
+  /** Changes after the candidate's stay coordinates are saved. */
+  locationRevision?: string;
   onApply?: (jobId: number) => void;
 }
 
@@ -22,7 +24,7 @@ function uniqueCompanies(jobs: JobRecommendation[]): JobRecommendation[] {
   return [...byCompany.values()];
 }
 
-export default function RecommendedJobsPanel({ candidateId, onApply }: Props) {
+export default function RecommendedJobsPanel({ candidateId, locationRevision, onApply }: Props) {
   const [data, setData] = useState<RecommendJobsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>('all');
@@ -40,7 +42,7 @@ export default function RecommendedJobsPanel({ candidateId, onApply }: Props) {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, locationRevision]);
 
   const companies = useMemo(
     () => uniqueCompanies(data?.recommendations ?? []),
@@ -89,7 +91,11 @@ export default function RecommendedJobsPanel({ candidateId, onApply }: Props) {
             <li key={job.id}>
               <span className="company-name-list-name">{job.company || 'Unknown company'}</span>
               <span className="company-name-list-meta">
-                {job.distance != null ? `${job.distance} km` : 'Remote'}
+                {job.distance != null
+                  ? `${job.distance} km`
+                  : job.isRemote
+                    ? 'Remote'
+                    : 'Distance unavailable'}
                 {' · '}
                 match {job.matchScore}
               </span>

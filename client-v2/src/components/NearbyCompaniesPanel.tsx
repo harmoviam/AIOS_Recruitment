@@ -35,9 +35,11 @@ export default function NearbyCompaniesPanel({ candidateId, latitude, longitude 
     setError('');
     const params = { max_distance_km: distanceFilter };
 
-    const req = hasCoords
-      ? api.getNearbyCompanies(latitude!, longitude!, params)
-      : api.getCompaniesNearCandidate(candidateId!, params);
+    // Saved candidates must use the candidate-aware endpoint so the server can
+    // enforce age, language, qualification, and salary eligibility.
+    const req = candidateId != null
+      ? api.getCompaniesNearCandidate(candidateId, params)
+      : api.getNearbyCompanies(latitude!, longitude!, params);
 
     req
       .then(setData)
@@ -46,7 +48,7 @@ export default function NearbyCompaniesPanel({ candidateId, latitude, longitude 
         setError(err.message || 'Failed to load nearby companies');
       })
       .finally(() => setLoading(false));
-  }, [candidateId, latitude, longitude, distanceFilter, hasOrigin, hasCoords]);
+  }, [candidateId, latitude, longitude, distanceFilter, hasOrigin]);
 
   useEffect(() => {
     load();

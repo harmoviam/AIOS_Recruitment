@@ -95,7 +95,13 @@ router.get('/recommend/:candidateId', async (req, res) => {
   if (!Number.isFinite(candidateId)) return res.status(400).json({ error: 'Invalid candidate id' });
 
   const { rows: candRows } = await pool.query(
-    'SELECT * FROM candidates WHERE id = $1 AND tenant_id = $2',
+    `SELECT c.*,
+       assigned.city AS assigned_job_city,
+       assigned.location AS assigned_job_location
+     FROM candidates c
+     LEFT JOIN jobs assigned
+       ON assigned.id = c.job_id AND assigned.tenant_id = c.tenant_id
+     WHERE c.id = $1 AND c.tenant_id = $2`,
     [candidateId, tid(req)]
   );
   if (!candRows[0]) return res.status(404).json({ error: 'Candidate not found' });
@@ -110,6 +116,11 @@ router.get('/recommend/:candidateId', async (req, res) => {
 
   const candidate = mapCandidateRow(candRows[0]);
   const jobs = jobRows.map(mapJobRow);
+  // Suggested companies are alternatives for the candidate's assigned job, so
+  // keep them in that job's city. Jobs without a structured city fall back to
+  // their legacy location value.
+  const assignedJobCity =
+    candRows[0].assigned_job_city || candRows[0].assigned_job_location || undefined;
 
   const maxDistanceKm = req.query.max_distance_km ? Number(req.query.max_distance_km) : undefined;
   const sortBy = req.query.sort as 'match' | 'salary' | 'distance' | undefined;
@@ -117,6 +128,7 @@ router.get('/recommend/:candidateId', async (req, res) => {
 
   const recommendations = recommendJobs(candidate, jobs, {
     maxResults: 100,
+    city: assignedJobCity,
     maxDistanceKm: maxDistanceKm != null && !Number.isNaN(maxDistanceKm) ? maxDistanceKm : undefined,
     jobType,
     sortBy: sortBy === 'salary' || sortBy === 'distance' ? sortBy : 'match',

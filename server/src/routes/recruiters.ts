@@ -37,7 +37,9 @@ async function actorScope(req: Request) {
 function hmRecruiterFilter(alias: string, hmId: number, companyId: number | null, startIdx: number) {
   if (companyId) {
     return {
-      sql: ` AND (${alias}.managed_by_id = $${startIdx} OR ${alias}.company_id = $${startIdx + 1})`,
+      // managed_by_id is authoritative. Company is only a compatibility
+      // fallback for legacy recruiters that have not been assigned an HM yet.
+      sql: ` AND (${alias}.managed_by_id = $${startIdx} OR (${alias}.managed_by_id IS NULL AND ${alias}.company_id = $${startIdx + 1}))`,
       params: [hmId, companyId],
     };
   }
@@ -315,7 +317,9 @@ router.patch('/:id', async (req, res) => {
   if (!scope.isAdmin) {
     const ok =
       existing[0].managed_by_id === scope.hmId ||
-      (scope.companyId && existing[0].company_id === scope.companyId);
+      (existing[0].managed_by_id == null &&
+        scope.companyId != null &&
+        existing[0].company_id === scope.companyId);
     if (!ok) return res.status(403).json({ error: 'You can only edit recruiters on your team' });
   }
 

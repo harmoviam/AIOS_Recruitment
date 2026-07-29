@@ -679,6 +679,7 @@ export default function CandidateDetailPage() {
             />
             <RecommendedJobsPanel
               candidateId={candidate.id}
+              locationRevision={`${candidate.latitude ?? ''}:${candidate.longitude ?? ''}`}
               onApply={async (jobId) => {
                 const updated = await api.updateCandidate(candidate.id, { job_id: jobId, stage: 'screening' });
                 setCandidate(updated);

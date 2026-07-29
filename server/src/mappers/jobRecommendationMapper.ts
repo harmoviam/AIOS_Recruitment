@@ -1,5 +1,6 @@
 import type { JobRecommendationDto } from '../dto/jobRecommendation.js';
 import type { JobMatchProfile } from '../dto/jobRecommendation.js';
+import { isRemoteJob } from '../services/jobRecommendation.js';
 
 /** Maps internal job + score data to the public recommendation DTO. */
 export function toJobRecommendationDto(
@@ -14,6 +15,7 @@ export function toJobRecommendationDto(
     title: job.title,
     company: job.client,
     distance,
+    isRemote: isRemoteJob(job),
     matchScore,
     salary: job.salary,
     reason,

@@ -34,15 +34,15 @@ export function PlanSummaryCards({ summary }: { summary: RecommendationResult['p
   return (
     <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
       <div className="card">
-        <div className="card-title">Est. Applications</div>
+        <div className="card-title">Estimated Applications</div>
         <div className="card-value">{summary.expectedApplications.toLocaleString()}</div>
       </div>
       <div className="card">
-        <div className="card-title">Est. Interviews</div>
+        <div className="card-title">Estimated Interviews</div>
         <div className="card-value">{summary.expectedInterviews.toLocaleString()}</div>
       </div>
       <div className="card">
-        <div className="card-title">Est. Joinings</div>
+        <div className="card-title">Estimated Joinings</div>
         <div className="card-value">{summary.expectedJoinings.toLocaleString()}</div>
       </div>
       <div className="card">
@@ -95,16 +95,16 @@ export function RecommendationsTable({
 
   return (
     <div className="card table-wrap">
-      <div className="card-title">{title ?? `Recommended sources (${recommendations.length})`}</div>
+      <div className="card-title">{title ?? `Configured sources (${recommendations.length})`}</div>
       <table className="data-table">
         <thead>
           <tr>
             <th style={{ width: 44 }}>#</th>
             <th>Source</th>
             <th>Confidence</th>
-            <th>Apps</th>
-            <th>Interviews</th>
-            <th>Joinings</th>
+            <th>Estimated Apps</th>
+            <th>Estimated Interviews</th>
+            <th>Estimated Joinings</th>
             <th>Risk</th>
             <th>Why this source</th>
           </tr>
@@ -130,6 +130,15 @@ export function RecommendationsTable({
                 {r.channelType && (
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                     {channelLabel(r.channelType)}
+                    {r.isSampleData && (
+                      <span
+                        className="status-badge"
+                        style={{ marginLeft: '0.45rem', verticalAlign: 'middle' }}
+                        title="This is a preconfigured demonstration record, not live platform data."
+                      >
+                        Sample data
+                      </span>
+                    )}
                   </div>
                 )}
               </td>

@@ -50,6 +50,7 @@ export interface SourceRecommendation {
   reason: string;
   channelType?: string;
   website?: string | null;
+  isSampleData?: boolean;
 }
 
 export interface RecommendationResult {

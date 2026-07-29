@@ -43,7 +43,12 @@ function parseSalaryAmount(value: string | null | undefined): number | null {
   return null;
 }
 
-function isRemoteJob(job: JobMatchProfile): boolean {
+export interface JobEligibility {
+  eligible: boolean;
+  reason?: 'inactive' | 'age_missing' | 'age' | 'qualification' | 'languages' | 'salary';
+}
+
+export function isRemoteJob(job: JobMatchProfile): boolean {
   const blob = [job.location, job.jobType, job.address, job.city].filter(Boolean).join(' ');
   return REMOTE_KEYWORDS.test(blob);
 }
@@ -51,6 +56,10 @@ function isRemoteJob(job: JobMatchProfile): boolean {
 function isHybridJob(job: JobMatchProfile): boolean {
   const blob = [job.location, job.jobType, job.address].filter(Boolean).join(' ');
   return HYBRID_KEYWORDS.test(blob);
+}
+
+function jobCity(job: JobMatchProfile): string {
+  return norm(job.city || job.location || '');
 }
 
 function scoreDistance(km: number | null, isRemote: boolean): number {
@@ -188,6 +197,46 @@ function scoreAge(candidate: CandidateMatchProfile, job: JobMatchProfile): numbe
   return 5;
 }
 
+/**
+ * Hard eligibility shared by Suggested Companies and Nearby Companies.
+ * A required field must be verifiably satisfied; unknown candidate age and
+ * unknown offered salary cannot pass a job that constrains those values.
+ */
+export function evaluateJobEligibility(
+  candidate: CandidateMatchProfile,
+  job: JobMatchProfile
+): JobEligibility {
+  if (!ACTIVE_STATUSES.has((job.status || '').toLowerCase())) {
+    return { eligible: false, reason: 'inactive' };
+  }
+  if ((job.minAge != null || job.maxAge != null) && candidate.age == null) {
+    return { eligible: false, reason: 'age_missing' };
+  }
+  if (candidate.age != null) {
+    if (job.minAge != null && candidate.age < job.minAge) {
+      return { eligible: false, reason: 'age' };
+    }
+    if (job.maxAge != null && candidate.age > job.maxAge) {
+      return { eligible: false, reason: 'age' };
+    }
+  }
+  if (job.requiredQualification && scoreQualification(candidate, job) === 0) {
+    return { eligible: false, reason: 'qualification' };
+  }
+  if (job.requiredLanguages.length > 0 && scoreLanguages(candidate, job) !== 15) {
+    return { eligible: false, reason: 'languages' };
+  }
+
+  const expectedSalary = parseSalaryAmount(candidate.expectedSalary);
+  if (expectedSalary != null) {
+    const offeredSalary = parseSalaryAmount(job.salary);
+    if (offeredSalary == null || offeredSalary < expectedSalary) {
+      return { eligible: false, reason: 'salary' };
+    }
+  }
+  return { eligible: true };
+}
+
 function buildReason(breakdown: Omit<MatchScoreBreakdown, 'reason' | 'rejected' | 'rejectionReason'>): string {
   const parts: string[] = [];
   if (breakdown.distance >= 25) parts.push('Excellent Location Match');
@@ -243,19 +292,19 @@ export function calculateMatchScore(
 
   let rejected = false;
   let rejectionReason: string | undefined;
+  const eligibility = evaluateJobEligibility(candidate, job);
 
-  if (!ACTIVE_STATUSES.has((job.status || '').toLowerCase())) {
+  if (!eligibility.eligible) {
     rejected = true;
-    rejectionReason = 'Job is not active';
-  } else if (ageScore === 0 && (job.minAge != null || job.maxAge != null) && candidate.age != null) {
-    rejected = true;
-    rejectionReason = 'Age outside allowed range';
-  } else if (job.requiredQualification && qualificationScore === 0) {
-    rejected = true;
-    rejectionReason = 'Required qualification not matched';
-  } else if (job.requiredLanguages.length > 0 && languagesScore === 0) {
-    rejected = true;
-    rejectionReason = 'Required language missing';
+    const reasons: Record<NonNullable<JobEligibility['reason']>, string> = {
+      inactive: 'Job is not active',
+      age_missing: 'Candidate age is required',
+      age: 'Age outside allowed range',
+      qualification: 'Required qualification not matched',
+      languages: 'All required languages are not matched',
+      salary: 'Offered salary is below candidate expectation or unavailable',
+    };
+    rejectionReason = eligibility.reason ? reasons[eligibility.reason] : 'Candidate is not eligible';
   } else if (
     !remote &&
     distanceKm != null &&
@@ -271,7 +320,9 @@ export function calculateMatchScore(
 }
 
 function jobDistanceKm(candidate: CandidateMatchProfile, job: JobMatchProfile): number | null {
-  if (isRemoteJob(job)) return 0;
+  // Remote work has no physical distance. Keep it null so API consumers do not
+  // display the job as being zero kilometres from the candidate.
+  if (isRemoteJob(job)) return null;
   if (
     candidate.latitude == null ||
     candidate.longitude == null ||
@@ -303,6 +354,11 @@ function passesClientFilters(
   candidate: CandidateMatchProfile,
   opts: RecommendJobsOptions
 ): boolean {
+  if (opts.city) {
+    const requiredCity = norm(opts.city);
+    const city = jobCity(job);
+    if (!city || city !== requiredCity) return false;
+  }
   if (opts.maxDistanceKm != null && item.distance != null && item.distance > opts.maxDistanceKm) {
     if (!isRemoteJob(job)) return false;
   }
@@ -364,6 +420,7 @@ export function recommendJobs(
       title: job.title,
       company: job.client,
       distance,
+      isRemote: isRemoteJob(job),
       matchScore: match.total,
       salary: job.salary,
       reason: match.reason,

@@ -24,9 +24,10 @@ router.get('/', async (req, res) => {
       (SELECT COUNT(*)::int FROM jobs j WHERE j.client = co.name AND j.tenant_id = u.tenant_id AND j.status = 'active') AS open_jobs,
       (SELECT COUNT(*)::int FROM candidates c WHERE c.stage = 'selected' AND c.tenant_id = u.tenant_id) AS pending_reviews,
       (SELECT COUNT(*)::int FROM users r WHERE r.tenant_id = u.tenant_id AND r.role = 'recruiter'
-        AND (r.managed_by_id = u.id OR r.company_id = u.company_id)) AS recruiter_count,
+        AND (r.managed_by_id = u.id OR (r.managed_by_id IS NULL AND r.company_id = u.company_id))) AS recruiter_count,
       (SELECT COUNT(*)::int FROM candidates c JOIN users r ON r.id = c.recruiter_id
-        WHERE c.tenant_id = u.tenant_id AND (r.managed_by_id = u.id OR r.company_id = u.company_id)
+        WHERE c.tenant_id = u.tenant_id
+          AND (r.managed_by_id = u.id OR (r.managed_by_id IS NULL AND r.company_id = u.company_id))
         AND c.stage = 'joined' AND c.updated_at >= DATE_TRUNC('month', NOW())) AS team_joinings_mtd
      FROM users u
      LEFT JOIN companies co ON co.id = u.company_id

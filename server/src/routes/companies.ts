@@ -8,6 +8,12 @@ import {
   type CompanyGeoRow,
   type NearbyCompaniesResult,
 } from '../services/nearbyCompanies.js';
+import {
+  evaluateJobEligibility,
+  mapCandidateRow,
+  mapJobRow,
+} from '../services/jobRecommendation.js';
+import type { CandidateMatchProfile } from '../dto/jobRecommendation.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -43,17 +49,89 @@ function validateCompanyLocation(body: Record<string, unknown>, isCreate: boolea
   return null;
 }
 
-async function loadGeoCompanies(tenantId: number): Promise<CompanyGeoRow[]> {
-  const { rows } = await pool.query(
-    `${COMPANY_LIST_SELECT}
-     WHERE co.tenant_id = $1
-       AND co.status = 'active'
-       AND co.latitude IS NOT NULL
-       AND co.longitude IS NOT NULL
-     ORDER BY co.name`,
-    [tenantId]
+async function loadGeoCompanies(
+  tenantId: number,
+  candidate?: CandidateMatchProfile
+): Promise<CompanyGeoRow[]> {
+  const [{ rows: companyRows }, { rows: jobRows }] = await Promise.all([
+    pool.query(
+      `${COMPANY_LIST_SELECT}
+       WHERE co.tenant_id = $1
+         AND co.status = 'active'
+       ORDER BY co.name`,
+      [tenantId]
+    ),
+    pool.query(
+      `SELECT *
+       FROM jobs
+       WHERE tenant_id = $1
+         AND status IN ('active', 'urgent', 'open')
+       ORDER BY created_at DESC`,
+      [tenantId]
+    ),
+  ]);
+
+  // A job pin is also a valid company work location. Use the newest active
+  // job's pin when the company directory has no pin, and include clients that
+  // have jobs but do not yet have a company-directory record.
+  const eligibleJobRows = candidate
+    ? (jobRows as Array<Record<string, unknown>>).filter((row) =>
+        evaluateJobEligibility(candidate, mapJobRow(row)).eligible
+      )
+    : (jobRows as Array<Record<string, unknown>>);
+  const eligibleClients = new Set(
+    eligibleJobRows.map((row) => String(row.client || '').trim().toLowerCase()).filter(Boolean)
   );
-  return rows as CompanyGeoRow[];
+
+  const byName = new Map<string, CompanyGeoRow>();
+  for (const row of companyRows as CompanyGeoRow[]) {
+    const key = row.name.trim().toLowerCase();
+    if (!candidate || eligibleClients.has(key)) byName.set(key, row);
+  }
+
+  for (const job of eligibleJobRows) {
+    const name = String(job.client || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const company = byName.get(key);
+    if (company) {
+      if (company.id < 0) company.open_jobs = (company.open_jobs ?? 0) + 1;
+      if (company.latitude == null || company.longitude == null) {
+        Object.assign(company, {
+          latitude: job.latitude,
+          longitude: job.longitude,
+          address: job.address,
+          city: job.city,
+          state: job.state,
+          country: job.country,
+          pincode: job.pincode,
+          location: job.location,
+        });
+      }
+      continue;
+    }
+    if (job.latitude == null || job.longitude == null) continue;
+    byName.set(key, {
+      id: -Number(job.id),
+      name,
+      industry: null,
+      location: (job.location as string) || null,
+      status: 'active',
+      latitude: Number(job.latitude),
+      longitude: Number(job.longitude),
+      address: (job.address as string) || null,
+      city: (job.city as string) || null,
+      state: (job.state as string) || null,
+      country: (job.country as string) || null,
+      pincode: (job.pincode as string) || null,
+      open_jobs: 1,
+      hiring_manager: null,
+    });
+  }
+
+  return [...byName.values()].filter(
+    (company) => company.latitude != null && company.longitude != null
+  );
 }
 
 function buildNearbyResult(
@@ -112,7 +190,7 @@ router.get('/near/:candidateId', async (req, res) => {
   }
 
   const maxDistanceKm = parseMaxDistanceKm(req.query.max_distance_km);
-  const companies = await loadGeoCompanies(tid(req));
+  const companies = await loadGeoCompanies(tid(req), mapCandidateRow(candidate));
   res.json(buildNearbyResult(lat, lng, companies, maxDistanceKm));
 });
 

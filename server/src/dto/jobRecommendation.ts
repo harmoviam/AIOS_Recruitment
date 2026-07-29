@@ -57,6 +57,7 @@ export interface JobRecommendationDto {
   title: string;
   company: string;
   distance: number | null;
+  isRemote: boolean;
   matchScore: number;
   salary: string | null;
   reason: string;
@@ -73,6 +74,8 @@ export interface RecommendJobsOptions {
   maxResults?: number;
   /** Max distance filter in km (client-side filter). */
   maxDistanceKm?: number | null;
+  /** Restrict on-site/hybrid recommendations to the assigned job's city. */
+  city?: string | null;
   jobType?: string | null;
   sortBy?: 'match' | 'salary' | 'distance';
   fresher?: boolean;

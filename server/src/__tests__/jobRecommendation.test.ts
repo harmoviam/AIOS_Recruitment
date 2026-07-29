@@ -3,6 +3,7 @@ import type { CandidateMatchProfile, JobMatchProfile } from '../dto/jobRecommend
 import {
   calculateMatchScore,
   calculateDistance,
+  evaluateJobEligibility,
   recommendJobs,
 } from '../services/jobRecommendation.js';
 
@@ -160,5 +161,55 @@ describe('recommendJobs', () => {
     ];
     const nearby = recommendJobs(candidate, jobs, { maxDistanceKm: 50 });
     expect(nearby.every((j) => j.distance == null || j.distance <= 50)).toBe(true);
+  });
+
+  it('reports remote jobs without a misleading zero-kilometre distance', () => {
+    const results = recommendJobs(baseCandidate(), [
+      baseJob({ location: 'Remote', jobType: 'Remote', latitude: null, longitude: null }),
+    ]);
+    expect(results[0]?.distance).toBeNull();
+    expect(results[0]?.isRemote).toBe(true);
+  });
+
+  it('restricts suggestions to the assigned job city', () => {
+    const jobs = [
+      baseJob({ id: 1, client: 'Noida Co', city: 'Noida', location: 'Noida' }),
+      baseJob({ id: 2, client: 'Mumbai Co', city: 'Mumbai', location: 'Mumbai' }),
+      baseJob({
+        id: 3,
+        client: 'Remote Co',
+        city: null,
+        location: 'Remote',
+        jobType: 'Remote',
+        latitude: null,
+        longitude: null,
+      }),
+    ];
+    const results = recommendJobs(baseCandidate(), jobs, { city: 'Noida' });
+    expect(results.map((result) => result.company)).toEqual(['Noida Co']);
+  });
+
+  it('requires every job language for company eligibility', () => {
+    const eligibility = evaluateJobEligibility(
+      { ...baseCandidate(), languages: ['English'] },
+      baseJob({ requiredLanguages: ['English', 'Hindi'] })
+    );
+    expect(eligibility).toEqual({ eligible: false, reason: 'languages' });
+  });
+
+  it('rejects a job below the candidate salary expectation', () => {
+    const eligibility = evaluateJobEligibility(
+      { ...baseCandidate(), expectedSalary: '10 LPA' },
+      baseJob({ salary: '9 LPA' })
+    );
+    expect(eligibility).toEqual({ eligible: false, reason: 'salary' });
+  });
+
+  it('rejects constrained jobs when candidate age is unavailable', () => {
+    const eligibility = evaluateJobEligibility(
+      { ...baseCandidate(), age: null },
+      baseJob({ minAge: 21, maxAge: 35 })
+    );
+    expect(eligibility).toEqual({ eligible: false, reason: 'age_missing' });
   });
 });

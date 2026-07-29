@@ -238,6 +238,7 @@ export interface JobRecommendation {
   title: string;
   company: string;
   distance: number | null;
+  isRemote: boolean;
   matchScore: number;
   salary: string | null;
   reason: string;

@@ -176,6 +176,10 @@ export default function SourcingCopilotPage() {
           <div style={{ marginTop: '1.25rem', display: 'grid', gap: '1rem' }}>
             <PlanSummaryCards summary={plan.recommendations.planSummary} />
             <RecommendationsTable recommendations={plan.recommendations.recommendations} />
+            <p style={{ margin: '-0.5rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Projections are estimated from configured source attributes and recorded performance.
+              “Sample data” identifies preconfigured demonstration records, not live platform results.
+            </p>
             {plan.content && plan.content.items.length > 0 && (
               <div className="card">
                 <div className="card-title">Ready-to-post content</div>
