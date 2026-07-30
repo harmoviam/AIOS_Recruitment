@@ -28,7 +28,8 @@ export default function InterviewsPage() {
   const [searchParams] = useSearchParams();
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  // Arriving from "Schedule Interview" on a candidate opens the form on the prefilled candidate.
+  const [showForm, setShowForm] = useState(Boolean(searchParams.get('candidate')));
   const [view, setView] = useState<ViewMode>('calendar');
   const today = new Date();
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
@@ -39,6 +40,8 @@ export default function InterviewsPage() {
     round_type: 'Technical',
   });
   const [copyStatus, setCopyStatus] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const load = () => api.getInterviews().then(setInterviews);
 
@@ -92,14 +95,26 @@ export default function InterviewsPage() {
 
   const schedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.createInterview({
-      candidate_id: Number(form.candidate_id),
-      scheduled_at: new Date(form.scheduled_at).toISOString(),
-      round_type: form.round_type,
-      status: 'pending',
-    });
-    setShowForm(false);
-    load();
+    setSaving(true);
+    setSaveError('');
+    try {
+      const created = await api.createInterview({
+        candidate_id: Number(form.candidate_id),
+        scheduled_at: new Date(form.scheduled_at).toISOString(),
+        round_type: form.round_type,
+        status: 'pending',
+      });
+      setShowForm(false);
+      // Jump the calendar to the new slot so the saved interview is visible right away.
+      const bookedAt = new Date(created.scheduled_at);
+      setCursor({ year: bookedAt.getFullYear(), month: bookedAt.getMonth() });
+      setSelectedDay(toDateKey(bookedAt));
+      await load();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to schedule interview');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateStatus = async (id: number, status: string) => {
@@ -200,7 +215,14 @@ export default function InterviewsPage() {
                 A secure candidate join link is created automatically when you save.
               </p>
             </div>
-            <button type="submit" className="button-pill button-primary" style={{ marginTop: '1rem' }}>Save interview</button>
+            {saveError && (
+              <p className="form-error" style={{ marginTop: '0.75rem' }} role="alert">
+                {saveError}
+              </p>
+            )}
+            <button type="submit" className="button-pill button-primary" style={{ marginTop: '1rem' }} disabled={saving}>
+              {saving ? 'Saving…' : 'Save interview'}
+            </button>
           </form>
         )}
 

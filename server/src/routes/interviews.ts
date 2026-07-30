@@ -40,11 +40,12 @@ function interviewAccessSql(req: Request, t: ReturnType<typeof tenantClause>, id
     sql += ` AND c.recruiter_id = $${idx}`;
     params.push(req.user!.id);
   } else if (req.user!.role === 'hiring_manager') {
-    sql += ` AND c.recruiter_id IN (
+    // HMs see their team's interviews and the ones on candidates they own themselves.
+    sql += ` AND (c.recruiter_id = $${idx + 1} OR c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
       AND (r.managed_by_id = $${idx + 1} OR
         (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1})))
-    )`;
+    ))`;
     params.push(tid(req), req.user!.id);
   }
   return { sql, params };
@@ -103,11 +104,12 @@ router.get('/', async (req, res) => {
     sql += ` AND c.recruiter_id = $${idx++}`;
     params.push(req.user!.id);
   } else if (req.user!.role === 'hiring_manager') {
-    sql += ` AND c.recruiter_id IN (
+    // HMs see their team's interviews and the ones on candidates they own themselves.
+    sql += ` AND (c.recruiter_id = $${idx + 1} OR c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
       AND (r.managed_by_id = $${idx + 1} OR
         (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1})))
-    )`;
+    ))`;
     params.push(tid(req), req.user!.id);
     idx += 2;
   }
@@ -213,7 +215,7 @@ router.put('/:id/evaluation', asyncHandler(async (req, res) => {
   res.json({ ...rows[0], evaluation, candidate_name: rows[0].candidate_name ?? existing.candidate_name });
 }));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const { candidate_id, scheduled_at, duration_minutes, round_type, status, meeting_link, notes } =
     req.body;
   if (!candidate_id || !scheduled_at) {
@@ -336,7 +338,7 @@ router.post('/', async (req, res) => {
   }
 
   res.status(201).json({ ...(await withNormalizedMeetingLinks(req, [interview]))[0], whatsapp });
-});
+}));
 
 router.get('/:id/video-token', async (req, res) => {
   if (!isLiveKitConfigured()) {

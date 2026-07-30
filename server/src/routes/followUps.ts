@@ -82,11 +82,12 @@ router.get('/', async (req, res) => {
     sql += ` AND c.recruiter_id = $${i++}`;
     params.push(req.user!.id);
   } else if (req.user!.role === 'hiring_manager') {
-    sql += ` AND c.recruiter_id IN (
+    // HMs see their team's follow-ups and the ones on candidates they own themselves.
+    sql += ` AND (c.recruiter_id = $${i + 1} OR c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
       AND (r.managed_by_id = $${i + 1} OR
         (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1})))
-    )`;
+    ))`;
     params.push(tid(req), req.user!.id);
     i += 2;
   }
@@ -122,11 +123,12 @@ router.get('/counts', async (req, res) => {
     sql += ` AND c.recruiter_id = $${i++}`;
     params.push(req.user!.id);
   } else if (req.user!.role === 'hiring_manager') {
-    sql += ` AND c.recruiter_id IN (
+    // HMs see their team's follow-ups and the ones on candidates they own themselves.
+    sql += ` AND (c.recruiter_id = $${i + 1} OR c.recruiter_id IN (
       SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
       AND (r.managed_by_id = $${i + 1} OR
         (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1})))
-    )`;
+    ))`;
     params.push(tid(req), req.user!.id);
     i += 2;
   }
