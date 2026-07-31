@@ -1,8 +1,8 @@
 import { Router, type Request } from 'express';
 import { pool } from '../db.js';
+import { assertCandidateAccess, candidateScopeSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
-  assertCandidateInTenant,
   requireTenant,
   tenantClause,
   tenantMiddleware,
@@ -24,6 +24,7 @@ const tid = (req: Request) => req.tenant!.id;
 
 router.get('/conversations', async (req, res) => {
   const t = tenantClause(tid(req), 'c', 1);
+  const scope = candidateScopeSql(req, 'c', t.nextIndex);
   const { rows } = await pool.query(
     `SELECT c.id, c.name, c.phone, c.stage,
       (SELECT content FROM messages m WHERE m.candidate_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message,
@@ -31,10 +32,10 @@ router.get('/conversations', async (req, res) => {
       (SELECT COUNT(*)::int FROM messages m WHERE m.candidate_id = c.id AND m.is_outgoing = FALSE
         AND m.sent_at > NOW() - INTERVAL '7 days') AS unread_hint
     FROM candidates c
-    WHERE ${t.sql} AND EXISTS (SELECT 1 FROM messages m WHERE m.candidate_id = c.id)
+    WHERE ${t.sql} AND EXISTS (SELECT 1 FROM messages m WHERE m.candidate_id = c.id)${scope.sql}
     ORDER BY last_message_at DESC NULLS LAST
     LIMIT 300`,
-    [t.param]
+    [t.param, ...scope.params]
   );
   res.json(rows);
 });
@@ -50,7 +51,7 @@ router.get('/status/integration', async (_req, res) => {
 });
 
 router.get('/:candidateId/suggestions', async (req, res) => {
-  if (!(await assertCandidateInTenant(Number(req.params.candidateId), tid(req)))) {
+  if (!(await assertCandidateAccess(req, Number(req.params.candidateId)))) {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 
@@ -143,7 +144,7 @@ router.get('/:candidateId/suggestions', async (req, res) => {
 });
 
 router.get('/:candidateId', async (req, res) => {
-  if (!(await assertCandidateInTenant(Number(req.params.candidateId), tid(req)))) {
+  if (!(await assertCandidateAccess(req, Number(req.params.candidateId)))) {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 
@@ -161,7 +162,7 @@ router.post('/:candidateId', async (req, res) => {
   if (!content?.trim()) return res.status(400).json({ error: 'Message content required' });
 
   const candidateId = Number(req.params.candidateId);
-  if (!(await assertCandidateInTenant(candidateId, tid(req)))) {
+  if (!(await assertCandidateAccess(req, candidateId))) {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 

@@ -34,15 +34,9 @@ async function actorScope(req: Request) {
   return { canManage: false, companyId: null, hmId: null, isAdmin: false };
 }
 
-function hmRecruiterFilter(alias: string, hmId: number, companyId: number | null, startIdx: number) {
-  if (companyId) {
-    return {
-      // managed_by_id is authoritative. Company is only a compatibility
-      // fallback for legacy recruiters that have not been assigned an HM yet.
-      sql: ` AND (${alias}.managed_by_id = $${startIdx} OR (${alias}.managed_by_id IS NULL AND ${alias}.company_id = $${startIdx + 1}))`,
-      params: [hmId, companyId],
-    };
-  }
+function hmRecruiterFilter(alias: string, hmId: number, _companyId: number | null, startIdx: number) {
+  // managed_by_id is the only assignment signal. Falling back to a shared
+  // company_id exposed unassigned recruiters to every HM in that company.
   return { sql: ` AND ${alias}.managed_by_id = $${startIdx}`, params: [hmId] };
 }
 

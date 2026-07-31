@@ -1,9 +1,9 @@
 import { Router, type Request } from 'express';
 import multer from 'multer';
 import { pool } from '../db.js';
+import { assertCandidateAccess, candidateScopeSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
-  assertCandidateInTenant,
   assertJobInTenant,
   requireTenant,
   tenantClause,
@@ -149,33 +149,13 @@ router.get('/', async (req, res) => {
     sql += ' AND c.is_hot = TRUE';
   }
 
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${i++}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    // HMs manage their team's candidates and can also own candidates themselves.
-    // scope=my   -> only candidates the HM personally owns (recruiter_id = HM)
-    // scope=team -> only the team's candidates (managed recruiters)
-    // (default)  -> HM's own candidates + all managed recruiters' candidates
-    const teamClause = `c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${i + 1} OR
-        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1})))
-    )`;
-    if (scope === 'my') {
-      sql += ` AND c.recruiter_id = $${i}`;
-      params.push(req.user!.id);
-      i += 1;
-    } else if (scope === 'team') {
-      sql += ` AND (${teamClause})`;
-      params.push(tid(req), req.user!.id);
-      i += 2;
-    } else {
-      sql += ` AND (c.recruiter_id = $${i + 2} OR ${teamClause})`;
-      params.push(tid(req), req.user!.id, req.user!.id);
-      i += 3;
-    }
-  }
+  // scope=my   -> only candidates the HM personally owns (recruiter_id = HM)
+  // scope=team -> only the team's candidates (managed recruiters)
+  // (default)  -> HM's own candidates + all managed recruiters' candidates
+  const userScope = candidateScopeSql(req, 'c', i, scope === 'my' || scope === 'team' ? scope : undefined);
+  sql += userScope.sql;
+  params.push(...userScope.params);
+  i = userScope.nextIndex;
 
   // Filter down to a specific recruiter (used by HM/admin recruiter dropdown).
   if (recruiter_id) {
@@ -244,29 +224,10 @@ router.get('/export', async (req, res) => {
     i++;
   }
 
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${i++}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    const teamClause = `c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${i + 1} OR
-        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1})))
-    )`;
-    if (scope === 'my') {
-      sql += ` AND c.recruiter_id = $${i}`;
-      params.push(req.user!.id);
-      i += 1;
-    } else if (scope === 'team') {
-      sql += ` AND (${teamClause})`;
-      params.push(tid(req), req.user!.id);
-      i += 2;
-    } else {
-      sql += ` AND (c.recruiter_id = $${i + 2} OR ${teamClause})`;
-      params.push(tid(req), req.user!.id, req.user!.id);
-      i += 3;
-    }
-  }
+  const userScope = candidateScopeSql(req, 'c', i, scope === 'my' || scope === 'team' ? scope : undefined);
+  sql += userScope.sql;
+  params.push(...userScope.params);
+  i = userScope.nextIndex;
 
   if (recruiter_id) {
     sql += ` AND c.recruiter_id = $${i++}`;
@@ -485,13 +446,23 @@ router.patch('/bulk', async (req, res) => {
     params.push(recruiter_id);
   }
 
-  params.push(ids, tid(req));
+  // Narrow the request to ids the caller may actually touch, so the activity
+  // log below never records edits that the UPDATE skipped.
+  const idScope = candidateScopeSql(req, 'c', 3);
+  const { rows: allowed } = await pool.query(
+    `SELECT c.id FROM candidates c WHERE c.id = ANY($1::int[]) AND c.tenant_id = $2${idScope.sql}`,
+    [ids, tid(req), ...idScope.params]
+  );
+  const allowedIds: number[] = allowed.map((r) => Number(r.id));
+  if (allowedIds.length === 0) return res.json({ updated: 0 });
+
+  params.push(allowedIds, tid(req));
   const { rowCount } = await pool.query(
     `UPDATE candidates SET ${updates.join(', ')} WHERE id = ANY($${i++}::int[]) AND tenant_id = $${i}`,
     params
   );
 
-  for (const id of ids) {
+  for (const id of allowedIds) {
     if (stage) {
       await pool.query(
         'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
@@ -515,7 +486,7 @@ router.patch('/bulk', async (req, res) => {
     }
   }
 
-  await syncApplicationsForCandidates(tid(req), ids.map(Number));
+  await syncApplicationsForCandidates(tid(req), allowedIds);
 
   res.json({ updated: rowCount });
 });
@@ -564,7 +535,7 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
 
 router.get('/:id/timeline', async (req, res) => {
   const candidateId = Number(req.params.id);
-  if (!(await assertCandidateInTenant(candidateId, tid(req)))) {
+  if (!(await assertCandidateAccess(req, candidateId))) {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 
@@ -618,12 +589,13 @@ router.get('/:id/timeline', async (req, res) => {
 });
 
 router.get('/:id/suggestions', async (req, res) => {
+  const scope = candidateScopeSql(req, 'c', 3);
   const { rows } = await pool.query(
     `SELECT c.*, j.title AS job_title, j.location AS job_location
      FROM candidates c
      LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = c.tenant_id
-     WHERE c.id = $1 AND c.tenant_id = $2`,
-    [req.params.id, tid(req)]
+     WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
+    [req.params.id, tid(req), ...scope.params]
   );
   const c = rows[0];
   if (!c) return res.status(404).json({ error: 'Candidate not found' });
@@ -685,9 +657,10 @@ router.get('/:id/suggestions', async (req, res) => {
 /** Download the original resume file stored for a candidate. */
 router.get('/:id/resume/download', async (req, res) => {
   const candidateId = Number(req.params.id);
+  const scope = candidateScopeSql(req, 'c', 3);
   const { rows } = await pool.query(
-    'SELECT resume_meta, name FROM candidates WHERE id = $1 AND tenant_id = $2',
-    [candidateId, tid(req)]
+    `SELECT resume_meta, name FROM candidates c WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
+    [candidateId, tid(req), ...scope.params]
   );
   const c = rows[0];
   if (!c) return res.status(404).json({ error: 'Candidate not found' });
@@ -711,9 +684,10 @@ router.get('/:id/resume/download', async (req, res) => {
 /** Re-parse stored resume or a newly uploaded file; updates candidate on save via PATCH. */
 router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, res) => {
   const candidateId = Number(req.params.id);
+  const scope = candidateScopeSql(req, 'c', 3);
   const { rows } = await pool.query(
-    'SELECT id, name, resume_meta FROM candidates WHERE id = $1 AND tenant_id = $2',
-    [candidateId, tid(req)]
+    `SELECT id, name, resume_meta FROM candidates c WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
+    [candidateId, tid(req), ...scope.params]
   );
   const c = rows[0];
   if (!c) return res.status(404).json({ error: 'Candidate not found' });
@@ -849,9 +823,10 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
 
 router.put('/:id/screening', async (req, res) => {
   const candidateId = Number(req.params.id);
+  const scope = candidateScopeSql(req, 'c', 3);
   const { rows: existing } = await pool.query(
-    'SELECT id, name, job_id FROM candidates WHERE id = $1 AND tenant_id = $2',
-    [candidateId, tid(req)]
+    `SELECT id, name, job_id FROM candidates c WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
+    [candidateId, tid(req), ...scope.params]
   );
   if (!existing[0]) return res.status(404).json({ error: 'Candidate not found' });
 
@@ -913,6 +888,9 @@ router.put('/:id/screening', async (req, res) => {
 router.get('/:id/screening-questions', async (req, res) => {
   const candidateId = Number(req.params.id);
   if (!Number.isFinite(candidateId)) return res.status(400).json({ error: 'Invalid candidate id' });
+  if (!(await assertCandidateAccess(req, candidateId))) {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
 
   try {
     const result = await getScreeningQuestionsForCandidate(candidateId, tid(req));
@@ -923,13 +901,14 @@ router.get('/:id/screening-questions', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
+  const scope = candidateScopeSql(req, 'c', 3);
   const { rows } = await pool.query(
     `SELECT c.*, j.title AS job_title, j.client, j.location, u.name AS recruiter_name
      FROM candidates c
      LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
      LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
-     WHERE c.id = $1 AND c.tenant_id = $2`,
-    [req.params.id, tid(req)]
+     WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
+    [req.params.id, tid(req), ...scope.params]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Candidate not found' });
   res.json(rows[0]);
@@ -1123,6 +1102,9 @@ router.post('/', enforceCandidateLimit(), async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
+  if (!(await assertCandidateAccess(req, Number(req.params.id)))) {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
   const {
     stage,
     notes,
@@ -1452,6 +1434,9 @@ router.patch('/:id', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
+  if (!(await assertCandidateAccess(req, Number(req.params.id)))) {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

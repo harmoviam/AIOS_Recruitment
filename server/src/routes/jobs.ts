@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { pool } from '../db.js';
+import { candidateScopeSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantClause, tenantMiddleware } from '../middleware/tenant.js';
 import { aiMode, generateJobDescription } from '../services/ai.js';
@@ -37,29 +38,6 @@ function canManageJobs(req: Request, res: Response, next: NextFunction) {
 }
 
 /** Match candidate list scoping — recruiters/HMs only see their own team's counts. */
-function candidateScopeSql(req: Request, paramStart: number) {
-  const role = req.user!.role;
-  if (role === 'recruiter') {
-    return {
-      sql: ` AND c.recruiter_id = $${paramStart}`,
-      params: [req.user!.id] as unknown[],
-      nextIndex: paramStart + 1,
-    };
-  }
-  if (role === 'hiring_manager') {
-    return {
-      sql: ` AND c.recruiter_id IN (
-        SELECT r.id FROM users r WHERE r.tenant_id = $${paramStart} AND r.role = 'recruiter'
-        AND (r.managed_by_id = $${paramStart + 1}
-          OR r.company_id = (SELECT company_id FROM users WHERE id = $${paramStart + 1}))
-      )`,
-      params: [tid(req), req.user!.id] as unknown[],
-      nextIndex: paramStart + 2,
-    };
-  }
-  return { sql: '', params: [] as unknown[], nextIndex: paramStart };
-}
-
 function validateJobLocation(body: Record<string, unknown>, isCreate: boolean): string | null {
   const lat = body.latitude != null && body.latitude !== '' ? Number(body.latitude) : null;
   const lng = body.longitude != null && body.longitude !== '' ? Number(body.longitude) : null;
@@ -143,7 +121,7 @@ router.get('/recommend/:candidateId', async (req, res) => {
 
 router.get('/', async (req, res) => {
   const t = tenantClause(tid(req), 'j', 1);
-  const scope = candidateScopeSql(req, t.nextIndex);
+  const scope = candidateScopeSql(req, 'c', t.nextIndex);
   const params = [t.param, ...scope.params];
 
   const { rows } = await pool.query(

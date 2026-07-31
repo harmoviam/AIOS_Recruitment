@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { pool } from '../db.js';
+import { candidateScopeSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantMiddleware } from '../middleware/tenant.js';
 
@@ -17,28 +18,10 @@ interface NotificationItem {
   at: string;
 }
 
-/** SQL fragment scoping candidates (alias c) to what the current user can see. */
-function scopeClause(req: Request, startIndex: number) {
-  const role = req.user!.role;
-  if (role === 'recruiter') {
-    return { sql: ` AND c.recruiter_id = $${startIndex}`, params: [req.user!.id] as unknown[] };
-  }
-  if (role === 'hiring_manager') {
-    return {
-      sql: ` AND (c.recruiter_id = $${startIndex + 1} OR c.recruiter_id IN (
-        SELECT r.id FROM users r WHERE r.tenant_id = $${startIndex} AND r.role = 'recruiter'
-        AND (r.managed_by_id = $${startIndex + 1} OR
-          (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${startIndex + 1})))
-      ))`,
-      params: [req.tenant!.id, req.user!.id] as unknown[],
-    };
-  }
-  return { sql: '', params: [] as unknown[] };
-}
 
 router.get('/', async (req, res) => {
   const tenantId = req.tenant!.id;
-  const scope = scopeClause(req, 2);
+  const scope = candidateScopeSql(req, 'c', 2);
 
   const [followUps, interviews, hot] = await Promise.all([
     pool.query(

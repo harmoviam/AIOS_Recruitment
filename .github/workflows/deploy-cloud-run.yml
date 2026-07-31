@@ -218,7 +218,7 @@ jobs:
             --cpu 1 \
             --timeout 120 \
             --concurrency 80 \
-            --min-instances 0 \
+            --min-instances 1 \
             --max-instances 10 \
             --tag=canary \
             --allow-unauthenticated \

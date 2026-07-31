@@ -1,8 +1,8 @@
 import { Router, type Request } from 'express';
 import { pool } from '../db.js';
+import { assertCandidateAccess, candidateScopeSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
-  assertCandidateInTenant,
   requireTenant,
   tenantClause,
   tenantMiddleware,
@@ -78,19 +78,10 @@ router.get('/', async (req, res) => {
     params.push(category);
   }
 
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${i++}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    // HMs see their team's follow-ups and the ones on candidates they own themselves.
-    sql += ` AND (c.recruiter_id = $${i + 1} OR c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${i + 1} OR
-        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1})))
-    ))`;
-    params.push(tid(req), req.user!.id);
-    i += 2;
-  }
+  const scope = candidateScopeSql(req, 'c', i);
+  sql += scope.sql;
+  params.push(...scope.params);
+  i = scope.nextIndex;
 
   sql += ' ORDER BY f.due_at DESC LIMIT 500';
 
@@ -119,19 +110,10 @@ router.get('/counts', async (req, res) => {
   const params: unknown[] = [t.param];
   let i = t.nextIndex;
 
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${i++}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    // HMs see their team's follow-ups and the ones on candidates they own themselves.
-    sql += ` AND (c.recruiter_id = $${i + 1} OR c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${i} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${i + 1} OR
-        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${i + 1})))
-    ))`;
-    params.push(tid(req), req.user!.id);
-    i += 2;
-  }
+  const scope = candidateScopeSql(req, 'c', i);
+  sql += scope.sql;
+  params.push(...scope.params);
+  i = scope.nextIndex;
 
   const { rows } = await pool.query(sql, params);
   const counts = { today: 0, overdue: 0, upcoming: 0, completed: 0, missed: 0 };
@@ -147,7 +129,7 @@ router.post('/', async (req, res) => {
   if (!candidate_id || !due_at) {
     return res.status(400).json({ error: 'candidate_id and due_at required' });
   }
-  if (!(await assertCandidateInTenant(Number(candidate_id), tid(req)))) {
+  if (!(await assertCandidateAccess(req, Number(candidate_id)))) {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 

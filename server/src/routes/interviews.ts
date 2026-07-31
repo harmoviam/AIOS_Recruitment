@@ -3,11 +3,11 @@ import { pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import {
-  assertCandidateInTenant,
   requireTenant,
   tenantClause,
   tenantMiddleware,
 } from '../middleware/tenant.js';
+import { assertCandidateAccess, candidateScopeSql } from '../services/accessScope.js';
 import { promoteToInterviewStage } from '../services/candidateStage.js';
 import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
@@ -33,24 +33,6 @@ router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
 
-function interviewAccessSql(req: Request, t: ReturnType<typeof tenantClause>, idx: number) {
-  let sql = '';
-  const params: unknown[] = [];
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${idx}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    // HMs see their team's interviews and the ones on candidates they own themselves.
-    sql += ` AND (c.recruiter_id = $${idx + 1} OR c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${idx + 1} OR
-        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1})))
-    ))`;
-    params.push(tid(req), req.user!.id);
-  }
-  return { sql, params };
-}
-
 async function fetchInterviewForTenant(req: Request, interviewId: number) {
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
@@ -60,7 +42,7 @@ async function fetchInterviewForTenant(req: Request, interviewId: number) {
     WHERE i.id = $${t.nextIndex} AND ${t.sql}
   `;
   const params: unknown[] = [t.param, interviewId];
-  const access = interviewAccessSql(req, t, t.nextIndex + 1);
+  const access = candidateScopeSql(req, 'c', t.nextIndex + 1);
   sql += access.sql;
   params.push(...access.params);
   const { rows } = await pool.query(sql, params);
@@ -100,19 +82,10 @@ router.get('/', async (req, res) => {
   const params: unknown[] = [t.param];
   let idx = t.nextIndex;
 
-  if (req.user!.role === 'recruiter') {
-    sql += ` AND c.recruiter_id = $${idx++}`;
-    params.push(req.user!.id);
-  } else if (req.user!.role === 'hiring_manager') {
-    // HMs see their team's interviews and the ones on candidates they own themselves.
-    sql += ` AND (c.recruiter_id = $${idx + 1} OR c.recruiter_id IN (
-      SELECT r.id FROM users r WHERE r.tenant_id = $${idx} AND r.role = 'recruiter'
-      AND (r.managed_by_id = $${idx + 1} OR
-        (r.managed_by_id IS NULL AND r.company_id = (SELECT company_id FROM users WHERE id = $${idx + 1})))
-    ))`;
-    params.push(tid(req), req.user!.id);
-    idx += 2;
-  }
+  const scope = candidateScopeSql(req, 'c', idx);
+  sql += scope.sql;
+  params.push(...scope.params);
+  idx = scope.nextIndex;
 
   if (candidate_id) {
     sql += ` AND i.candidate_id = $${idx++}`;
@@ -222,7 +195,7 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'candidate_id and scheduled_at required' });
   }
 
-  if (!(await assertCandidateInTenant(Number(candidate_id), tid(req)))) {
+  if (!(await assertCandidateAccess(req, Number(candidate_id)))) {
     return res.status(404).json({ error: 'Candidate not found' });
   }
 
