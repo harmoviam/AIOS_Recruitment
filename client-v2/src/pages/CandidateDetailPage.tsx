@@ -6,8 +6,9 @@ import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
 import RecommendedJobsPanel from '../components/RecommendedJobsPanel';
 import Tabs from '../components/ui/Tabs';
 import ScorePicker from '../components/ui/ScorePicker';
-import { RED_FLAG_SIGNALS, SCREENING_QUESTIONS, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel, type ScreeningQuestionDef } from '../types';
+import { FALLBACK_RED_FLAG_QUESTIONS, RED_FLAG_SIGNALS, SCREENING_QUESTIONS, atsScoreClass, formatQuestionDuration, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel, type JobScreeningQuestions, type RedFlagPack, type RedFlagQuestion, type ScreeningQuestionDef } from '../types';
 import type { Application, Candidate, Interview, Job, Message, TimelineEvent } from '../types';
+import { inferJobIndustry, isBpoIndustry } from '../utils/industries';
 
 const APPLICATION_STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
 
@@ -54,8 +55,14 @@ export default function CandidateDetailPage() {
   const [notes, setNotes] = useState('');
   const [scores, setScores] = useState<Record<string, number | null>>({});
   const [prescreenQuestions, setPrescreenQuestions] = useState<ScreeningQuestionDef[]>(SCREENING_QUESTIONS);
+  const [scheduledQuestions, setScheduledQuestions] = useState<ScreeningQuestionDef[]>([]);
+  const [screeningMeta, setScreeningMeta] = useState<Pick<
+    JobScreeningQuestions,
+    'screening_duration_seconds' | 'scheduled_duration_seconds' | 'screening_total_seconds' | 'scheduled_total_seconds' | 'industry' | 'experience_band' | 'source'
+  > | null>(null);
   const [screeningJobTitle, setScreeningJobTitle] = useState<string | null>(null);
   const [screeningStatus, setScreeningStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [redFlagPack, setRedFlagPack] = useState<RedFlagPack | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
     name: '',
@@ -106,11 +113,22 @@ export default function CandidateDetailPage() {
         .then((r) => {
           const questions = r.questions.prescreen?.length ? r.questions.prescreen : SCREENING_QUESTIONS;
           setPrescreenQuestions(questions);
+          setScheduledQuestions(r.questions.interview || []);
+          setScreeningMeta({
+            screening_duration_seconds: r.questions.screening_duration_seconds,
+            scheduled_duration_seconds: r.questions.scheduled_duration_seconds,
+            screening_total_seconds: r.questions.screening_total_seconds,
+            scheduled_total_seconds: r.questions.scheduled_total_seconds,
+            industry: r.questions.industry,
+            experience_band: r.questions.experience_band,
+            source: r.questions.source,
+          });
           setScreeningJobTitle(r.job_title);
           applyScores(questions);
         })
         .catch(() => applyScores(SCREENING_QUESTIONS));
     });
+    api.getCandidateRedFlagQuestions(cid).then(setRedFlagPack).catch(() => setRedFlagPack(null));
     api.getInterviews({ candidate_id: String(cid) }).then(setInterviews);
     api.getMessages(cid).then(setMessages);
     api.getCandidateTimeline(cid).then(setTimeline);
@@ -177,12 +195,28 @@ export default function CandidateDetailPage() {
 
   const maxPrescreenScore = prescreenQuestions.length * 5;
   const totalScore = prescreenQuestions.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
-  const totalRedFlags = RED_FLAG_SIGNALS.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
+  // Server-issued probes when available; the static list is the offline fallback.
+  const redFlagSignals: RedFlagQuestion[] = redFlagPack?.questions?.length
+    ? redFlagPack.questions
+    : FALLBACK_RED_FLAG_QUESTIONS;
+  const totalRedFlags = redFlagSignals.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0);
   // A signal scored 3 or below counts as a red flag (unscored signals don't count).
-  const redFlagCount = RED_FLAG_SIGNALS.filter((q) => {
+  const redFlagCount = redFlagSignals.filter((q) => {
     const s = scores[q.id];
     return s != null && s <= 3;
   }).length;
+
+  // Stay location, nearby companies, and suggested companies only matter where
+  // commute distance decides whether the candidate joins — i.e. BPO hiring.
+  const primaryJob = allJobs.find((j) => j.id === candidate.job_id) || null;
+  const candidateIndustry =
+    redFlagPack?.industry || (primaryJob ? inferJobIndustry(primaryJob) : null);
+  const isBpoCandidate =
+    isBpoIndustry(candidateIndustry) ||
+    applications.some((a) => {
+      const job = allJobs.find((j) => j.id === a.job_id);
+      return job ? isBpoIndustry(inferJobIndustry(job)) : false;
+    });
   // 5+ red flags: stop — reduce interview time, pre-screening questions are blocked.
   const screeningBlocked = redFlagCount >= 5;
   const riskLevel = screeningRiskLevel(totalScore, maxPrescreenScore);
@@ -542,6 +576,44 @@ export default function CandidateDetailPage() {
                 </p>
               )}
             </div>
+            {candidate.ats_score != null && (
+              <div className="card">
+                <div className="screening-section-head">
+                  <div>
+                    <div className="card-title">Resume ATS score</div>
+                    <p className="text-muted">
+                      How well the uploaded resume parses and matches the JD
+                      {candidate.ats_details?.scored_against_job ? '' : ' (no JD keywords scored — assign a job to include them)'}.
+                    </p>
+                  </div>
+                  <span className={atsScoreClass(candidate.ats_score)}>
+                    {candidate.ats_score}/100
+                    {candidate.ats_details?.grade ? ` · ${candidate.ats_details.grade}` : ''}
+                  </span>
+                </div>
+                {candidate.ats_details?.categories?.length ? (
+                  <ul className="ats-breakdown">
+                    {candidate.ats_details.categories.map((c) => (
+                      <li key={c.key}>
+                        <span className="ats-breakdown-label">{c.label}</span>
+                        <span className="ats-breakdown-score">{c.score}/{c.max}</span>
+                        <span className="ats-breakdown-detail text-muted">{c.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {candidate.ats_details?.recommendations?.length ? (
+                  <>
+                    <div className="screening-row-label" style={{ marginTop: '0.75rem' }}>How to improve</div>
+                    <ul className="ats-recommendations">
+                      {candidate.ats_details.recommendations.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
 
@@ -637,72 +709,114 @@ export default function CandidateDetailPage() {
 
         {tab === 'screening' && (
           <div className="screening-form">
-            <div className="card stay-location-card" style={{ marginBottom: '1rem' }}>
-              <div className="card-title">Candidate stay location</div>
-              <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-                Select a place from Google Maps suggestions so nearby companies can be ranked by distance.
-                {candidate.latitude != null && candidate.longitude != null
-                  ? ' Coordinates are saved.'
-                  : ' Coordinates are missing for this candidate.'}
-              </p>
-              <CandidateLocationFields
-                value={stayLocation}
-                onChange={(loc) => {
-                  setStayLocation(loc);
-                  setStaySaved(false);
-                  setStayError('');
-                }}
-                disabled={staySaving}
-              />
-              {stayError && <p className="form-error" style={{ marginTop: '0.5rem' }}>{stayError}</p>}
-              {staySaved && !stayError && (
-                <p className="text-muted" style={{ marginTop: '0.5rem', color: '#16a34a' }}>
-                  Stay location saved.
-                </p>
-              )}
-              <div className="form-actions" style={{ marginTop: '0.75rem' }}>
-                <button
-                  type="button"
-                  className="button-pill button-primary btn-sm"
-                  onClick={() => void saveStayLocation()}
-                  disabled={staySaving}
-                >
-                  {staySaving ? 'Saving…' : 'Save stay location'}
-                </button>
-              </div>
-            </div>
+            {isBpoCandidate && (
+              <>
+                <div className="card stay-location-card" style={{ marginBottom: '1rem' }}>
+                  <div className="card-title">Candidate stay location</div>
+                  <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+                    BPO hiring lives or dies on commute — select a place from Google Maps suggestions so
+                    nearby companies can be ranked by distance.
+                    {candidate.latitude != null && candidate.longitude != null
+                      ? ' Coordinates are saved.'
+                      : ' Coordinates are missing for this candidate.'}
+                  </p>
+                  <CandidateLocationFields
+                    value={stayLocation}
+                    onChange={(loc) => {
+                      setStayLocation(loc);
+                      setStaySaved(false);
+                      setStayError('');
+                    }}
+                    disabled={staySaving}
+                  />
+                  {stayError && <p className="form-error" style={{ marginTop: '0.5rem' }}>{stayError}</p>}
+                  {staySaved && !stayError && (
+                    <p className="text-muted" style={{ marginTop: '0.5rem', color: '#16a34a' }}>
+                      Stay location saved.
+                    </p>
+                  )}
+                  <div className="form-actions" style={{ marginTop: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="button-pill button-primary btn-sm"
+                      onClick={() => void saveStayLocation()}
+                      disabled={staySaving}
+                    >
+                      {staySaving ? 'Saving…' : 'Save stay location'}
+                    </button>
+                  </div>
+                </div>
 
-            <NearbyCompaniesPanel
-              candidateId={candidate.id}
-              latitude={stayLocation.latitude}
-              longitude={stayLocation.longitude}
-            />
-            <RecommendedJobsPanel
-              candidateId={candidate.id}
-              locationRevision={`${candidate.latitude ?? ''}:${candidate.longitude ?? ''}`}
-              onApply={async (jobId) => {
-                const updated = await api.updateCandidate(candidate.id, { job_id: jobId, stage: 'screening' });
-                setCandidate(updated);
-              }}
-            />
+                <NearbyCompaniesPanel
+                  candidateId={candidate.id}
+                  latitude={stayLocation.latitude}
+                  longitude={stayLocation.longitude}
+                />
+                <RecommendedJobsPanel
+                  candidateId={candidate.id}
+                  locationRevision={`${candidate.latitude ?? ''}:${candidate.longitude ?? ''}`}
+                  onApply={async (jobId) => {
+                    const updated = await api.updateCandidate(candidate.id, { job_id: jobId, stage: 'screening' });
+                    setCandidate(updated);
+                  }}
+                />
+              </>
+            )}
 
             <div className="card" style={{ marginBottom: '1rem' }}>
               <div className="screening-section-head">
                 <div>
-                  <div className="card-title">Red Flag Signals — First 3 Minutes</div>
+                  <div className="card-title">Red Flag Signals — First 5–7 Minutes</div>
                   <p className="text-muted">
-                    Score the candidate's response on each signal: 1 (strong red flag) to 5 (no concern).
+                    {redFlagPack
+                      ? `Standard intent check for ${redFlagPack.job_title || 'this role'}${redFlagPack.industry ? ` · ${redFlagPack.industry}` : ''} · ${redFlagPack.experience_band_label}. `
+                      : ''}
+                    Ask each question as written, then score the answer: 1 (strong red flag) to 5 (no concern).
                     A score of 3 or below counts as a red flag.
                   </p>
                 </div>
                 <div className="screening-total">
-                  Total Red Flags <strong>{totalRedFlags}</strong>/35
+                  Total Red Flags <strong>{totalRedFlags}</strong>/{redFlagSignals.length * 5}
                 </div>
               </div>
-              {RED_FLAG_SIGNALS.map((q) => (
+
+              {redFlagPack && redFlagPack.salary_alignment.level !== 'ok' && (
+                <div
+                  className={`alert-banner${
+                    redFlagPack.salary_alignment.level === 'over_budget'
+                      ? ' danger'
+                      : redFlagPack.salary_alignment.level === 'tight'
+                        ? ' warning'
+                        : ''
+                  }`}
+                  style={{ marginBottom: '0.75rem' }}
+                >
+                  💰 <strong>Salary check:</strong> {redFlagPack.salary_alignment.message}
+                </div>
+              )}
+
+              {redFlagSignals.map((q) => (
                 <div key={q.id} className="screening-row">
                   <div className="screening-row-info">
-                    <div className="screening-row-label">{q.label}</div>
+                    <div className="screening-row-label">
+                      {q.label}
+                      {q.time_seconds ? (
+                        <span className="text-muted" style={{ fontWeight: 400, fontSize: '0.8rem', marginLeft: '0.4rem' }}>
+                          {formatQuestionDuration(q.time_seconds)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {q.ask && <div className="screening-row-ask">“{q.ask}”</div>}
+                    {q.good_answer && (
+                      <div className="screening-row-answers">
+                        <div className="answer-good">
+                          <strong>Good (4–5):</strong> {q.good_answer}
+                        </div>
+                        <div className="answer-red">
+                          <strong>Red flag (1–3):</strong> {q.red_answer}
+                        </div>
+                      </div>
+                    )}
                     <div className="screening-row-hint">{q.hint}</div>
                   </div>
                   <ScorePicker value={scores[q.id] ?? null} onChange={(v) => setScore(q.id, v)} label={q.label} />
@@ -719,23 +833,40 @@ export default function CandidateDetailPage() {
             <div className={`card${screeningBlocked ? ' screening-card-blocked' : ''}`} style={{ marginBottom: '1rem' }}>
               <div className="screening-section-head">
                 <div>
-                  <div className="card-title">Pre-Screening Questions</div>
+                  <div className="card-title">
+                    Screening Questions
+                    <span className="text-muted" style={{ fontWeight: 400, fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+                      max {Math.round((screeningMeta?.screening_duration_seconds || 300) / 60)} min
+                      {screeningMeta?.screening_total_seconds
+                        ? ` · ${formatQuestionDuration(screeningMeta.screening_total_seconds)} packed`
+                        : ''}
+                    </span>
+                  </div>
                   <p className="text-muted">
                     {screeningBlocked
-                      ? 'Blocked — 5+ red flags in the first 3 minutes.'
+                      ? 'Blocked — 5+ red flags in the first 5–7 minutes.'
                       : screeningJobTitle
-                        ? `First-call scorecard tailored for ${screeningJobTitle}. Score each answer 1 (weak) to 5 (strong).`
-                        : 'First-call quick scorecard (not the full interview screening). Score each answer 1 (weak) to 5 (strong).'}
+                        ? `Standard first-call scorecard for ${screeningJobTitle}${screeningMeta?.industry ? ` · ${screeningMeta.industry}` : ''}. Same questions for every candidate on this job. Score 1–5.`
+                        : 'First-call quick scorecard (≤5 min). Score each answer 1 (weak) to 5 (strong).'}
                   </p>
                 </div>
-                <div className="screening-total">
-                  Total Score <strong>{totalScore}</strong>/{maxPrescreenScore}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+                  <div className="screening-total">
+                    Total Score <strong>{totalScore}</strong>/{maxPrescreenScore}
+                  </div>
                 </div>
               </div>
               {prescreenQuestions.map((q) => (
                 <div key={q.id} className="screening-row">
                   <div className="screening-row-info">
-                    <div className="screening-row-label">{q.label}</div>
+                    <div className="screening-row-label">
+                      {q.label}
+                      {q.time_seconds ? (
+                        <span className="text-muted" style={{ fontWeight: 400, fontSize: '0.8rem', marginLeft: '0.4rem' }}>
+                          {formatQuestionDuration(q.time_seconds)}
+                        </span>
+                      ) : null}
+                    </div>
                     {q.requirement && (
                       <div className="screening-row-hint text-muted" style={{ fontSize: '0.8rem' }}>
                         JD requirement: {q.requirement}
@@ -756,6 +887,44 @@ export default function CandidateDetailPage() {
                 <span className="text-muted"> — auto-calculated from total score vs max ({maxPrescreenScore})</span>
               </div>
             </div>
+
+            {scheduledQuestions.length > 0 && (
+              <div className="card" style={{ marginBottom: '1rem' }}>
+                <div className="screening-section-head">
+                  <div>
+                    <div className="card-title">
+                      Scheduled Questions
+                      <span className="text-muted" style={{ fontWeight: 400, fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+                        max {Math.round((screeningMeta?.scheduled_duration_seconds || 900) / 60)} min
+                        {screeningMeta?.scheduled_total_seconds
+                          ? ` · ${formatQuestionDuration(screeningMeta.scheduled_total_seconds)} packed`
+                          : ''}
+                      </span>
+                    </div>
+                    <p className="text-muted">
+                      Use these during the scheduled interview round. Times are speaking hints that sum to ≤15 minutes.
+                      {screeningMeta?.source ? ` Source: ${screeningMeta.source}.` : ''}
+                    </p>
+                  </div>
+                </div>
+                <ol className="jd-screening-preview" style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                  {scheduledQuestions.map((q) => (
+                    <li key={q.id} style={{ marginBottom: '0.65rem' }}>
+                      <strong>{q.label}</strong>
+                      {q.time_seconds ? (
+                        <span className="text-muted"> · {formatQuestionDuration(q.time_seconds)}</span>
+                      ) : null}
+                      {q.requirement ? (
+                        <div className="text-muted" style={{ fontSize: '0.85rem' }}>
+                          Focus: {q.requirement}
+                        </div>
+                      ) : null}
+                      <div className="text-muted" style={{ fontSize: '0.85rem' }}>{q.hint}</div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
 
             <div className="screening-actions">
               <button

@@ -5,6 +5,7 @@ import JobLocationPicker, { type JobLocationValue } from '../components/JobLocat
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../utils/useRefetchOnFocus';
 import type { Job } from '../types';
+import { JOB_INDUSTRIES } from '../utils/industries';
 
 type StatusFilter = 'all' | 'active' | 'inactive' | '60days' | '90days';
 
@@ -58,6 +59,7 @@ const EMPTY_FORM = {
   salary: '',
   shift: '',
   job_type: '',
+  industry: '',
   min_experience: '',
   max_experience: '',
   min_age: '',
@@ -152,6 +154,7 @@ export default function JobsPage() {
       salary: job.salary || '',
       shift: job.shift || '',
       job_type: job.job_type || '',
+      industry: job.industry || '',
       min_experience: job.min_experience != null ? String(job.min_experience) : '',
       max_experience: job.max_experience != null ? String(job.max_experience) : '',
       min_age: job.min_age != null ? String(job.min_age) : '',
@@ -363,12 +366,50 @@ export default function JobsPage() {
               <input type="number" className="input-field" placeholder="Open positions" value={form.open_positions} onChange={(e) => setForm({ ...form, open_positions: Number(e.target.value) })} />
               <input className="input-field" placeholder="Salary (e.g. 4.2 LPA)" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
               <input className="input-field" placeholder="Job type (On-site / Remote / Hybrid)" value={form.job_type} onChange={(e) => setForm({ ...form, job_type: e.target.value })} />
+              <div>
+                <label className="form-label" htmlFor="job-industry">Industry / category</label>
+                <select
+                  id="job-industry"
+                  className="input-field"
+                  value={form.industry}
+                  onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                >
+                  <option value="">Select industry</option>
+                  {JOB_INDUSTRIES.map((ind) => (
+                    <option key={ind} value={ind}>{ind}</option>
+                  ))}
+                </select>
+              </div>
               <input className="input-field" placeholder="Shift (Day / Night)" value={form.shift} onChange={(e) => setForm({ ...form, shift: e.target.value })} />
               <input className="input-field" placeholder="Required qualification" value={form.required_qualification} onChange={(e) => setForm({ ...form, required_qualification: e.target.value })} />
               <input className="input-field" placeholder="Required languages (comma-separated)" value={form.required_languages} onChange={(e) => setForm({ ...form, required_languages: e.target.value })} />
               <input className="input-field" placeholder="Required skills (comma-separated)" value={form.required_skills} onChange={(e) => setForm({ ...form, required_skills: e.target.value })} />
-              <input type="number" className="input-field" placeholder="Min experience (years)" value={form.min_experience} onChange={(e) => setForm({ ...form, min_experience: e.target.value })} />
-              <input type="number" className="input-field" placeholder="Max experience (years)" value={form.max_experience} onChange={(e) => setForm({ ...form, max_experience: e.target.value })} />
+              <div>
+                <label className="form-label" htmlFor="job-min-exp">Min experience (years)</label>
+                <input
+                  id="job-min-exp"
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  className="input-field"
+                  placeholder="e.g. 0"
+                  value={form.min_experience}
+                  onChange={(e) => setForm({ ...form, min_experience: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="form-label" htmlFor="job-max-exp">Max experience (years)</label>
+                <input
+                  id="job-max-exp"
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  className="input-field"
+                  placeholder="e.g. 3"
+                  value={form.max_experience}
+                  onChange={(e) => setForm({ ...form, max_experience: e.target.value })}
+                />
+              </div>
               <input type="number" className="input-field" placeholder="Min age" value={form.min_age} onChange={(e) => setForm({ ...form, min_age: e.target.value })} />
               <input type="number" className="input-field" placeholder="Max age" value={form.max_age} onChange={(e) => setForm({ ...form, max_age: e.target.value })} />
               <select className="input-field" value={form.tenure_days} onChange={(e) => setForm({ ...form, tenure_days: e.target.value })}>
@@ -513,24 +554,39 @@ export default function JobsPage() {
               ) : jdScreeningQuestions ? (
                 <>
                   <p className="text-muted" style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>
-                    Generated from JD requirements ({jdScreeningQuestions.source || 'default'}).
-                    {jdScreeningQuestions.prescreen.length} pre-screen · {jdScreeningQuestions.interview.length} interview questions.
+                    Generated from JD{viewingJd.job_type ? ` · ${viewingJd.job_type}` : ''} ({jdScreeningQuestions.source || 'default'}).
+                    {' '}
+                    Screening ~{Math.round((jdScreeningQuestions.screening_duration_seconds || 300) / 60)} min
+                    ({jdScreeningQuestions.prescreen.length} Qs
+                    {jdScreeningQuestions.screening_total_seconds
+                      ? `, ${Math.round(jdScreeningQuestions.screening_total_seconds / 60)} min packed`
+                      : ''}
+                    )
+                    {' · '}
+                    Scheduled ~{Math.round((jdScreeningQuestions.scheduled_duration_seconds || 900) / 60)} min
+                    ({jdScreeningQuestions.interview.length} Qs
+                    {jdScreeningQuestions.scheduled_total_seconds
+                      ? `, ${Math.round(jdScreeningQuestions.scheduled_total_seconds / 60)} min packed`
+                      : ''}
+                    ).
                   </p>
                   <div className="jd-screening-preview">
-                    <strong>Pre-screen</strong>
+                    <strong>Screening (max 5 min)</strong>
                     <ul>
                       {jdScreeningQuestions.prescreen.map((q) => (
                         <li key={q.id}>
                           {q.label}
+                          {q.time_seconds ? <span className="text-muted"> · {q.time_seconds}s</span> : null}
                           {q.requirement ? <span className="text-muted"> — {q.requirement}</span> : null}
                         </li>
                       ))}
                     </ul>
-                    <strong>Interview</strong>
+                    <strong>Scheduled (max 15 min)</strong>
                     <ul>
                       {jdScreeningQuestions.interview.map((q) => (
                         <li key={q.id}>
                           {q.label}
+                          {q.time_seconds ? <span className="text-muted"> · {q.time_seconds}s</span> : null}
                           {q.requirement ? <span className="text-muted"> — {q.requirement}</span> : null}
                         </li>
                       ))}

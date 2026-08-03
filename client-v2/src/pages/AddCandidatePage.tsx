@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import ResumeUploadZone from '../components/ResumeUploadZone';
@@ -6,7 +6,8 @@ import CandidateLocationFields from '../components/CandidateLocationFields';
 import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
 import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
-import type { Job, ParsedProfile, ResumeParseResponse } from '../types';
+import { atsScoreClass, type AtsScoreResult, type Job, type ParsedProfile, type ResumeParseResponse } from '../types';
+import { inferJobIndustry, isBpoIndustry } from '../utils/industries';
 
 function mergeSkills(parsed: ParsedProfile): string[] {
   const all = [...(parsed.skills || []), ...(parsed.technical_skills || [])];
@@ -14,11 +15,13 @@ function mergeSkills(parsed: ParsedProfile): string[] {
 }
 
 function applyParsedToForm(parsed: ParsedProfile) {
+  const years = parsed.total_experience_years ?? 0;
   return {
     name: parsed.name || '',
     phone: parsed.phone || '',
     email: parsed.email || '',
-    experience_years: parsed.total_experience_years ?? 0,
+    min_experience: years,
+    max_experience: years,
     skills: mergeSkills(parsed).join(', '),
     notes: parsed.professional_summary || '',
     salary_expectation: parsed.expected_salary || '',
@@ -41,6 +44,7 @@ export default function AddCandidatePage() {
   const [error, setError] = useState('');
   const [parseError, setParseError] = useState('');
   const [aiConfidence, setAiConfidence] = useState<number | null>(null);
+  const [ats, setAts] = useState<AtsScoreResult | null>(null);
   const [parsedProfile, setParsedProfile] = useState<ParsedProfile | null>(null);
   const [pendingResume, setPendingResume] = useState<Pick<
     ResumeParseResponse,
@@ -52,7 +56,8 @@ export default function AddCandidatePage() {
     phone: '',
     email: '',
     job_id: '',
-    experience_years: 0,
+    min_experience: 0,
+    max_experience: 0,
     skills: '',
     notes: '',
     salary_expectation: '',
@@ -81,10 +86,30 @@ export default function AddCandidatePage() {
     api.getJobs().then(setJobs);
   }, []);
 
+  const selectedJob = useMemo(
+    () => jobs.find((j) => String(j.id) === form.job_id) || null,
+    [jobs, form.job_id]
+  );
+
+  const selectedIndustry = selectedJob ? inferJobIndustry(selectedJob) : null;
+
+  /** All other openings; same-industry (incl. BPO) sorted first so BPO multi-submit is obvious. */
+  const alsoSubmitJobs = useMemo(() => {
+    const others = jobs.filter((j) => String(j.id) !== form.job_id);
+    if (!form.job_id || others.length === 0) return [];
+    if (!selectedIndustry) return others;
+    return [...others].sort((a, b) => {
+      const aMatch = inferJobIndustry(a) === selectedIndustry ? 0 : 1;
+      const bMatch = inferJobIndustry(b) === selectedIndustry ? 0 : 1;
+      return aMatch - bMatch;
+    });
+  }, [jobs, form.job_id, selectedIndustry]);
+
   const onResumeParsed = (_file: File, result: ResumeParseResponse) => {
     setParseError('');
     setParsedProfile(result.parsed_profile);
     setAiConfidence(result.ai_confidence);
+    setAts(result.ats ?? null);
     setPendingResume({
       pending_resume_id: result.pending_resume_id,
       pending_ext: result.pending_ext,
@@ -95,9 +120,21 @@ export default function AddCandidatePage() {
     setForm((prev) => ({ ...prev, ...applyParsedToForm(result.parsed_profile) }));
   };
 
+  const experienceYears = () => {
+    const min = Number(form.min_experience) || 0;
+    const max = Number(form.max_experience) || 0;
+    return Math.max(min, max);
+  };
+
   const submit = async (e: React.FormEvent, addAnother = false) => {
     e.preventDefault();
     setError('');
+    const min = Number(form.min_experience) || 0;
+    const max = Number(form.max_experience) || 0;
+    if (max > 0 && min > max) {
+      setError('Min experience cannot be greater than max experience');
+      return;
+    }
     setLoading(true);
     try {
       const skills = form.skills.split(',').map((s) => s.trim()).filter(Boolean);
@@ -107,7 +144,7 @@ export default function AddCandidatePage() {
         email: form.email || undefined,
         job_id: form.job_id ? Number(form.job_id) : undefined,
         job_ids: extraJobIds.length > 0 ? extraJobIds : undefined,
-        experience_years: form.experience_years,
+        experience_years: experienceYears(),
         skills,
         notes: form.notes || undefined,
         salary_expectation: form.salary_expectation || undefined,
@@ -158,7 +195,8 @@ export default function AddCandidatePage() {
           phone: '',
           email: '',
           job_id: form.job_id,
-          experience_years: 0,
+          min_experience: 0,
+          max_experience: 0,
           skills: '',
           notes: '',
           salary_expectation: '',
@@ -182,6 +220,7 @@ export default function AddCandidatePage() {
           preferred_shift: '',
           languages: '',
         });
+        setExtraJobIds([]);
         setParsedProfile(null);
         setPendingResume(null);
         setAiConfidence(null);
@@ -211,11 +250,43 @@ export default function AddCandidatePage() {
           onParsed={onResumeParsed}
           onError={setParseError}
           disabled={loading}
+          jobId={selectedJob?.id ?? null}
         />
 
         {aiConfidence != null && (
           <div className="ai-chip" style={{ marginBottom: '1rem' }}>
             AI confidence: {Math.round(aiConfidence * 100)}% — review fields before saving
+          </div>
+        )}
+
+        {ats && (
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="screening-section-head">
+              <div>
+                <div className="card-title">Resume ATS score</div>
+                <p className="text-muted">
+                  Scored on parseability, completeness
+                  {ats.scored_against_job ? ', and match against the selected job.' : '. Pick a job below and re-upload to include JD keyword match.'}
+                </p>
+              </div>
+              <span className={atsScoreClass(ats.score)}>
+                {ats.score}/100 · {ats.grade}
+              </span>
+            </div>
+            <ul className="ats-breakdown">
+              {ats.categories.map((c) => (
+                <li key={c.key}>
+                  <span className="ats-breakdown-label">{c.label}</span>
+                  <span className="ats-breakdown-score">{c.score}/{c.max}</span>
+                  <span className="ats-breakdown-detail text-muted">{c.detail}</span>
+                </li>
+              ))}
+            </ul>
+            {ats.missing.length > 0 && (
+              <p className="text-muted" style={{ marginTop: '0.5rem' }}>
+                Missing from the resume: {ats.missing.join(', ')}.
+              </p>
+            )}
           </div>
         )}
 
@@ -236,33 +307,54 @@ export default function AddCandidatePage() {
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="job">Job *</label>
-              <select id="job" className="input-field" value={form.job_id} onChange={(e) => setForm({ ...form, job_id: e.target.value })} required>
+              <select
+                id="job"
+                className="input-field"
+                value={form.job_id}
+                onChange={(e) => {
+                  setForm({ ...form, job_id: e.target.value });
+                  setExtraJobIds([]);
+                }}
+                required
+              >
                 <option value="">Select job</option>
                 {jobs.map((j) => (
-                  <option key={j.id} value={j.id}>{j.title} — {j.client}</option>
+                  <option key={j.id} value={j.id}>
+                    {j.title} — {j.client}
+                    {inferJobIndustry(j) ? ` (${inferJobIndustry(j)})` : ''}
+                  </option>
                 ))}
               </select>
             </div>
-            {form.job_id && jobs.length > 1 && (
-              <div className="form-group">
-                <label className="form-label">Also submit to</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '140px', overflowY: 'auto' }}>
-                  {jobs
-                    .filter((j) => String(j.id) !== form.job_id)
-                    .map((j) => (
-                      <label key={j.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={extraJobIds.includes(j.id)}
-                          onChange={(e) =>
-                            setExtraJobIds((prev) =>
-                              e.target.checked ? [...prev, j.id] : prev.filter((id) => id !== j.id)
-                            )
-                          }
-                        />
-                        {j.title} — {j.client}
-                      </label>
-                    ))}
+            {form.job_id && alsoSubmitJobs.length > 0 && (
+              <div className="form-group form-span-2">
+                <label className="form-label">
+                  Also submit to
+                  {isBpoIndustry(selectedIndustry) ? ' (includes other BPO roles)' : ''}
+                </label>
+                <p className="text-muted" style={{ fontSize: '0.8rem', margin: '0 0 0.35rem' }}>
+                  {isBpoIndustry(selectedIndustry)
+                    ? 'BPO openings are listed first — tick any other roles to create applications together.'
+                    : 'Optionally add applications to other openings. Same-category jobs (including BPO) are listed first.'}
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '160px', overflowY: 'auto' }}>
+                  {alsoSubmitJobs.map((j) => (
+                    <label key={j.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={extraJobIds.includes(j.id)}
+                        onChange={(e) =>
+                          setExtraJobIds((prev) =>
+                            e.target.checked ? [...prev, j.id] : prev.filter((id) => id !== j.id)
+                          )
+                        }
+                      />
+                      {j.title} — {j.client}
+                      {inferJobIndustry(j) ? (
+                        <span className="text-muted">({inferJobIndustry(j)})</span>
+                      ) : null}
+                    </label>
+                  ))}
                 </div>
               </div>
             )}
@@ -271,8 +363,28 @@ export default function AddCandidatePage() {
           <h3 className="card-heading" style={{ marginTop: '1.5rem' }}>Professional</h3>
           <div className="form-grid">
             <div className="form-group">
-              <label className="form-label" htmlFor="exp">Experience (years)</label>
-              <input id="exp" type="number" min={0} className="input-field" value={form.experience_years} onChange={(e) => setForm({ ...form, experience_years: Number(e.target.value) })} />
+              <label className="form-label" htmlFor="min-exp">Min experience (years)</label>
+              <input
+                id="min-exp"
+                type="number"
+                min={0}
+                step={0.5}
+                className="input-field"
+                value={form.min_experience}
+                onChange={(e) => setForm({ ...form, min_experience: Number(e.target.value) })}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="max-exp">Max experience (years)</label>
+              <input
+                id="max-exp"
+                type="number"
+                min={0}
+                step={0.5}
+                className="input-field"
+                value={form.max_experience}
+                onChange={(e) => setForm({ ...form, max_experience: Number(e.target.value) })}
+              />
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="skills">Skills (comma-separated)</label>
@@ -326,10 +438,6 @@ export default function AddCandidatePage() {
             <div className="form-group">
               <label className="form-label" htmlFor="languages">Languages known (comma-separated)</label>
               <input id="languages" className="input-field" value={form.languages} onChange={(e) => setForm({ ...form, languages: e.target.value })} placeholder="English, Hindi" />
-            </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="preferred">Preferred location</label>
-              <input id="preferred" className="input-field" value={form.preferred_location} onChange={(e) => setForm({ ...form, preferred_location: e.target.value })} />
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="notice">Notice period</label>

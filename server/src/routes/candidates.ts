@@ -20,6 +20,8 @@ import {
   suggestMessages,
 } from '../services/ai.js';
 import { extractAndParseResume } from '../services/parserService.js';
+import { computeAtsScore, type AtsJobContext } from '../services/atsScore.js';
+import { getRedFlagPackForCandidate } from '../services/redFlagQuestions.js';
 import {
   DEFAULT_PRESCREEN_QUESTIONS,
   getScreeningQuestionsForCandidate,
@@ -50,11 +52,32 @@ const resumeUpload = multer({
   limits: { fileSize: RESUME_MAX_BYTES },
 });
 
-/** Extract and store plain resume text so search_tsv covers resume content. */
+/** Load the JD keyword context an ATS score is graded against. */
+async function atsJobContext(tenantId: number, jobId: unknown): Promise<AtsJobContext | null> {
+  const id = Number(jobId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const { rows } = await pool.query(
+    'SELECT title, required_skills, required_qualification, min_experience FROM jobs WHERE id = $1 AND tenant_id = $2',
+    [id, tenantId]
+  );
+  if (!rows[0]) return null;
+  return {
+    title: rows[0].title,
+    required_skills: Array.isArray(rows[0].required_skills) ? rows[0].required_skills : [],
+    required_qualification: rows[0].required_qualification,
+    min_experience: rows[0].min_experience,
+  };
+}
+
+/**
+ * Extract and store plain resume text so search_tsv covers resume content, then
+ * score the resume. The ATS score needs the extracted text (to judge how well
+ * the file parses), so it is computed here rather than at insert time.
+ */
 async function populateResumeText(tenantId: number, candidateId: number): Promise<void> {
   try {
     const { rows } = await pool.query(
-      'SELECT resume_meta FROM candidates WHERE id = $1 AND tenant_id = $2',
+      'SELECT resume_meta, parsed_profile, job_id FROM candidates WHERE id = $1 AND tenant_id = $2',
       [candidateId, tenantId]
     );
     const meta = rows[0]?.resume_meta as { storage_path?: string; mime_type?: string } | null;
@@ -68,6 +91,14 @@ async function populateResumeText(tenantId: number, candidateId: number): Promis
         tenantId,
       ]);
     }
+
+    const profile = rows[0]?.parsed_profile as ParsedProfile | null;
+    if (!profile) return;
+    const ats = computeAtsScore(profile, text || '', await atsJobContext(tenantId, rows[0].job_id));
+    await pool.query(
+      'UPDATE candidates SET ats_score = $1, ats_details = $2::jsonb WHERE id = $3 AND tenant_id = $4',
+      [ats.score, JSON.stringify(ats), candidateId, tenantId]
+    );
   } catch (err) {
     console.warn('populateResumeText failed:', (err as Error).message);
   }
@@ -499,7 +530,7 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
   }
 
   try {
-    const { profile: parsed, source, error: parseError } = await extractAndParseResume(
+    const { profile: parsed, text, source, error: parseError } = await extractAndParseResume(
       req.file.buffer,
       req.file.mimetype,
       req.file.originalname
@@ -517,9 +548,16 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
       req.file.mimetype
     );
 
+    // Grade the resume against the job the recruiter has already picked on the
+    // form, when there is one — otherwise the keyword category is not scored.
+    const job = await atsJobContext(tid(req), req.body?.job_id ?? req.query.job_id);
+    const ats = computeAtsScore(parsed, text, job);
+
     res.json({
       parsed_profile: parsed,
       ai_confidence: parsed.confidence,
+      ats_score: ats.score,
+      ats: ats,
       pending_resume_id: pendingId,
       pending_ext: ext,
       original_filename: req.file.originalname,
@@ -686,7 +724,7 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
   const candidateId = Number(req.params.id);
   const scope = candidateScopeSql(req, 'c', 3);
   const { rows } = await pool.query(
-    `SELECT id, name, resume_meta FROM candidates c WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
+    `SELECT id, name, job_id, resume_meta FROM candidates c WHERE c.id = $1 AND c.tenant_id = $2${scope.sql}`,
     [candidateId, tid(req), ...scope.params]
   );
   const c = rows[0];
@@ -718,7 +756,7 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
   }
 
   try {
-    const { profile: parsed, source, error: parseError } = await extractAndParseResume(
+    const { profile: parsed, text, source, error: parseError } = await extractAndParseResume(
       buffer,
       mimeType,
       originalFilename
@@ -726,6 +764,8 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
     if (!parsed) {
       return res.status(422).json({ error: parseError || 'Could not parse this resume.' });
     }
+
+    const ats = computeAtsScore(parsed, text, await atsJobContext(tid(req), c.job_id));
 
     const ext = mimeType === 'application/pdf' ? '.pdf' : mimeType.includes('wordprocessingml') ? '.docx' : '.doc';
     const storagePath = await saveCandidateResume(tid(req), candidateId, buffer, ext);
@@ -763,8 +803,10 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
         salary_expectation = COALESCE($21, salary_expectation),
         email = COALESCE($22, email),
         phone = COALESCE($23, phone),
+        ats_score = $24,
+        ats_details = $25::jsonb,
         updated_at = NOW()
-      WHERE id = $24 AND tenant_id = $25
+      WHERE id = $26 AND tenant_id = $27
       RETURNING *`,
       [
         JSON.stringify(parsed),
@@ -790,6 +832,8 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
         mapped.salary_expectation,
         mapped.email,
         mapped.phone,
+        ats.score,
+        JSON.stringify(ats),
         candidateId,
         tid(req),
       ]
@@ -799,7 +843,7 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
       'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
       [
         'profile',
-        `${updated[0].name} resume re-parsed (confidence ${Math.round(parsed.confidence * 100)}%)`,
+        `${updated[0].name} resume re-parsed (confidence ${Math.round(parsed.confidence * 100)}%, ATS ${ats.score}/100 — ${ats.grade})`,
         req.user!.id,
         candidateId,
         tid(req),
@@ -813,6 +857,8 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
       candidate: updated[0],
       parsed_profile: parsed,
       ai_confidence: parsed.confidence,
+      ats_score: ats.score,
+      ats,
       source,
     });
   } catch (err) {
@@ -893,8 +939,28 @@ router.get('/:id/screening-questions', async (req, res) => {
   }
 
   try {
+    // Serves the pack stored on the candidate's job — generated once, never on
+    // the fly per candidate.
     const result = await getScreeningQuestionsForCandidate(candidateId, tid(req));
     res.json(result);
+  } catch {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
+});
+
+/**
+ * Fixed red-flag probes for the first 5-7 minutes, worded for the job's role,
+ * required experience, and sector. Deterministic — no AI, no caching needed.
+ */
+router.get('/:id/red-flag-questions', async (req, res) => {
+  const candidateId = Number(req.params.id);
+  if (!Number.isFinite(candidateId)) return res.status(400).json({ error: 'Invalid candidate id' });
+  if (!(await assertCandidateAccess(req, candidateId))) {
+    return res.status(404).json({ error: 'Candidate not found' });
+  }
+
+  try {
+    res.json(await getRedFlagPackForCandidate(candidateId, tid(req)));
   } catch {
     return res.status(404).json({ error: 'Candidate not found' });
   }

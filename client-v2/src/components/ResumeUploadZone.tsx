@@ -5,9 +5,11 @@ interface ResumeUploadZoneProps {
   onParsed: (file: File, result: import('../types').ResumeParseResponse) => void;
   onError: (message: string) => void;
   disabled?: boolean;
+  /** Job the candidate is being submitted to — adds JD keyword match to the ATS score. */
+  jobId?: number | null;
 }
 
-export default function ResumeUploadZone({ onParsed, onError, disabled }: ResumeUploadZoneProps) {
+export default function ResumeUploadZone({ onParsed, onError, disabled, jobId }: ResumeUploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [parsing, setParsing] = useState(false);
 
@@ -20,7 +22,7 @@ export default function ResumeUploadZone({ onParsed, onError, disabled }: Resume
     setParsing(true);
     onError('');
     try {
-      const result = await api.parseResumePreview(file);
+      const result = await api.parseResumePreview(file, jobId);
       onParsed(file, result);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to parse resume');

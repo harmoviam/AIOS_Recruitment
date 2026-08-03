@@ -77,6 +77,82 @@ export const RED_FLAG_SIGNALS: { id: keyof ScreeningAssessment & string; label: 
   { id: 'non_committed_language', label: 'Non-Committed Language', hint: 'Uses "maybe", "try", "let\'s see", "hopefully" instead of "I will", "yes I can".' },
 ];
 
+/**
+ * Offline fallback used only when the red-flag endpoint is unreachable. It has
+ * no scripted question text, so the UI falls back to the bare signal + hint.
+ */
+export const FALLBACK_RED_FLAG_QUESTIONS: RedFlagQuestion[] = RED_FLAG_SIGNALS.map((q) => ({
+  ...q,
+  ask: '',
+  good_answer: '',
+  red_answer: '',
+  time_seconds: 60,
+}));
+
+export type ExperienceBand = 'fresher' | 'junior' | 'mid' | 'senior';
+
+/**
+ * Standard red-flag probe for the first 5-7 minutes, worded for the job's role,
+ * required experience, and sector. Served by the API — never generated here.
+ */
+export interface RedFlagQuestion {
+  id: keyof ScreeningAssessment & string;
+  label: string;
+  ask: string;
+  good_answer: string;
+  red_answer: string;
+  hint: string;
+  time_seconds: number;
+}
+
+export interface SalaryAlignment {
+  expectation: string | null;
+  job_max: string | null;
+  ratio: number | null;
+  level: 'ok' | 'tight' | 'over_budget' | 'unknown';
+  message: string;
+}
+
+export interface RedFlagPack {
+  job_id: number | null;
+  job_title: string | null;
+  industry: string | null;
+  experience_band: ExperienceBand;
+  experience_band_label: string;
+  questions: RedFlagQuestion[];
+  salary_alignment: SalaryAlignment;
+  duration_seconds: number;
+  total_seconds: number;
+}
+
+/** ATS score for an uploaded resume — 0-100, distinct from the 0-10 ai_score. */
+export interface AtsCategoryScore {
+  key: string;
+  label: string;
+  score: number;
+  max: number;
+  detail: string;
+}
+
+export interface AtsScoreResult {
+  score: number;
+  grade: 'Excellent' | 'Good' | 'Average' | 'Poor';
+  categories: AtsCategoryScore[];
+  missing: string[];
+  recommendations: string[];
+  matched_keywords: string[];
+  missing_keywords: string[];
+  scored_against_job: boolean;
+  computed_at: string;
+}
+
+export function atsScoreClass(score: number): string {
+  if (score >= 85) return 'ats-badge ats-excellent';
+  if (score >= 70) return 'ats-badge ats-good';
+  if (score >= 50) return 'ats-badge ats-average';
+  return 'ats-badge ats-poor';
+}
+
 export function screeningRiskLevel(totalScore: number, maxScore = 25): ScreeningRiskLevel {
   const joinThreshold = Math.ceil(maxScore * 0.8);
   const moderateThreshold = Math.ceil(maxScore * 0.6);
@@ -156,6 +232,8 @@ export interface ResumeMeta {
 export interface ResumeParseResponse {
   parsed_profile: ParsedProfile;
   ai_confidence: number;
+  ats_score: number;
+  ats: AtsScoreResult;
   pending_resume_id: string;
   pending_ext: string;
   original_filename: string;
@@ -187,6 +265,9 @@ export interface Candidate {
   salary_expectation?: string;
   parsed_profile?: ParsedProfile | null;
   resume_meta?: ResumeMeta | null;
+  /** 0-100 resume quality/JD-match score, set after the resume is parsed. */
+  ats_score?: number | null;
+  ats_details?: AtsScoreResult | null;
   linkedin?: string | null;
   github?: string | null;
   portfolio?: string | null;
@@ -222,6 +303,27 @@ export interface JobScreeningQuestions {
   interview: ScreeningQuestionDef[];
   generated_at?: string;
   source?: 'ai' | 'template' | 'default';
+  /** Target budget for first-call screening (~5 min = 300s). */
+  screening_duration_seconds?: number;
+  /** Target budget for scheduled interview questions (~15 min = 900s). */
+  scheduled_duration_seconds?: number;
+  screening_total_seconds?: number;
+  scheduled_total_seconds?: number;
+  /** Sector the pack was written for. */
+  industry?: string;
+  /** Experience band the pack was pitched at. */
+  experience_band?: ExperienceBand;
+}
+
+export const SCREENING_DURATION_SECONDS = 300;
+export const SCHEDULED_DURATION_SECONDS = 900;
+
+export function formatQuestionDuration(seconds?: number): string {
+  if (!seconds || seconds <= 0) return '';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s ? `${m}m ${s}s` : `${m} min`;
 }
 
 export interface ScreeningQuestionDef {
@@ -292,6 +394,8 @@ export interface Job {
   shift?: string | null;
   job_type?: string | null;
   gender_preference?: string | null;
+  /** Sector (Information Technology, BPO, …) — distinct from job_type work mode. */
+  industry?: string | null;
 }
 
 export interface InterviewVideoTokenResponse {

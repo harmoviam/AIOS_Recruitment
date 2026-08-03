@@ -200,6 +200,8 @@ export const api = {
       job_title: string | null;
       questions: import('../types').JobScreeningQuestions;
     }>(`/candidates/${id}/screening-questions`),
+  getCandidateRedFlagQuestions: (id: number) =>
+    request<import('../types').RedFlagPack>(`/candidates/${id}/red-flag-questions`),
   deleteCandidate: (id: number) => request<void>(`/candidates/${id}`, { method: 'DELETE' }),
   bulkUpdateCandidates: (ids: number[], data: { stage?: string; offer_status?: string; recruiter_id?: number }) =>
     request<{ updated: number }>('/candidates/bulk', { method: 'PATCH', body: JSON.stringify({ ids, ...data }) }),
@@ -221,9 +223,11 @@ export const api = {
     request<{ suggestions: string[]; ai_score: number; salary_expectation?: string }>(
       `/candidates/${id}/suggestions`
     ),
-  parseResumePreview: (file: File) => {
+  /** Pass jobId so the ATS score includes JD keyword match. */
+  parseResumePreview: (file: File, jobId?: number | null) => {
     const form = new FormData();
     form.append('resume', file);
+    if (jobId) form.append('job_id', String(jobId));
     return uploadRequest<import('../types').ResumeParseResponse>('/candidates/parse-resume', form);
   },
   reparseResume: (candidateId: number, file?: File) => {
@@ -233,6 +237,8 @@ export const api = {
       candidate: import('../types').Candidate;
       parsed_profile: import('../types').ParsedProfile;
       ai_confidence: number;
+      ats_score: number;
+      ats: import('../types').AtsScoreResult;
       source: string;
     }>(`/candidates/${candidateId}/reparse-resume`, form);
   },

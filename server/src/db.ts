@@ -186,6 +186,7 @@ export async function initDb() {
     await migratePhase1Tables(client);
     await migrateScreening(client);
     await migrateJobScreeningQuestions(client);
+    await migrateCandidateScreeningQuestions(client);
     await migrateFollowUpEngine(client);
     await migrateInterviewEvaluation(client);
     await migrateWhatsAppDelivery(client);
@@ -498,6 +499,11 @@ async function migrateScreening(client: pg.PoolClient) {
 async function migrateJobScreeningQuestions(client: pg.PoolClient) {
   // JD-derived screening question templates: pre-screen + interview scorecard.
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS screening_questions JSONB`);
+}
+
+async function migrateCandidateScreeningQuestions(client: pg.PoolClient) {
+  // Personalized packs from JD + job type + resume/projects (5 min screening / 15 min scheduled).
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS screening_questions JSONB`);
 }
 
 async function migrateWhatsAppDelivery(client: pg.PoolClient) {
@@ -896,6 +902,9 @@ async function migrateJobRecommendation(client: pg.PoolClient) {
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS shift TEXT`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS gender_preference TEXT`);
+  // Sector of the opening (Information Technology, BPO, Insurance, …). Distinct
+  // from job_type, which records the work mode (On-site / Remote / Hybrid).
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS industry TEXT`);
 
   await client.query(`
     CREATE INDEX IF NOT EXISTS jobs_active_tenant_idx
@@ -1275,6 +1284,10 @@ async function migrateAiResumeParser(client: pg.PoolClient) {
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS languages JSONB DEFAULT '[]'`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS technical_skills JSONB DEFAULT '[]'`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS soft_skills JSONB DEFAULT '[]'`);
+  // ATS score (0–100) for the uploaded resume itself — how well it parses and
+  // matches the JD. Separate from ai_score, which is the 0–10 role fit score.
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS ats_score REAL`);
+  await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS ats_details JSONB`);
 }
 
 async function ensureAllTenantsSeeded(client: pg.PoolClient) {

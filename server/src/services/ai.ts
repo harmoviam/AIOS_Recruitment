@@ -502,13 +502,38 @@ export async function refineResumeText(text: string, filename: string): Promise<
   return textCall(system, prompt);
 }
 
-// ── Screening questions from JD ────────────────────────────────────────
+// ── Screening questions from JD, role, experience band, and sector ─────
+//
+// Job-level packs are generated once and reused. When `candidate` is provided
+// (explicit regenerate from resume/projects), the pack is personalized.
+
+export interface ScreeningCandidateContext {
+  name?: string | null;
+  professional_summary?: string | null;
+  skills?: string[];
+  technical_skills?: string[];
+  experience_years?: number | null;
+  experience?: Array<{ title?: string; company?: string; description?: string | null }>;
+  projects?: Array<{ name: string; description?: string | null; technologies?: string[] }>;
+}
 
 export interface ScreeningQuestionsInput {
   title: string;
   description?: string | null;
   client?: string | null;
   location?: string | null;
+  /** Work arrangement: On-site / Remote / Hybrid. */
+  job_type?: string | null;
+  /** Sector of the opening (Information Technology, BPO, Insurance, …). */
+  industry?: string | null;
+  min_experience?: number | null;
+  max_experience?: number | null;
+  /** Target total seconds for first-call screening (default 300 = 5 min). */
+  screening_duration_seconds?: number;
+  /** Target total seconds for scheduled interview questions (default 900 = 15 min). */
+  scheduled_duration_seconds?: number;
+  /** When set, questions are personalized to this candidate's resume/projects. */
+  candidate?: ScreeningCandidateContext | null;
 }
 
 export interface GeneratedScreeningQuestion {
@@ -531,14 +556,17 @@ const SCREENING_QUESTION_ITEM_SCHEMA = {
     id: { type: 'string', description: 'snake_case unique identifier' },
     label: { type: 'string', description: 'Short question title for the recruiter' },
     hint: { type: 'string', description: 'What to listen for when scoring 1-5' },
-    requirement: { type: 'string', description: 'Which JD requirement this probes' },
+    requirement: { type: 'string', description: 'Which JD requirement or resume project this probes' },
     category: {
       type: 'string',
-      description: 'introduction, technical, domain, behavioral, or goals (interview only)',
+      description: 'introduction, technical, domain, behavioral, or goals (scheduled/interview only)',
     },
-    time_seconds: { type: 'number', description: 'Suggested speaking time in seconds (interview only)' },
+    time_seconds: {
+      type: 'number',
+      description: 'Suggested speaking time in seconds for this question',
+    },
   },
-  required: ['id', 'label', 'hint'],
+  required: ['id', 'label', 'hint', 'time_seconds'],
   additionalProperties: false,
 } as const;
 
@@ -548,39 +576,96 @@ const SCREENING_QUESTIONS_SCHEMA = {
     prescreen: {
       type: 'array',
       items: SCREENING_QUESTION_ITEM_SCHEMA,
-      description: 'Exactly 5 first-call pre-screening questions tailored to the JD',
+      description: '4-5 first-call screening questions whose time_seconds sum to at most the screening budget',
     },
     interview: {
       type: 'array',
       items: SCREENING_QUESTION_ITEM_SCHEMA,
-      description: '10-14 live interview questions probing JD requirements',
+      description: '6-10 scheduled interview questions whose time_seconds sum to at most the scheduled budget',
     },
   },
   required: ['prescreen', 'interview'],
   additionalProperties: false,
 } as const;
 
+function formatExperienceRange(input: ScreeningQuestionsInput): string | null {
+  const min = input.min_experience != null ? Number(input.min_experience) : null;
+  const max = input.max_experience != null ? Number(input.max_experience) : null;
+  if (min == null && max == null) return null;
+  if (min != null && max != null) return `Experience required: ${min}–${max} years`;
+  if (min != null) return `Experience required: ${min}+ years`;
+  return `Experience required: up to ${max} years`;
+}
+
+function formatCandidateContext(candidate: ScreeningCandidateContext): string {
+  const lines: string[] = [];
+  if (candidate.name) lines.push(`Candidate name: ${candidate.name}`);
+  if (candidate.professional_summary) lines.push(`Summary: ${candidate.professional_summary}`);
+  if (candidate.experience_years != null) lines.push(`Years of experience: ${candidate.experience_years}`);
+  const skills = [...(candidate.technical_skills || []), ...(candidate.skills || [])];
+  if (skills.length) lines.push(`Skills: ${[...new Set(skills)].slice(0, 20).join(', ')}`);
+  if (candidate.experience?.length) {
+    const exp = candidate.experience
+      .slice(0, 4)
+      .map((e) => `- ${e.title || 'Role'} at ${e.company || 'Company'}${e.description ? `: ${e.description.slice(0, 160)}` : ''}`)
+      .join('\n');
+    lines.push(`Recent experience:\n${exp}`);
+  }
+  if (candidate.projects?.length) {
+    const projects = candidate.projects
+      .slice(0, 6)
+      .map((p) => {
+        const tech = p.technologies?.length ? ` [${p.technologies.slice(0, 6).join(', ')}]` : '';
+        return `- ${p.name}${tech}${p.description ? `: ${p.description.slice(0, 160)}` : ''}`;
+      })
+      .join('\n');
+    lines.push(`Projects undertaken:\n${projects}`);
+  }
+  return lines.join('\n');
+}
+
 export async function generateScreeningQuestionsFromJd(
   input: ScreeningQuestionsInput
 ): Promise<GeneratedScreeningQuestions | null> {
+  const screeningBudget = input.screening_duration_seconds ?? 300;
+  const scheduledBudget = input.scheduled_duration_seconds ?? 900;
+  const personalized = Boolean(input.candidate);
+
   const system =
-    'You generate recruitment screening questions from a job description. ' +
-    'Pre-screen questions assess commitment, motivation, and fit on a first phone call. ' +
-    'Interview questions probe specific JD requirements — technical skills, experience, and behavioral fit. ' +
-    'Each question must map to a real requirement from the JD when possible. ' +
+    'You generate recruitment screening questions from a job description' +
+    (personalized ? ', personalized using the candidate resume and projects.' : '.') +
+    ' Screening (prescreen) questions are for a short first call — commitment, motivation, and role fit. ' +
+    'Scheduled (interview) questions probe JD requirements, technical depth, domain knowledge, and behavioral fit. ' +
+    'Each question must map to a real JD requirement' +
+    (personalized ? ' and, when candidate context is provided, reference specific skills or projects by name.' : '.') +
+    ' Respect hard time budgets: screening questions time_seconds must sum to ≤ screening budget; ' +
+    'scheduled questions time_seconds must sum to ≤ scheduled budget. ' +
+    'Prefer fewer deeper questions over many shallow ones. ' +
     'Use clear, recruiter-friendly labels and actionable scoring hints (what 1 vs 5 sounds like). ' +
     'Interview categories: introduction, technical, domain, behavioral, goals. ' +
-    'IDs must be unique snake_case strings.';
+    'IDs must be unique snake_case strings. Every question needs time_seconds.';
 
   const prompt = [
-    `Job title: ${input.title}`,
+    `Job title / role: ${input.title}`,
+    input.industry ? `Industry / sector: ${input.industry}` : null,
+    input.job_type ? `Job type (work arrangement): ${input.job_type}` : null,
+    formatExperienceRange(input),
     input.client ? `Client: ${input.client}` : null,
     input.location ? `Location: ${input.location}` : null,
     input.description ? `Job description:\n${input.description}` : null,
-    'Generate 5 pre-screen questions and 10-14 interview questions derived from the JD requirements.',
+    input.candidate
+      ? `Candidate profile (personalize questions from this):\n${formatCandidateContext(input.candidate)}`
+      : null,
+    `Screening budget: ${screeningBudget} seconds (~${Math.round(screeningBudget / 60)} minutes). Generate 4-5 prescreen questions; each typically 45-60s; total ≤ ${screeningBudget}s.`,
+    `Scheduled budget: ${scheduledBudget} seconds (~${Math.round(scheduledBudget / 60)} minutes). Generate 6-10 interview questions; total ≤ ${scheduledBudget}s.`,
+    personalized
+      ? 'Include at least 1-2 scheduled questions that specifically probe the candidate\'s listed projects or resume experience against the JD.'
+      : 'Derive every question from the JD title, industry, required experience range, and requirements. ' +
+        'Pitch depth at the required experience level: freshers get fundamentals and trainability, ' +
+        'senior roles get ownership, trade-offs, and scale.',
   ]
     .filter(Boolean)
-    .join('\n');
+    .join('\n\n');
 
   const result = await jsonCall<GeneratedScreeningQuestions>(system, prompt, SCREENING_QUESTIONS_SCHEMA);
   if (!result?.prescreen?.length || !result?.interview?.length) return null;

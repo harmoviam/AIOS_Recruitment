@@ -4,6 +4,7 @@ import { candidateScopeSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireTenant, tenantClause, tenantMiddleware } from '../middleware/tenant.js';
 import { aiMode, generateJobDescription } from '../services/ai.js';
+import { JOB_INDUSTRIES, normalizeIndustry } from '../services/industries.js';
 import { generateJdWithPythonService } from '../services/parserService.js';
 import {
   ensureJobScreeningQuestions,
@@ -27,6 +28,19 @@ const tid = (req: Request) => req.tenant!.id;
 
 // Placement tenure options; drives the post-joining check-in schedule per job.
 const TENURE_OPTIONS = [30, 45, 60, 90, 120, 150, 180];
+
+/**
+ * Resolve the sector for a job payload. Returns the canonical name, or an error
+ * string when the caller sent something outside the supported list.
+ */
+function resolveIndustry(raw: unknown): { value: string | null } | { error: string } {
+  if (raw == null || raw === '') return { value: null };
+  const industry = normalizeIndustry(raw);
+  if (!industry) {
+    return { error: `industry must be one of: ${JOB_INDUSTRIES.join(', ')}` };
+  }
+  return { value: industry };
+}
 
 // Only org admins and hiring managers may create, edit, or delete jobs.
 function canManageJobs(req: Request, res: Response, next: NextFunction) {
@@ -197,12 +211,22 @@ router.post('/:id/generate-screening-questions', canManageJobs, async (req, res)
   if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
 
   const { rows } = await pool.query(
-    'SELECT title, description, client, location FROM jobs WHERE id = $1 AND tenant_id = $2',
+    `SELECT title, description, client, location, job_type, industry, min_experience, max_experience
+     FROM jobs WHERE id = $1 AND tenant_id = $2`,
     [jobId, tid(req)]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
 
-  const questions = await generateJobScreeningQuestions(rows[0]);
+  const questions = await generateJobScreeningQuestions({
+    title: rows[0].title,
+    description: rows[0].description,
+    client: rows[0].client,
+    location: rows[0].location,
+    job_type: rows[0].job_type,
+    industry: rows[0].industry,
+    min_experience: rows[0].min_experience,
+    max_experience: rows[0].max_experience,
+  });
   await saveJobScreeningQuestions(jobId, tid(req), questions);
   res.json({ job_id: jobId, job_title: rows[0].title, questions });
 });
@@ -274,6 +298,7 @@ router.post('/', canManageJobs, async (req, res) => {
     shift,
     job_type,
     gender_preference,
+    industry,
   } = req.body;
   if (!title || !client || !location) {
     return res.status(400).json({ error: 'Title, client, and location required' });
@@ -283,18 +308,20 @@ router.post('/', canManageJobs, async (req, res) => {
   if (tenure_days != null && !TENURE_OPTIONS.includes(Number(tenure_days))) {
     return res.status(400).json({ error: `tenure_days must be one of ${TENURE_OPTIONS.join(', ')}` });
   }
+  const resolvedIndustry = resolveIndustry(industry);
+  if ('error' in resolvedIndustry) return res.status(400).json({ error: resolvedIndustry.error });
 
   const { rows } = await pool.query(
     `INSERT INTO jobs (
       title, client, location, status, assigned_to, open_positions, description, tenure_days, tenant_id,
       latitude, longitude, address, city, state, country, pincode,
       required_qualification, required_languages, min_age, max_age, min_experience, max_experience,
-      required_skills, salary, shift, job_type, gender_preference
+      required_skills, salary, shift, job_type, gender_preference, industry
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9,
       $10, $11, $12, $13, $14, $15, $16,
       $17, $18, $19, $20, $21, $22,
-      $23::jsonb, $24, $25, $26, $27
+      $23::jsonb, $24, $25, $26, $27, $28
     ) RETURNING *`,
     [
       title,
@@ -324,15 +351,22 @@ router.post('/', canManageJobs, async (req, res) => {
       shift || null,
       job_type || null,
       gender_preference || null,
+      resolvedIndustry.value,
     ]
   );
   const job = rows[0];
+  // Screening + scheduled questions are generated once here, from the JD, role,
+  // experience band, and sector. Read paths reuse this stored pack.
   if (description?.trim()) {
     const questions = await generateJobScreeningQuestions({
       title,
       description,
       client,
       location,
+      job_type: job_type || null,
+      industry: resolvedIndustry.value,
+      min_experience: job.min_experience,
+      max_experience: job.max_experience,
     });
     await saveJobScreeningQuestions(job.id, tid(req), questions);
     job.screening_questions = questions;
@@ -368,6 +402,12 @@ router.patch('/:id', canManageJobs, async (req, res) => {
       params.push(req.body[f]);
     }
   }
+  if (req.body.industry !== undefined) {
+    const resolved = resolveIndustry(req.body.industry);
+    if ('error' in resolved) return res.status(400).json({ error: resolved.error });
+    updates.push(`industry = $${i++}`);
+    params.push(resolved.value);
+  }
   for (const f of jsonFields) {
     if (req.body[f] !== undefined) {
       updates.push(`${f} = $${i++}::jsonb`);
@@ -386,12 +426,21 @@ router.patch('/:id', canManageJobs, async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
 
-  if (req.body.description !== undefined && req.body.description?.trim()) {
+  // Questions are generated once per job. An edit only fills them in when the
+  // job still has no pack (e.g. it was created without a JD); refreshing an
+  // existing pack is an explicit action via /generate-screening-questions.
+  const hasPack =
+    rows[0].screening_questions?.prescreen?.length && rows[0].screening_questions?.interview?.length;
+  if (!hasPack && rows[0].description?.trim()) {
     const questions = await generateJobScreeningQuestions({
       title: rows[0].title,
       description: rows[0].description,
       client: rows[0].client,
       location: rows[0].location,
+      job_type: rows[0].job_type,
+      industry: rows[0].industry,
+      min_experience: rows[0].min_experience,
+      max_experience: rows[0].max_experience,
     });
     await saveJobScreeningQuestions(rows[0].id, tid(req), questions);
     rows[0].screening_questions = questions;

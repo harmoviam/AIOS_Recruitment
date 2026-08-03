@@ -3182,6 +3182,59 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 .screening-row-label { font-weight: 600; font-size: 0.9rem; }
 .screening-row-hint { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.15rem; }
 
+/* Scripted red-flag probe: the question to read out, then the answer rubric. */
+.screening-row-ask {
+    margin-top: 0.35rem;
+    font-size: 0.88rem;
+    font-style: italic;
+    color: var(--text-primary);
+    border-left: 3px solid var(--primary);
+    padding-left: 0.6rem;
+}
+
+.screening-row-answers {
+    display: grid;
+    gap: 0.2rem;
+    margin-top: 0.4rem;
+    font-size: 0.8rem;
+}
+
+.screening-row-answers .answer-good { color: var(--success); }
+.screening-row-answers .answer-red { color: var(--danger); }
+
+/* ATS resume score */
+.ats-badge {
+    display: inline-block;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.ats-badge.ats-excellent { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+.ats-badge.ats-good { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--primary); }
+.ats-badge.ats-average { background: color-mix(in srgb, var(--warning, #d97706) 20%, transparent); color: var(--warning, #d97706); }
+.ats-badge.ats-poor { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+
+.ats-breakdown { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+
+.ats-breakdown li {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) auto;
+    gap: 0.15rem 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.ats-breakdown li:last-child { border-bottom: none; padding-bottom: 0; }
+.ats-breakdown-label { font-weight: 600; font-size: 0.85rem; }
+.ats-breakdown-score { font-weight: 700; font-size: 0.85rem; text-align: right; }
+.ats-breakdown-detail { grid-column: 1 / -1; font-size: 0.78rem; }
+
+.ats-recommendations { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: 0.82rem; color: var(--text-secondary); }
+.ats-recommendations li { margin-bottom: 0.25rem; }
+
 .score-picker { display: flex; gap: 0.35rem; }
 
 .score-dot {
