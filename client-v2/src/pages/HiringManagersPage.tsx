@@ -176,6 +176,12 @@ export default function HiringManagersPage() {
         {showAdd && (
           <form className="card form-card" onSubmit={handleAdd} style={{ marginBottom: '1rem' }}>
             {error && <p className="text-critical">{error}</p>}
+            {companies.length === 0 && (
+              <p className="text-muted" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+                No companies yet. You can create the HM now and assign a company later, or add one under{' '}
+                <Link to="/companies">Companies</Link> first.
+              </p>
+            )}
             <div className="form-grid">
               <div className="form-group">
                 <label className="form-label">Name</label>
@@ -190,9 +196,9 @@ export default function HiringManagersPage() {
                 <input className="input-field" type="password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </div>
               <div className="form-group">
-                <label className="form-label">Company</label>
-                <select className="input-field" required value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
-                  <option value="">— Select —</option>
+                <label className="form-label">Company <span className="text-muted">(optional)</span></label>
+                <select className="input-field" value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
+                  <option value="">— No company —</option>
                   {companies.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
