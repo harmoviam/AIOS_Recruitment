@@ -528,6 +528,8 @@ export interface ScreeningQuestionsInput {
   industry?: string | null;
   min_experience?: number | null;
   max_experience?: number | null;
+  /** Structured skills from the job record — the best expected-keyword source. */
+  required_skills?: string[] | null;
   /** Target total seconds for first-call screening (default 300 = 5 min). */
   screening_duration_seconds?: number;
   /** Target total seconds for scheduled interview questions (default 900 = 15 min). */
@@ -543,6 +545,9 @@ export interface GeneratedScreeningQuestion {
   requirement?: string;
   category?: string;
   time_seconds?: number;
+  expected_keywords?: string[];
+  strong_answer?: string;
+  weak_answer?: string;
 }
 
 export interface GeneratedScreeningQuestions {
@@ -565,8 +570,17 @@ const SCREENING_QUESTION_ITEM_SCHEMA = {
       type: 'number',
       description: 'Suggested speaking time in seconds for this question',
     },
+    expected_keywords: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        '4-8 specific terms a strong answer should contain (tools, metrics, domain vocabulary). '
+        + 'The recruiter ticks off what they actually hear. No filler words.',
+    },
+    strong_answer: { type: 'string', description: 'What a 4-5 answer sounds like, one sentence' },
+    weak_answer: { type: 'string', description: 'What a 1-2 answer sounds like, one sentence' },
   },
-  required: ['id', 'label', 'hint', 'time_seconds'],
+  required: ['id', 'label', 'hint', 'time_seconds', 'expected_keywords', 'strong_answer', 'weak_answer'],
   additionalProperties: false,
 } as const;
 
@@ -643,13 +657,15 @@ export async function generateScreeningQuestionsFromJd(
     'Prefer fewer deeper questions over many shallow ones. ' +
     'Use clear, recruiter-friendly labels and actionable scoring hints (what 1 vs 5 sounds like). ' +
     'Interview categories: introduction, technical, domain, behavioral, goals. ' +
-    'IDs must be unique snake_case strings. Every question needs time_seconds.';
+    'IDs must be unique snake_case strings. Every question needs time_seconds. '
+    + 'Every question must also carry expected_keywords — the concrete terms a good answer contains (tools, metrics, domain vocabulary) so the recruiter can tick off what they hear — plus a one-sentence strong_answer and weak_answer. Keywords must be specific to this role and industry; never generic filler like "communication" or "teamwork".';
 
   const prompt = [
     `Job title / role: ${input.title}`,
     input.industry ? `Industry / sector: ${input.industry}` : null,
     input.job_type ? `Job type (work arrangement): ${input.job_type}` : null,
     formatExperienceRange(input),
+    input.required_skills?.length ? `Required skills: ${input.required_skills.join(', ')}` : null,
     input.client ? `Client: ${input.client}` : null,
     input.location ? `Location: ${input.location}` : null,
     input.description ? `Job description:\n${input.description}` : null,

@@ -78,6 +78,12 @@ export interface IndustryProfile {
   screeningFocus: string[];
   /** Shift/travel reality the recruiter should confirm early. */
   logisticsPrompt: string;
+  /**
+   * Vocabulary a competent candidate in this sector uses unprompted. Surfaced
+   * to the recruiter as the expected-answer keywords for domain questions —
+   * hearing several of these is the signal; hearing none is the red flag.
+   */
+  domainKeywords: string[];
 }
 
 const INDUSTRY_PROFILES: Record<JobIndustry, IndustryProfile> = {
@@ -85,46 +91,55 @@ const INDUSTRY_PROFILES: Record<JobIndustry, IndustryProfile> = {
     attritionDrivers: ['counter-offers', 'multiple parallel offers', 'long notice periods'],
     screeningFocus: ['hands-on depth in the primary stack', 'project ownership', 'notice period reality'],
     logisticsPrompt: 'Confirm work mode (on-site / hybrid / remote) and any on-call expectation.',
+    domainKeywords: ['production', 'code review', 'deployment', 'API', 'database', 'testing', 'debugging', 'version control', 'sprint', 'architecture'],
   },
   BPO: {
     attritionDrivers: ['night shifts', 'commute distance', 'nearby competitor pay', 'family approval'],
     screeningFocus: ['spoken communication', 'shift flexibility', 'commute feasibility', 'voice vs non-voice fit'],
     logisticsPrompt: 'Confirm shift willingness, one-way commute time, and whether transport is required.',
+    domainKeywords: ['AHT', 'CSAT', 'escalation', 'quality score', 'SLA', 'first call resolution', 'CRM', 'rotational shift', 'voice process', 'de-escalate'],
   },
   Insurance: {
     attritionDrivers: ['target pressure', 'commission-heavy pay', 'field travel'],
     screeningFocus: ['sales target history', 'licensing/IRDAI certification', 'comfort with variable pay'],
     logisticsPrompt: 'Confirm field travel radius and comfort with a fixed + variable pay split.',
+    domainKeywords: ['premium', 'policy', 'claim', 'underwriting', 'renewal', 'IRDAI', 'lapse', 'sum assured', 'persistency', 'lead conversion'],
   },
   Biotech: {
     attritionDrivers: ['lab shift timings', 'relocation to plant locations', 'academia vs industry pull'],
     screeningFocus: ['lab technique depth', 'regulatory/GLP exposure', 'documentation discipline'],
     logisticsPrompt: 'Confirm willingness to relocate to the plant/lab site and work rotational lab shifts.',
+    domainKeywords: ['assay', 'protocol', 'GLP', 'contamination', 'calibration', 'batch record', 'sterile', 'documentation', 'SOP', 'validation'],
   },
   Healthcare: {
     attritionDrivers: ['rotational and night duty', 'registration/licence gaps', 'burnout'],
     screeningFocus: ['clinical registration validity', 'rotational duty acceptance', 'patient-facing experience'],
     logisticsPrompt: 'Confirm registration/licence number validity and acceptance of rotational duty.',
+    domainKeywords: ['patient', 'vitals', 'triage', 'infection control', 'consent', 'charting', 'rotational duty', 'registration number', 'protocol', 'handover'],
   },
   Manufacturing: {
     attritionDrivers: ['plant location', 'rotational shifts', 'physical shop-floor conditions'],
     screeningFocus: ['shop-floor exposure', 'safety and quality standards', 'shift acceptance'],
     logisticsPrompt: 'Confirm plant-location relocation and rotational/general shift acceptance.',
+    domainKeywords: ['OEE', 'downtime', 'root cause', 'safety', 'quality check', 'rejection rate', 'preventive maintenance', 'shop floor', 'SOP', '5S'],
   },
   'Banking and Finance': {
     attritionDrivers: ['sales targets', 'background-verification failures', 'branch location'],
     screeningFocus: ['product/portfolio handled', 'target achievement record', 'BGV and CIBIL cleanliness'],
     logisticsPrompt: 'Confirm branch/base location and that background verification will be clean.',
+    domainKeywords: ['portfolio', 'target', 'KYC', 'disbursement', 'NPA', 'cross-sell', 'CIBIL', 'compliance', 'branch banking', 'AUM'],
   },
   Retail: {
     attritionDrivers: ['weekend and festival working', 'store location', 'standing hours'],
     screeningFocus: ['store/floor experience', 'weekend availability', 'customer handling'],
     logisticsPrompt: 'Confirm weekend/holiday working and the store location they can reach daily.',
+    domainKeywords: ['footfall', 'conversion', 'shrinkage', 'visual merchandising', 'stock', 'billing', 'upsell', 'planogram', 'customer handling', 'SKU'],
   },
   FMCG: {
     attritionDrivers: ['beat/field travel', 'distributor territory changes', 'target pressure'],
     screeningFocus: ['territory and beat coverage', 'distributor handling', 'secondary sales numbers'],
     logisticsPrompt: 'Confirm daily field travel, own two-wheeler availability, and territory coverage.',
+    domainKeywords: ['beat', 'primary sales', 'secondary sales', 'distributor', 'territory', 'SKU', 'coverage', 'scheme', 'outlet', 'ROI'],
   },
 };
 
@@ -132,6 +147,7 @@ const GENERIC_PROFILE: IndustryProfile = {
   attritionDrivers: ['competing offers', 'counter-offers', 'unclear joining timeline'],
   screeningFocus: ['relevant experience', 'joining timeline', 'motivation for the role'],
   logisticsPrompt: 'Confirm work location, shift, and joining timeline.',
+  domainKeywords: ['responsibilities', 'tools used', 'targets', 'process', 'stakeholders', 'outcome'],
 };
 
 export function industryProfile(value: unknown): IndustryProfile {

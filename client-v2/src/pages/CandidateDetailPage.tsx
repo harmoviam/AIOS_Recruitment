@@ -36,6 +36,36 @@ function timelineSummary(ev: TimelineEvent) {
   return ev.description || ev.content || ev.type || '—';
 }
 
+/**
+ * Expected-answer rubric shown under a screening or scheduled question so the
+ * recruiter scores on evidence they actually heard rather than on impression.
+ */
+function QuestionRubric({ q }: { q: ScreeningQuestionDef }) {
+  if (!q.expected_keywords?.length && !q.strong_answer && !q.weak_answer) return null;
+  return (
+    <div className="question-rubric">
+      {q.expected_keywords?.length ? (
+        <div className="rubric-keywords">
+          <span className="rubric-label">Listen for</span>
+          {q.expected_keywords.map((kw) => (
+            <span key={kw} className="keyword-chip">{kw}</span>
+          ))}
+        </div>
+      ) : null}
+      {q.strong_answer && (
+        <div className="rubric-line rubric-strong">
+          <strong>Strong (4–5):</strong> {q.strong_answer}
+        </div>
+      )}
+      {q.weak_answer && (
+        <div className="rubric-line rubric-weak">
+          <strong>Weak (1–2):</strong> {q.weak_answer}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function timelineActor(ev: TimelineEvent) {
   if (ev.actor_name) return ev.actor_name;
   if (ev.source === 'message' && ev.is_outgoing === false) return ev.sender || 'Candidate';
@@ -873,6 +903,7 @@ export default function CandidateDetailPage() {
                       </div>
                     )}
                     <div className="screening-row-hint">{q.hint}</div>
+                    <QuestionRubric q={q} />
                   </div>
                   <ScorePicker
                     value={scores[q.id] ?? null}
@@ -920,6 +951,7 @@ export default function CandidateDetailPage() {
                         </div>
                       ) : null}
                       <div className="text-muted" style={{ fontSize: '0.85rem' }}>{q.hint}</div>
+                      <QuestionRubric q={q} />
                     </li>
                   ))}
                 </ol>

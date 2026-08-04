@@ -1476,16 +1476,41 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 /* ── Job description viewer ─────────────────────────────────────── */
 
 .modal-card.jd-modal {
-    width: min(720px, 100%);
-    max-height: 85dvh;
+    width: min(820px, 100%);
+    max-height: 88dvh;
     display: flex;
     flex-direction: column;
 }
 
-.jd-modal-body {
+/* Title block stays put while the content below scrolls. */
+.jd-modal-head { flex: none; margin-bottom: 1rem; }
+.jd-modal-head .card-heading { margin-bottom: 0.2rem; }
+
+/*
+ * One scroll region for the JD *and* the questions. Previously .jd-modal-body
+ * was the only flex child that could shrink, so a long question list crushed
+ * the description down to a couple of visible lines.
+ */
+.jd-modal-scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding-right: 0.35rem;
+}
+
+.jd-section-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    margin: 0 0 0.5rem;
+}
+
+.jd-section-title + * { margin-top: 0; }
+.jd-modal-scroll > .jd-section-title:not(:first-child) { margin-top: 1.5rem; }
+
+.jd-modal-body {
     white-space: pre-wrap;
     line-height: 1.6;
     font-size: 0.92rem;
@@ -1494,6 +1519,41 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     border: 1px solid var(--border);
     border-radius: var(--radius-md, 10px);
     padding: 1rem 1.25rem;
+}
+
+.jd-questions-meta {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    margin: 0 0 0.75rem;
+}
+
+.jd-question-group-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin: 1rem 0 0.4rem;
+    font-size: 0.9rem;
+}
+
+.jd-question-group-head:first-child { margin-top: 0; }
+.jd-question-group-head .text-muted { font-size: 0.8rem; white-space: nowrap; }
+
+.jd-screening-preview ol {
+    margin: 0;
+    padding-left: 1.3rem;
+    display: grid;
+    gap: 0.4rem;
+}
+
+.jd-screening-preview li { font-size: 0.88rem; line-height: 1.45; }
+.jd-question-text { color: var(--text); }
+
+.jd-question-time {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 /* ── Calendar & interviews ──────────────────────────────────────── */
@@ -3201,6 +3261,48 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 
 .screening-row-answers .answer-good { color: var(--success); }
 .screening-row-answers .answer-red { color: var(--danger); }
+
+/* Expected-answer rubric: keywords the recruiter ticks off, plus strong/weak. */
+.question-rubric {
+    margin-top: 0.5rem;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--border);
+    display: grid;
+    gap: 0.3rem;
+}
+
+.rubric-keywords {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.3rem;
+}
+
+.rubric-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    margin-right: 0.15rem;
+}
+
+.keyword-chip {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.rubric-line { font-size: 0.78rem; line-height: 1.45; color: var(--text-secondary); }
+.rubric-line.rubric-strong strong { color: var(--success); }
+.rubric-line.rubric-weak strong { color: var(--danger); }
 
 /* ATS resume score */
 .ats-badge {

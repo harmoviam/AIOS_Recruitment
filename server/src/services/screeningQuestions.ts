@@ -31,6 +31,15 @@ export interface ScreeningQuestionDef {
   requirement?: string;
   category?: InterviewQuestionCategory;
   time_seconds?: number;
+  /**
+   * Terms a solid answer should contain. The recruiter ticks off what they
+   * actually hear, so scoring is evidence-based rather than a gut call.
+   */
+  expected_keywords?: string[];
+  /** What a 4-5 answer sounds like. */
+  strong_answer?: string;
+  /** What a 1-2 answer sounds like. */
+  weak_answer?: string;
 }
 
 export interface JobScreeningQuestions {
@@ -246,6 +255,99 @@ export function parseRequirementsFromDescription(description: string): string[] 
   return bullets.slice(0, 8);
 }
 
+/**
+ * A JD bullet that states a threshold to meet rather than a competency to probe
+ * — "7+ years of relevant experience", "B.Tech in Computer Science".
+ *
+ * These must never be templated as skills: "Rate your confidence in: 7+ years of
+ * relevant experience" and "Experience with: 7+ years of relevant experience"
+ * are both nonsense, and they burn interview minutes on a yes/no fact that the
+ * resume already answers.
+ */
+export function isQualificationRequirement(text: string): boolean {
+  return /(\d+\s*\+?\s*(years?|yrs?)\b)|\b(bachelor|master|b\.?tech|b\.?e\b|b\.?sc|m\.?tech|m\.?sc|mba|mca|bca|graduate|post[- ]?graduate|degree|diploma)\b/i.test(
+    text
+  );
+}
+
+/**
+ * Requirements worth building a competency question around: skills, tools, and
+ * responsibilities — qualifications filtered out.
+ */
+export function skillRequirements(requirements: string[]): string[] {
+  return requirements.filter((r) => !isQualificationRequirement(r));
+}
+
+// Lead-ins that describe how well someone knows a thing, not the thing itself.
+const REQUIREMENT_LEAD_INS =
+  /^(strong |solid |good |proven |demonstrable |hands[- ]on |working )?(proficiency|proficient|experience|expertise|understanding|knowledge|familiarity|exposure|command|ability|skills?)\s+(in|of|with|on|to)\s+/i;
+
+const KEYWORD_STOPWORDS = new Set([
+  'the', 'and', 'or', 'a', 'an', 'at', 'least', 'one', 'any', 'with', 'in', 'of', 'for', 'to',
+  'on', 'as', 'is', 'are', 'be', 'other', 'etc', 'such', 'including', 'related', 'relevant',
+  'good', 'strong', 'basic', 'plus', 'preferred', 'must', 'have', 'able',
+]);
+
+/**
+ * Turn a JD requirement bullet into the handful of terms a recruiter should
+ * actually listen for.
+ *
+ * "Understanding of databases, API design, and web fundamentals"
+ *   → ['databases', 'API design', 'web fundamentals']
+ */
+export function requirementKeywords(text: string): string[] {
+  if (!text?.trim()) return [];
+
+  const body = text.trim().replace(REQUIREMENT_LEAD_INS, '');
+
+  return body
+    .split(/,|\band\b|\bor\b|\/|;|\|/i)
+    .map((part) =>
+      part
+        .trim()
+        // Drop leading quantifiers: "at least one backend technology" → "backend technology".
+        .replace(/^(at least\s+)?(one|two|three|a|an|the)\s+/i, '')
+        .replace(/[.;:]+$/, '')
+        .trim()
+    )
+    .filter((part) => {
+      if (part.length < 2 || part.length > 48) return false;
+      const words = part.toLowerCase().split(/\s+/);
+      return !words.every((w) => KEYWORD_STOPWORDS.has(w));
+    })
+    .slice(0, 6);
+}
+
+/** Merge keyword lists, case-insensitively de-duplicated, order preserved. */
+export function mergeKeywords(...lists: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of lists) {
+    for (const raw of list || []) {
+      const value = raw?.trim();
+      if (!value) continue;
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+  }
+  return out.slice(0, 8);
+}
+
+/** "a" / "an" for a role label, so questions read naturally. */
+export function indefiniteArticle(word: string): 'a' | 'an' {
+  return /^[aeiou]/i.test(word.trim()) ? 'an' : 'a';
+}
+
+/** Trim a long posting title down to something readable inside a question. */
+export function shortRoleLabel(title: string): string {
+  // Drop parenthetical stack notes: "Team Lead – Full-Stack (MERN/MEAN)" → "Team Lead – Full-Stack".
+  const withoutParens = title.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+  const base = withoutParens || title.trim();
+  return base.length > 42 ? `${base.slice(0, 42).trimEnd()}…` : base;
+}
+
 /** Representative years of experience for the posting, used to pitch depth. */
 export function bandForJob(
   minExperience?: number | null,
@@ -272,54 +374,101 @@ const DEPTH_HINT: Record<ExperienceBand, string> = {
  * the required experience band, and the sector. Used when AI is not live, and
  * as the shape the AI output is normalized into.
  */
-function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQuestions {
-  const title = input.title;
+export function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQuestions {
+  const role = shortRoleLabel(input.title);
   const requirements = parseRequirementsFromDescription(input.description || '');
+  // Only competencies get turned into questions; "7+ years" is a filter, not a topic.
+  const skills = skillRequirements(requirements);
+  const qualifications = requirements.filter(isQualificationRequirement);
   const used = new Set<string>();
-  const jobTypeHint = input.job_type ? ` (${input.job_type})` : '';
   const industry = normalizeIndustry(input.industry);
   const sector = industry ? ` in ${industry}` : '';
   const profile = industryProfile(input.industry);
   const band = bandForJob(input.min_experience, input.max_experience);
   const bandLabel = EXPERIENCE_BAND_LABELS[band];
+  const roleArticle = indefiniteArticle(role);
+
+  // Skills named on the job record are the most reliable keyword source —
+  // they are structured, unlike prose bullets scraped out of the JD.
+  const jobSkills = (input.required_skills || []).filter((s) => s?.trim());
+  const skillKeywords = mergeKeywords(jobSkills, ...skills.map(requirementKeywords));
 
   const prescreen: ScreeningQuestionDef[] = [
     {
       id: 'role_motivation',
-      label: `Why do you want this ${title} role${sector}${jobTypeHint}?`,
+      label: `Why do you want this ${role} role${sector}?`,
       hint: `Look for specific reasons tied to the role — not "any job will do". ${profile.screeningFocus[0] ? `Listen for: ${profile.screeningFocus[0]}.` : ''}`.trim(),
-      requirement: title,
       time_seconds: 60,
+      expected_keywords: mergeKeywords([role], skillKeywords.slice(0, 3), [
+        'career goal',
+        'growth',
+      ]),
+      strong_answer: `Names something specific about this ${role} role — the work, the stack, the team, or a career step it unlocks.`,
+      weak_answer: '"Looking for a change", "need a job", or describes any role in the industry rather than this one.',
     },
     {
       id: 'relevant_experience_fit',
-      label: `How does your experience match this ${bandLabel} opening?`,
-      hint: requirements.length
-        ? `Probe against: ${requirements.slice(0, 3).join('; ')}. ${DEPTH_HINT[band]}`
+      // State the bar from the JD when there is one; otherwise fall back to the band.
+      label: qualifications[0]
+        ? `Walk me through the experience that meets: ${qualifications[0]}`
+        : `How does your experience match this ${bandLabel} opening?`,
+      hint: skills.length
+        ? `Probe against: ${skills.slice(0, 3).join('; ')}. ${DEPTH_HINT[band]}`
         : DEPTH_HINT[band],
-      requirement: requirements[0],
+      requirement: qualifications[0],
       time_seconds: 60,
+      expected_keywords: mergeKeywords(
+        ['years', 'current role', 'employer'],
+        skillKeywords.slice(0, 4)
+      ),
+      strong_answer:
+        'Gives concrete tenure with named employers and maps that experience onto the requirements, with examples.',
+      weak_answer: 'Restates the resume, inflates years, or cannot connect past work to this role.',
     },
     {
       id: 'skill_confidence',
-      label: requirements[0]
-        ? `Rate your confidence in: ${requirements[0]}`
-        : `Rate confidence in the primary skill for this ${title} role`,
+      label: skills[0]
+        ? `Rate your confidence in: ${skills[0]}`
+        : `Rate your confidence in the core skill for ${roleArticle} ${role}`,
       hint: '1 = no experience, 5 = can teach others. Follow up with a concrete example.',
-      requirement: requirements[0],
+      requirement: skills[0],
       time_seconds: 60,
+      expected_keywords: mergeKeywords(
+        skills[0] ? requirementKeywords(skills[0]) : [],
+        skillKeywords.slice(0, 3),
+        ['example', 'project']
+      ),
+      strong_answer:
+        'Gives a rating and immediately backs it with a specific example — where used, what they built, what went wrong.',
+      weak_answer: 'Claims 4-5 but cannot produce an example, or the example is coursework rather than real work.',
     },
     {
       id: 'joining_commitment',
       label: 'Notice period and joining commitment',
       hint: 'Clear timeline with committed language — red flag if vague ("maybe", "depends").',
       time_seconds: 60,
+      expected_keywords: [
+        'notice period',
+        'last working day',
+        'immediate',
+        'buyout',
+        'resigned',
+        'joining date',
+      ],
+      strong_answer: 'States a firm date or day count, plus whether resignation is already submitted.',
+      weak_answer: '"Maybe next month", "depends", or the timeline shifts when pressed.',
     },
     {
       id: 'sector_logistics',
       label: industry ? `${industry} working conditions` : 'Working conditions and availability',
       hint: `${profile.logisticsPrompt} Common drop-out reasons here: ${profile.attritionDrivers.join(', ')}.`,
       time_seconds: 60,
+      expected_keywords: mergeKeywords(
+        ['shift', 'commute', 'location', 'travel'],
+        profile.attritionDrivers
+      ),
+      strong_answer: `Accepts the stated conditions without hedging and has already thought about ${profile.attritionDrivers[0]}.`,
+      weak_answer: `Hesitates on ${profile.attritionDrivers.slice(0, 2).join(' or ')}, or says they will "check with family" and get back.`,
     },
   ].map((q) => ({ ...q, id: uniqueId(q.id, used) }));
 
@@ -331,47 +480,71 @@ function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQue
     category: 'introduction',
     time_seconds: 90,
     hint: 'Name, background, education, and experience relevant to this role.',
+    expected_keywords: mergeKeywords(
+      ['years of experience', 'current role', 'employer', 'education'],
+      skillKeywords.slice(0, 3)
+    ),
+    strong_answer:
+      'Structured 60-90s: who they are, current role and employer, relevant projects, and why they fit this opening.',
+    weak_answer: 'Reads the resume aloud, rambles past 2 minutes, or covers only personal details.',
   });
 
+  // Motivation is already covered in screening — go one level deeper here
+  // instead of repeating "why this role?" almost word for word.
   interview.push({
-    id: uniqueId('why_this_role', used),
-    label: `Why are you interested in the ${title} position${jobTypeHint}?`,
+    id: uniqueId('role_understanding', used),
+    label: `What do you expect the day-to-day of this ${role} role to involve?`,
     category: 'introduction',
     time_seconds: 60,
-    hint: 'Specific motivation aligned with the JD — not generic career goals.',
-    requirement: title,
+    hint: 'Tests whether they read the JD and understand the actual work — not just the title.',
+    expected_keywords: mergeKeywords(skillKeywords.slice(0, 4), profile.domainKeywords.slice(0, 3)),
+    strong_answer: 'Describes concrete daily activities that match the JD, and asks a clarifying question about scope.',
+    weak_answer: 'Generic "I will do my best and learn", or describes a different role entirely.',
   });
 
-  for (const req of requirements.slice(0, 3)) {
+  for (const skill of skills.slice(0, 3)) {
     interview.push({
-      id: uniqueId(req, used),
-      label: `Experience with: ${req}`,
+      id: uniqueId(skill, used),
+      label: `Experience with: ${skill}`,
       category: 'technical',
       time_seconds: 120,
       hint: `Ask for a real example — tools used, their role, challenges, and measurable outcome. ${DEPTH_HINT[band]}`,
-      requirement: req,
+      requirement: skill,
+      expected_keywords: mergeKeywords(requirementKeywords(skill), jobSkills, [
+        'example',
+        'outcome',
+      ]),
+      strong_answer: `Names a real project using ${requirementKeywords(skill)[0] || skill}, their specific role in it, a problem hit, and the result.`,
+      weak_answer: 'Describes it in theory, uses "we" throughout without their own contribution, or has only tutorial exposure.',
     });
   }
 
-  if (requirements.length < 2) {
+  if (skills.length < 2) {
     interview.push({
       id: uniqueId('core_skill_depth', used),
-      label: `Deep dive on the core skill for a ${title}`,
+      label: `Deep dive on the core skill for ${roleArticle} ${role}`,
       category: 'technical',
       time_seconds: 120,
       hint: `How they applied it, what they learned, and results they delivered. ${DEPTH_HINT[band]}`,
+      expected_keywords: mergeKeywords(jobSkills, profile.domainKeywords.slice(0, 4), ['example', 'outcome']),
+      strong_answer: 'Concrete example with their own ownership, a real obstacle, and a measurable result.',
+      weak_answer: 'Textbook definition with no application, or cannot go past the first follow-up.',
     });
   }
 
   interview.push({
     id: uniqueId('domain_knowledge', used),
     label: industry
-      ? `${industry} domain knowledge for a ${title}`
-      : `Domain knowledge for a ${title}`,
+      ? `${industry} domain knowledge for ${roleArticle} ${role}`
+      : `Domain knowledge for ${roleArticle} ${role}`,
     category: 'domain',
     time_seconds: 90,
     hint: `Probe the sector essentials: ${profile.screeningFocus.join(', ')}.`,
     requirement: industry || undefined,
+    // Sector vocabulary a competent candidate reaches for unprompted.
+    expected_keywords: profile.domainKeywords,
+    strong_answer: `Uses sector vocabulary unprompted (${profile.domainKeywords.slice(0, 3).join(', ')}) and ties it to their own work.`,
+    weak_answer: 'Answers in generic terms, or uses the vocabulary only after you supply it.',
   });
 
   interview.push(
@@ -381,6 +554,9 @@ function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQue
       category: 'behavioral',
       time_seconds: 90,
       hint: 'STAR format — look for ownership, clarity, and outcome.',
+      expected_keywords: ['situation', 'my role', 'action', 'trade-off', 'result', 'impact', 'metric'],
+      strong_answer: 'Clear situation → their action → measurable result, with a trade-off they consciously made.',
+      weak_answer: 'Stays at "we had issues and fixed them", or the problem is trivial for their claimed level.',
     },
     {
       id: uniqueId('teamwork', used),
@@ -388,6 +564,9 @@ function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQue
       category: 'behavioral',
       time_seconds: 60,
       hint: 'Handling disagreements, sharing progress, and working cross-functionally.',
+      expected_keywords: ['stand-up', 'stakeholder', 'disagreement', 'escalation', 'handover', 'feedback', 'documentation'],
+      strong_answer: 'Names actual rituals and a real disagreement they resolved without escalating badly.',
+      weak_answer: '"I get along with everyone" with no specifics, or blames past teams.',
     },
     {
       id: uniqueId('why_hire_you', used),
@@ -395,6 +574,9 @@ function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQue
       category: 'goals',
       time_seconds: 60,
       hint: 'Strengths that directly map to the JD requirements listed above.',
+      expected_keywords: mergeKeywords(skillKeywords.slice(0, 4), ['track record', 'outcome']),
+      strong_answer: 'Picks two or three JD requirements and evidences each with something they have already done.',
+      weak_answer: 'Lists personality traits ("hard-working", "quick learner") with nothing tied to the JD.',
     },
     {
       id: uniqueId('salary_expectation', used),
@@ -402,6 +584,9 @@ function buildTemplateQuestions(input: ScreeningQuestionsInput): JobScreeningQue
       category: 'goals',
       time_seconds: 60,
       hint: 'Reasonable range for the role level and location.',
+      expected_keywords: ['current CTC', 'expected CTC', 'fixed', 'variable', 'notice period', 'negotiable'],
+      strong_answer: 'Gives current and expected figures with a fixed/variable split, and a range that fits the posted band.',
+      weak_answer: 'Refuses to name a number, or quotes well above the band without justification.',
     }
   );
 
@@ -431,6 +616,16 @@ function normalizeQuestions(raw: JobScreeningQuestions): JobScreeningQuestions {
       label: q.label?.trim() || `Question ${i + 1}`,
       hint: q.hint?.trim() || 'Score the answer 1 (weak) to 5 (strong).',
       time_seconds: q.time_seconds && q.time_seconds > 0 ? q.time_seconds : defaultTime,
+      // Model output can arrive as a comma-joined string, or with blanks/dupes.
+      expected_keywords: mergeKeywords(
+        Array.isArray(q.expected_keywords)
+          ? q.expected_keywords
+          : typeof q.expected_keywords === 'string'
+            ? String(q.expected_keywords).split(',')
+            : []
+      ),
+      strong_answer: q.strong_answer?.trim() || undefined,
+      weak_answer: q.weak_answer?.trim() || undefined,
     }));
   };
 
@@ -508,7 +703,9 @@ export async function ensureJobScreeningQuestions(
   force = false
 ): Promise<JobScreeningQuestions> {
   const { rows } = await pool.query(
-    'SELECT title, description, client, location, job_type, industry, min_experience, max_experience, screening_questions FROM jobs WHERE id = $1 AND tenant_id = $2',
+    `SELECT title, description, client, location, job_type, industry, min_experience, max_experience,
+            required_skills, screening_questions
+     FROM jobs WHERE id = $1 AND tenant_id = $2`,
     [jobId, tenantId]
   );
   const job = rows[0];
@@ -527,6 +724,7 @@ export async function ensureJobScreeningQuestions(
     industry: job.industry,
     min_experience: job.min_experience,
     max_experience: job.max_experience,
+    required_skills: Array.isArray(job.required_skills) ? job.required_skills : [],
   });
 
   await saveJobScreeningQuestions(jobId, tenantId, questions);

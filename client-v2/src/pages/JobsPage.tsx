@@ -540,57 +540,79 @@ export default function JobsPage() {
       {viewingJd && (
         <div className="modal-overlay" onClick={() => setViewingJd(null)}>
           <div className="modal-card jd-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="card-heading">{viewingJd.title}</h3>
-            <p className="text-muted" style={{ marginBottom: '1rem' }}>
-              {viewingJd.client} • {viewingJd.location} • {viewingJd.open_positions} open position{viewingJd.open_positions === 1 ? '' : 's'}
-            </p>
-            <div className="jd-modal-body">
-              {viewingJd.description?.trim() || 'No description has been added for this job yet. Edit the job or draft one with AI.'}
+            <div className="jd-modal-head">
+              <h3 className="card-heading">{viewingJd.title}</h3>
+              <p className="text-muted">
+                {viewingJd.client} • {viewingJd.location} • {viewingJd.open_positions} open position{viewingJd.open_positions === 1 ? '' : 's'}
+                {viewingJd.industry ? ` • ${viewingJd.industry}` : ''}
+              </p>
             </div>
-            <div style={{ marginTop: '1.25rem' }}>
-              <h4 className="card-heading" style={{ marginBottom: '0.5rem' }}>Screening Questions</h4>
+
+            {/* JD and questions share one scroll region so neither squeezes the other. */}
+            <div className="jd-modal-scroll">
+              <h4 className="jd-section-title">Job description</h4>
+              <div className="jd-modal-body">
+                {viewingJd.description?.trim() || 'No description has been added for this job yet. Edit the job or draft one with AI.'}
+              </div>
+
+              <h4 className="jd-section-title">Screening questions</h4>
               {loadingJdQuestions ? (
                 <p className="text-muted">Loading questions from JD…</p>
               ) : jdScreeningQuestions ? (
                 <>
-                  <p className="text-muted" style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>
-                    Generated from JD{viewingJd.job_type ? ` · ${viewingJd.job_type}` : ''} ({jdScreeningQuestions.source || 'default'}).
-                    {' '}
-                    Screening ~{Math.round((jdScreeningQuestions.screening_duration_seconds || 300) / 60)} min
-                    ({jdScreeningQuestions.prescreen.length} Qs
-                    {jdScreeningQuestions.screening_total_seconds
-                      ? `, ${Math.round(jdScreeningQuestions.screening_total_seconds / 60)} min packed`
-                      : ''}
-                    )
-                    {' · '}
-                    Scheduled ~{Math.round((jdScreeningQuestions.scheduled_duration_seconds || 900) / 60)} min
-                    ({jdScreeningQuestions.interview.length} Qs
-                    {jdScreeningQuestions.scheduled_total_seconds
-                      ? `, ${Math.round(jdScreeningQuestions.scheduled_total_seconds / 60)} min packed`
-                      : ''}
-                    ).
+                  <p className="jd-questions-meta">
+                    {jdScreeningQuestions.source === 'ai' ? 'AI-written from the JD' : 'Built from the JD'}
+                    {jdScreeningQuestions.industry ? ` · ${jdScreeningQuestions.industry}` : ''}
+                    {viewingJd.job_type ? ` · ${viewingJd.job_type}` : ''}
+                    {' · generated once and reused for every candidate on this job.'}
                   </p>
                   <div className="jd-screening-preview">
-                    <strong>Screening (max 5 min)</strong>
-                    <ul>
+                    <div className="jd-question-group-head">
+                      <strong>Screening</strong>
+                      <span className="text-muted">
+                        {jdScreeningQuestions.prescreen.length} questions ·{' '}
+                        {Math.round((jdScreeningQuestions.screening_total_seconds || jdScreeningQuestions.screening_duration_seconds || 300) / 60)} min
+                      </span>
+                    </div>
+                    <ol>
                       {jdScreeningQuestions.prescreen.map((q) => (
                         <li key={q.id}>
-                          {q.label}
-                          {q.time_seconds ? <span className="text-muted"> · {q.time_seconds}s</span> : null}
-                          {q.requirement ? <span className="text-muted"> — {q.requirement}</span> : null}
+                          <span className="jd-question-text">{q.label}</span>
+                          {q.time_seconds ? <span className="jd-question-time">{q.time_seconds}s</span> : null}
+                          {q.expected_keywords?.length ? (
+                            <div className="rubric-keywords">
+                              <span className="rubric-label">Listen for</span>
+                              {q.expected_keywords.map((kw) => (
+                                <span key={kw} className="keyword-chip">{kw}</span>
+                              ))}
+                            </div>
+                          ) : null}
                         </li>
                       ))}
-                    </ul>
-                    <strong>Scheduled (max 15 min)</strong>
-                    <ul>
+                    </ol>
+                    <div className="jd-question-group-head">
+                      <strong>Scheduled interview</strong>
+                      <span className="text-muted">
+                        {jdScreeningQuestions.interview.length} questions ·{' '}
+                        {Math.round((jdScreeningQuestions.scheduled_total_seconds || jdScreeningQuestions.scheduled_duration_seconds || 900) / 60)} min
+                      </span>
+                    </div>
+                    <ol>
                       {jdScreeningQuestions.interview.map((q) => (
                         <li key={q.id}>
-                          {q.label}
-                          {q.time_seconds ? <span className="text-muted"> · {q.time_seconds}s</span> : null}
-                          {q.requirement ? <span className="text-muted"> — {q.requirement}</span> : null}
+                          <span className="jd-question-text">{q.label}</span>
+                          {q.time_seconds ? <span className="jd-question-time">{q.time_seconds}s</span> : null}
+                          {q.expected_keywords?.length ? (
+                            <div className="rubric-keywords">
+                              <span className="rubric-label">Listen for</span>
+                              {q.expected_keywords.map((kw) => (
+                                <span key={kw} className="keyword-chip">{kw}</span>
+                              ))}
+                            </div>
+                          ) : null}
                         </li>
                       ))}
-                    </ul>
+                    </ol>
                   </div>
                 </>
               ) : (

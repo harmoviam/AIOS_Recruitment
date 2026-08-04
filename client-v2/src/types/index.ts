@@ -333,6 +333,12 @@ export interface ScreeningQuestionDef {
   requirement?: string;
   category?: InterviewScreeningQuestion['category'] | 'technical';
   time_seconds?: number;
+  /** Terms a solid answer should contain — the recruiter ticks off what they hear. */
+  expected_keywords?: string[];
+  /** What a 4-5 answer sounds like. */
+  strong_answer?: string;
+  /** What a 1-2 answer sounds like. */
+  weak_answer?: string;
 }
 
 export interface JobRecommendation {

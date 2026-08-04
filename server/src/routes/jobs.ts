@@ -211,7 +211,7 @@ router.post('/:id/generate-screening-questions', canManageJobs, async (req, res)
   if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
 
   const { rows } = await pool.query(
-    `SELECT title, description, client, location, job_type, industry, min_experience, max_experience
+    `SELECT title, description, client, location, job_type, industry, min_experience, max_experience, required_skills
      FROM jobs WHERE id = $1 AND tenant_id = $2`,
     [jobId, tid(req)]
   );
@@ -226,6 +226,7 @@ router.post('/:id/generate-screening-questions', canManageJobs, async (req, res)
     industry: rows[0].industry,
     min_experience: rows[0].min_experience,
     max_experience: rows[0].max_experience,
+    required_skills: Array.isArray(rows[0].required_skills) ? rows[0].required_skills : [],
   });
   await saveJobScreeningQuestions(jobId, tid(req), questions);
   res.json({ job_id: jobId, job_title: rows[0].title, questions });
@@ -367,6 +368,7 @@ router.post('/', canManageJobs, async (req, res) => {
       industry: resolvedIndustry.value,
       min_experience: job.min_experience,
       max_experience: job.max_experience,
+      required_skills: Array.isArray(job.required_skills) ? job.required_skills : [],
     });
     await saveJobScreeningQuestions(job.id, tid(req), questions);
     job.screening_questions = questions;
@@ -441,6 +443,7 @@ router.patch('/:id', canManageJobs, async (req, res) => {
       industry: rows[0].industry,
       min_experience: rows[0].min_experience,
       max_experience: rows[0].max_experience,
+      required_skills: Array.isArray(rows[0].required_skills) ? rows[0].required_skills : [],
     });
     await saveJobScreeningQuestions(rows[0].id, tid(req), questions);
     rows[0].screening_questions = questions;
