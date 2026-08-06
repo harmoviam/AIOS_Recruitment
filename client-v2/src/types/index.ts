@@ -229,17 +229,101 @@ export interface ResumeMeta {
   parsed_at?: string;
 }
 
+export interface ExperienceGateResult {
+  passed: boolean;
+  candidate_years: number;
+  required_years: number | null;
+  reason: string | null;
+}
+
+export interface EmploymentSpan {
+  title: string;
+  company: string;
+  start_date: string | null;
+  end_date: string | null;
+  years: number | null;
+}
+
+export interface ExperienceConsistencyResult {
+  employment_years_sum: number | null;
+  employment_years: number | null;
+  claimed_years: number | null;
+  effective_years: number | null;
+  roles: EmploymentSpan[];
+  mismatch: boolean;
+  mismatch_delta: number | null;
+  reason: string | null;
+}
+
 export interface ResumeParseResponse {
   parsed_profile: ParsedProfile;
   ai_confidence: number;
-  ats_score: number;
-  ats: AtsScoreResult;
+  ats_score: number | null;
+  ats: AtsScoreResult | null;
+  experience_gate?: ExperienceGateResult;
+  experience_rejected?: boolean;
+  experience_consistency?: ExperienceConsistencyResult;
   pending_resume_id: string;
   pending_ext: string;
   original_filename: string;
   mime_type: string;
   file_size_bytes: number;
   source: string;
+}
+
+export interface EligibilityScoreResult {
+  score: number;
+  mandatory_matched: string[];
+  mandatory_missing: string[];
+  preferred_matched: string[];
+  preferred_missing: string[];
+  mandatory_rate: number;
+  preferred_rate: number;
+}
+
+export type MassScreenSlotStatus =
+  | 'queued'
+  | 'parsing'
+  | 'scored'
+  | 'error'
+  | 'decided'
+  | 'skipped';
+
+export interface MassScreenSlot {
+  slot: number;
+  status: MassScreenSlotStatus;
+  filename?: string;
+  error?: string;
+  original_filename?: string;
+  parsed_profile?: ParsedProfile;
+  ats_score?: number;
+  ats_score_10?: number;
+  ats?: AtsScoreResult;
+  eligibility_score?: number;
+  eligibility?: EligibilityScoreResult;
+  experience_years?: number;
+  min_experience_required?: number | null;
+  experience_rejected?: boolean;
+  experience_gate?: ExperienceGateResult;
+  experience_consistency?: ExperienceConsistencyResult;
+  ai_status?: 'pending' | 'done' | 'skipped';
+  ai_summary?: string;
+  ai_strengths?: string[];
+  ai_gaps?: string[];
+  decision?: 'shortlisted' | 'rejected';
+  remarks?: string;
+  candidate_id?: number;
+}
+
+export interface MassScreenBatch {
+  id: string;
+  tenant_id: number;
+  job_id: number;
+  created_by: number | null;
+  status: 'processing' | 'ready' | 'completed';
+  slots: MassScreenSlot[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Candidate {
@@ -396,6 +480,7 @@ export interface Job {
   min_experience?: number | null;
   max_experience?: number | null;
   required_skills?: string[];
+  preferred_skills?: string[];
   salary?: string | null;
   shift?: string | null;
   job_type?: string | null;

@@ -21,6 +21,17 @@ import {
 } from '../services/ai.js';
 import { extractAndParseResume } from '../services/parserService.js';
 import { computeAtsScore, type AtsJobContext } from '../services/atsScore.js';
+import { evaluateExperienceGate } from '../services/eligibilityScore.js';
+import {
+  analyzeExperienceConsistency,
+} from '../services/experienceConsistency.js';
+import {
+  applyMassScreenDecisions,
+  createMassScreenBatch,
+  getMassScreenBatch,
+  MASS_SCREEN_MAX_FILES,
+  publicBatch,
+} from '../services/massScreen.js';
 import { getRedFlagPackForCandidate } from '../services/redFlagQuestions.js';
 import {
   DEFAULT_PRESCREEN_QUESTIONS,
@@ -51,6 +62,12 @@ const resumeUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: RESUME_MAX_BYTES },
 });
+
+const massScreenFields = Array.from({ length: MASS_SCREEN_MAX_FILES }, (_, i) => ({
+  name: `resume_${i}`,
+  maxCount: 1 as const,
+}));
+const massScreenUpload = resumeUpload.fields(massScreenFields);
 
 /** Load the JD keyword context an ATS score is graded against. */
 async function atsJobContext(tenantId: number, jobId: unknown): Promise<AtsJobContext | null> {
@@ -94,7 +111,21 @@ async function populateResumeText(tenantId: number, candidateId: number): Promis
 
     const profile = rows[0]?.parsed_profile as ParsedProfile | null;
     if (!profile) return;
-    const ats = computeAtsScore(profile, text || '', await atsJobContext(tenantId, rows[0].job_id));
+    const job = await atsJobContext(tenantId, rows[0].job_id);
+    const gate = evaluateExperienceGate(profile.total_experience_years, job?.min_experience);
+    if (!gate.passed) {
+      // Skip ATS when under min YOE — store the gate reason instead.
+      await pool.query(
+        'UPDATE candidates SET ats_score = NULL, ats_details = $1::jsonb WHERE id = $2 AND tenant_id = $3',
+        [
+          JSON.stringify({ experience_gate: gate, skipped: 'ats', reason: gate.reason }),
+          candidateId,
+          tenantId,
+        ]
+      );
+      return;
+    }
+    const ats = computeAtsScore(profile, text || '', job);
     await pool.query(
       'UPDATE candidates SET ats_score = $1, ats_details = $2::jsonb WHERE id = $3 AND tenant_id = $4',
       [ats.score, JSON.stringify(ats), candidateId, tenantId]
@@ -548,16 +579,33 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
       req.file.mimetype
     );
 
+    const consistency = analyzeExperienceConsistency({
+      profile: parsed,
+      resumeText: text || '',
+    });
+    if (consistency.effective_years != null) {
+      parsed.total_experience_years = consistency.effective_years;
+    }
+
     // Grade the resume against the job the recruiter has already picked on the
     // form, when there is one — otherwise the keyword category is not scored.
+    // Hard YOE gate: if below min experience, skip ATS entirely.
     const job = await atsJobContext(tid(req), req.body?.job_id ?? req.query.job_id);
-    const ats = computeAtsScore(parsed, text, job);
+    const experienceGate = evaluateExperienceGate(
+      parsed.total_experience_years,
+      job?.min_experience
+    );
+    const experienceRejected = !experienceGate.passed;
+    const ats = experienceRejected ? null : computeAtsScore(parsed, text, job);
 
     res.json({
       parsed_profile: parsed,
       ai_confidence: parsed.confidence,
-      ats_score: ats.score,
+      ats_score: ats?.score ?? null,
       ats: ats,
+      experience_gate: experienceGate,
+      experience_rejected: experienceRejected,
+      experience_consistency: consistency,
       pending_resume_id: pendingId,
       pending_ext: ext,
       original_filename: req.file.originalname,
@@ -568,6 +616,66 @@ router.post('/parse-resume', resumeUpload.single('resume'), async (req, res) => 
   } catch (err) {
     console.warn('Resume parse failed:', (err as Error).message);
     res.status(500).json({ error: 'Failed to parse resume' });
+  }
+});
+
+/** Mass resume screening: upload up to MASS_SCREEN_MAX_FILES resumes against one JD; returns batch_id for polling. */
+router.post('/mass-screen', massScreenUpload, async (req, res) => {
+  const jobId = Number(req.body?.job_id);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({ error: 'job_id is required' });
+  }
+  if (!(await assertJobInTenant(jobId, tid(req)))) {
+    return res.status(400).json({ error: 'Invalid job for this workspace' });
+  }
+
+  const filesMap = (req.files || {}) as Record<string, Express.Multer.File[]>;
+  const files: Array<{ slot: number; file: Express.Multer.File }> = [];
+  for (let i = 0; i < MASS_SCREEN_MAX_FILES; i++) {
+    const f = filesMap[`resume_${i}`]?.[0];
+    if (f) files.push({ slot: i, file: f });
+  }
+
+  try {
+    const batch = await createMassScreenBatch({
+      tenantId: tid(req),
+      jobId,
+      userId: req.user!.id,
+      files,
+    });
+    res.status(202).json(publicBatch(batch));
+  } catch (err) {
+    const status = (err as { status?: number }).status || 500;
+    res.status(status).json({ error: (err as Error).message || 'Failed to start mass screen' });
+  }
+});
+
+router.get('/mass-screen/:batchId', async (req, res) => {
+  const batch = await getMassScreenBatch(tid(req), req.params.batchId);
+  if (!batch) return res.status(404).json({ error: 'Batch not found or expired' });
+  res.json(publicBatch(batch));
+});
+
+router.post('/mass-screen/:batchId/decide', async (req, res) => {
+  const decisions = Array.isArray(req.body?.decisions) ? req.body.decisions : null;
+  if (!decisions?.length) {
+    return res.status(400).json({ error: 'decisions array required' });
+  }
+  try {
+    const batch = await applyMassScreenDecisions({
+      tenantId: tid(req),
+      batchId: req.params.batchId,
+      userId: req.user!.id,
+      decisions: decisions.map((d: { slot: number; decision: string; remarks?: string }) => ({
+        slot: Number(d.slot),
+        decision: d.decision as 'shortlisted' | 'rejected',
+        remarks: d.remarks,
+      })),
+    });
+    res.json(publicBatch(batch));
+  } catch (err) {
+    const status = (err as { status?: number }).status || 500;
+    res.status(status).json({ error: (err as Error).message || 'Failed to apply decisions' });
   }
 });
 
@@ -765,7 +873,25 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
       return res.status(422).json({ error: parseError || 'Could not parse this resume.' });
     }
 
-    const ats = computeAtsScore(parsed, text, await atsJobContext(tid(req), c.job_id));
+    const job = await atsJobContext(tid(req), c.job_id);
+    const consistency = analyzeExperienceConsistency({
+      profile: parsed,
+      resumeText: text || '',
+    });
+    if (consistency.effective_years != null) {
+      parsed.total_experience_years = consistency.effective_years;
+    }
+    const experienceGate = evaluateExperienceGate(parsed.total_experience_years, job?.min_experience);
+    const experienceRejected = !experienceGate.passed;
+    const ats = experienceRejected ? null : computeAtsScore(parsed, text, job);
+    const atsDetails = experienceRejected
+      ? {
+          experience_gate: experienceGate,
+          experience_consistency: consistency,
+          skipped: 'ats',
+          reason: experienceGate.reason,
+        }
+      : { ...ats, experience_consistency: consistency };
 
     const ext = mimeType === 'application/pdf' ? '.pdf' : mimeType.includes('wordprocessingml') ? '.docx' : '.doc';
     const storagePath = await saveCandidateResume(tid(req), candidateId, buffer, ext);
@@ -832,33 +958,41 @@ router.post('/:id/reparse-resume', resumeUpload.single('resume'), async (req, re
         mapped.salary_expectation,
         mapped.email,
         mapped.phone,
-        ats.score,
-        JSON.stringify(ats),
+        ats?.score ?? null,
+        JSON.stringify(atsDetails),
         candidateId,
         tid(req),
       ]
     );
 
+    const activityAts = experienceRejected
+      ? `experience gate failed — ${experienceGate.reason}`
+      : `ATS ${ats!.score}/100 — ${ats!.grade}`;
     await pool.query(
       'INSERT INTO activities (type, description, user_id, candidate_id, tenant_id) VALUES ($1, $2, $3, $4, $5)',
       [
         'profile',
-        `${updated[0].name} resume re-parsed (confidence ${Math.round(parsed.confidence * 100)}%, ATS ${ats.score}/100 — ${ats.grade})`,
+        `${updated[0].name} resume re-parsed (confidence ${Math.round(parsed.confidence * 100)}%, ${activityAts})`,
         req.user!.id,
         candidateId,
         tid(req),
       ]
     );
 
-    void rescoreCandidate(tid(req), candidateId);
+    if (!experienceRejected) {
+      void rescoreCandidate(tid(req), candidateId);
+    }
     void populateResumeText(tid(req), candidateId);
 
     res.json({
       candidate: updated[0],
       parsed_profile: parsed,
       ai_confidence: parsed.confidence,
-      ats_score: ats.score,
+      ats_score: ats?.score ?? null,
       ats,
+      experience_gate: experienceGate,
+      experience_rejected: experienceRejected,
+      experience_consistency: consistency,
       source,
     });
   } catch (err) {
@@ -1161,8 +1295,22 @@ router.post('/', enforceCandidateLimit(), async (req, res) => {
     ['pipeline', activityDesc, req.user!.id, rows[0].id, tid(req)]
   );
 
-  void rescoreCandidate(tid(req), rows[0].id);
   void populateResumeText(tid(req), rows[0].id);
+
+  // Skip AI JD scoring when under the job's min experience.
+  if (primaryJobId) {
+    const jobCtx = await atsJobContext(tid(req), primaryJobId);
+    const yoe =
+      experience_years != null
+        ? Number(experience_years)
+        : Number((parsed_profile as ParsedProfile | undefined)?.total_experience_years) || 0;
+    const gate = evaluateExperienceGate(yoe, jobCtx?.min_experience);
+    if (gate.passed) {
+      void rescoreCandidate(tid(req), rows[0].id);
+    }
+  } else {
+    void rescoreCandidate(tid(req), rows[0].id);
+  }
 
   res.status(201).json(rows[0]);
 });

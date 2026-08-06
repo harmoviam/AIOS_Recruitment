@@ -375,20 +375,92 @@ def extract_certifications(section_text: str) -> list[dict[str, Any]]:
     return certs[:15]
 
 
-def extract_total_experience(text: str, experience: list[dict[str, Any]]) -> Optional[float]:
-    m = EXP_YEARS_RE.search(text[:2000])
-    if m:
-        return round(float(m.group(1)), 1)
-    dates: list[tuple[datetime, datetime]] = []
+def extract_claimed_experience(text: str, summary: str = "") -> Optional[float]:
+    """Explicit YOE claim from summary / top-of-resume (skips education phrases)."""
+    blobs = [summary or "", (text or "")[:2500]]
+    for blob in blobs:
+        for m in EXP_YEARS_RE.finditer(blob):
+            around = blob[max(0, m.start() - 40) : m.end() + 40].lower()
+            if re.search(
+                r"bachelor|master|degree|cgpa|gpa|university|college|school|diploma|graduation",
+                around,
+            ):
+                continue
+            years = float(m.group(1))
+            if 0 <= years <= 50:
+                return round(years, 1)
+    return None
+
+
+def employment_years_from_roles(
+    experience: list[dict[str, Any]],
+) -> tuple[Optional[float], Optional[float]]:
+    """Return (calendar_years, sum_years) from employment date spans."""
+    intervals: list[tuple[datetime, datetime]] = []
+    sum_days = 0.0
     for e in experience:
         start = parse_date_token(e.get("start_date") or "")
         end = parse_date_token(e.get("end_date") or "")
         if start and end and end >= start:
-            dates.append((start, end))
-    if not dates:
-        return None
-    total_days = sum((end - start).days for start, end in dates)
-    return round(total_days / 365.25, 1)
+            days = (end - start).days
+            sum_days += days
+            intervals.append((start, end))
+    if not intervals:
+        return None, None
+    intervals.sort(key=lambda x: x[0])
+    merged_days = 0.0
+    cur_s, cur_e = intervals[0]
+    for s, e in intervals[1:]:
+        if s <= cur_e:
+            if e > cur_e:
+                cur_e = e
+        else:
+            merged_days += (cur_e - cur_s).days
+            cur_s, cur_e = s, e
+    merged_days += (cur_e - cur_s).days
+    return round(merged_days / 365.25, 1), round(sum_days / 365.25, 1)
+
+
+def extract_total_experience(
+    text: str, experience: list[dict[str, Any]], summary: str = ""
+) -> Optional[float]:
+    """Prefer employment calendar years; fall back to claimed summary YOE."""
+    employment, _sum_years = employment_years_from_roles(experience)
+    if employment is not None:
+        return employment
+    claimed = extract_claimed_experience(text, summary)
+    if claimed is not None:
+        return claimed
+    return None
+
+
+def experience_consistency(
+    text: str,
+    experience: list[dict[str, Any]],
+    summary: str = "",
+    tolerance: float = 1.0,
+) -> dict[str, Any]:
+    employment, sum_years = employment_years_from_roles(experience)
+    claimed = extract_claimed_experience(text, summary)
+    mismatch = False
+    reason = None
+    delta = None
+    if claimed is not None and employment is not None:
+        delta = round(abs(claimed - employment), 1)
+        if delta > tolerance:
+            mismatch = True
+            reason = (
+                f"Experience mismatch: summary claims {claimed} years, "
+                f"but employment history totals {employment} years"
+            )
+    return {
+        "employment_years": employment,
+        "employment_years_sum": sum_years,
+        "claimed_years": claimed,
+        "mismatch": mismatch,
+        "mismatch_delta": delta,
+        "reason": reason,
+    }
 
 
 def compute_confidence(profile: dict[str, Any]) -> float:
@@ -466,7 +538,8 @@ def build_profile(text: str) -> Optional[dict[str, Any]]:
         "preferred_location": None,
         "languages": languages[:10],
         "professional_summary": summary[:600] or None,
-        "total_experience_years": extract_total_experience(text, experience),
+        "total_experience_years": extract_total_experience(text, experience, summary),
+        "experience_consistency": experience_consistency(text, experience, summary),
         "confidence": 0.0,
     }
 

@@ -206,6 +206,7 @@ export async function initDb() {
     await migratePerfIndexes(client);
     await migrateSourcingIntelligence(client);
     await migratePeopleSearch(client);
+    await migrateMassScreenBatches(client);
     // Campaign → careers-page publishing: a job can originate from a campaign.
     await client.query(
       `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS sourcing_campaign_id UUID REFERENCES sourcing_campaign(id) ON DELETE SET NULL`
@@ -898,6 +899,7 @@ async function migrateJobRecommendation(client: pg.PoolClient) {
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS min_experience REAL`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_experience REAL`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS required_skills JSONB DEFAULT '[]'`);
+  await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS preferred_skills JSONB DEFAULT '[]'`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS salary TEXT`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS shift TEXT`);
   await client.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT`);
@@ -1288,6 +1290,27 @@ async function migrateAiResumeParser(client: pg.PoolClient) {
   // matches the JD. Separate from ai_score, which is the 0–10 role fit score.
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS ats_score REAL`);
   await client.query(`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS ats_details JSONB`);
+}
+
+/** Mass resume screening batches — progressive parse/score sessions (see MASS_SCREEN_MAX_FILES). */
+async function migrateMassScreenBatches(client: pg.PoolClient) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS mass_screen_batches (
+      id TEXT PRIMARY KEY,
+      tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'processing',
+      slots JSONB NOT NULL DEFAULT '[]',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '24 hours')
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS mass_screen_batches_tenant_idx
+    ON mass_screen_batches (tenant_id, created_at DESC)
+  `);
 }
 
 async function ensureAllTenantsSeeded(client: pg.PoolClient) {

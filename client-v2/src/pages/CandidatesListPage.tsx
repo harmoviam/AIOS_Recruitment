@@ -149,6 +149,7 @@ export default function CandidatesListPage() {
           }
           actions={
             <>
+              <Link to="/candidates/mass-screen" className="button-pill button-secondary">Mass screen</Link>
               <Link to="/candidates/import" className="button-pill button-secondary">Import CSV</Link>
               <Link to="/candidates/new" className="button-pill button-primary">+ Add Candidate</Link>
             </>

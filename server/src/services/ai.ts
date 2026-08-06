@@ -274,6 +274,78 @@ export async function scoreCandidate(input: CandidateScoreInput): Promise<Candid
   return result;
 }
 
+export interface EligibilityAiEnrichment {
+  /** Suggested eligibility score 0–10 (caller clamps to ±1 of deterministic base). */
+  score: number;
+  strengths: string[];
+  gaps: string[];
+  summary: string;
+}
+
+const ELIGIBILITY_SCHEMA = {
+  type: 'object',
+  properties: {
+    score: { type: 'number', description: 'Eligibility 0–10 based on mandatory/preferred skill fit vs JD' },
+    strengths: { type: 'array', items: { type: 'string' } },
+    gaps: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string', description: 'One-sentence eligibility summary, max 150 chars' },
+  },
+  required: ['score', 'strengths', 'gaps', 'summary'],
+  additionalProperties: false,
+} as const;
+
+/**
+ * AI enrichment for mass-screen eligibility. Fail-soft — never blocks the fast path.
+ * Caller applies ±1 nudge against the deterministic skill score.
+ */
+export async function scoreEligibilityAgainstJd(input: {
+  candidateName: string;
+  candidateSkills: string[];
+  experienceYears: number;
+  resumeExcerpt?: string;
+  jobTitle: string;
+  jobDescription?: string | null;
+  mandatorySkills: string[];
+  preferredSkills: string[];
+  deterministicScore: number;
+  mandatoryMatched: string[];
+  mandatoryMissing: string[];
+  preferredMatched: string[];
+  preferredMissing: string[];
+}): Promise<EligibilityAiEnrichment | null> {
+  const system =
+    'You are a recruitment screening assistant. Given a job and a resume profile, refine an ' +
+    'eligibility score (0–10) that is already computed from mandatory and preferred skill match. ' +
+    'Stay within ±1 of the deterministic score unless the resume clearly contradicts it. ' +
+    'Emphasize mandatory skill gaps as hard blockers. Be concise.';
+
+  const prompt = [
+    `Candidate: ${input.candidateName}`,
+    `Skills: ${input.candidateSkills.length ? input.candidateSkills.join(', ') : '(none)'}`,
+    `Experience: ${input.experienceYears} years`,
+    `Role: ${input.jobTitle}`,
+    input.jobDescription ? `Job description:\n${input.jobDescription.slice(0, 2500)}` : null,
+    `Mandatory skills: ${input.mandatorySkills.join(', ') || '(none)'}`,
+    `Preferred skills: ${input.preferredSkills.join(', ') || '(none)'}`,
+    `Deterministic eligibility: ${input.deterministicScore}/10`,
+    `Mandatory matched: ${input.mandatoryMatched.join(', ') || '(none)'}`,
+    `Mandatory missing: ${input.mandatoryMissing.join(', ') || '(none)'}`,
+    `Preferred matched: ${input.preferredMatched.join(', ') || '(none)'}`,
+    `Preferred missing: ${input.preferredMissing.join(', ') || '(none)'}`,
+    input.resumeExcerpt ? `Resume excerpt:\n${input.resumeExcerpt.slice(0, 2000)}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const result = await jsonCall<EligibilityAiEnrichment>(system, prompt, ELIGIBILITY_SCHEMA);
+  if (!result || typeof result.score !== 'number') return null;
+  result.score = Math.round(Math.min(10, Math.max(0, result.score)) * 10) / 10;
+  result.strengths = Array.isArray(result.strengths) ? result.strengths.slice(0, 5) : [];
+  result.gaps = Array.isArray(result.gaps) ? result.gaps.slice(0, 5) : [];
+  result.summary = String(result.summary || '').slice(0, 200);
+  return result;
+}
+
 /**
  * Background re-score: fetch the candidate + job, ask the model for a fit score,
  * update ai_score and record the assessment on the candidate's timeline.

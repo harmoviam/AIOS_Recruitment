@@ -6,7 +6,7 @@ import CandidateLocationFields from '../components/CandidateLocationFields';
 import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
 import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
-import { atsScoreClass, type AtsScoreResult, type Job, type ParsedProfile, type ResumeParseResponse } from '../types';
+import { atsScoreClass, type AtsScoreResult, type ExperienceConsistencyResult, type ExperienceGateResult, type Job, type ParsedProfile, type ResumeParseResponse } from '../types';
 import { inferJobIndustry, isBpoIndustry } from '../utils/industries';
 
 function mergeSkills(parsed: ParsedProfile): string[] {
@@ -45,6 +45,9 @@ export default function AddCandidatePage() {
   const [parseError, setParseError] = useState('');
   const [aiConfidence, setAiConfidence] = useState<number | null>(null);
   const [ats, setAts] = useState<AtsScoreResult | null>(null);
+  const [experienceGate, setExperienceGate] = useState<ExperienceGateResult | null>(null);
+  const [experienceConsistency, setExperienceConsistency] =
+    useState<ExperienceConsistencyResult | null>(null);
   const [parsedProfile, setParsedProfile] = useState<ParsedProfile | null>(null);
   const [pendingResume, setPendingResume] = useState<Pick<
     ResumeParseResponse,
@@ -110,6 +113,8 @@ export default function AddCandidatePage() {
     setParsedProfile(result.parsed_profile);
     setAiConfidence(result.ai_confidence);
     setAts(result.ats ?? null);
+    setExperienceGate(result.experience_gate ?? null);
+    setExperienceConsistency(result.experience_consistency ?? null);
     setPendingResume({
       pending_resume_id: result.pending_resume_id,
       pending_ext: result.pending_ext,
@@ -224,6 +229,9 @@ export default function AddCandidatePage() {
         setParsedProfile(null);
         setPendingResume(null);
         setAiConfidence(null);
+        setAts(null);
+        setExperienceGate(null);
+        setExperienceConsistency(null);
       } else {
         navigate(`/candidates/${created.id}`);
       }
@@ -256,6 +264,53 @@ export default function AddCandidatePage() {
         {aiConfidence != null && (
           <div className="ai-chip" style={{ marginBottom: '1rem' }}>
             AI confidence: {Math.round(aiConfidence * 100)}% — review fields before saving
+          </div>
+        )}
+
+        {experienceGate && !experienceGate.passed && (
+          <div className="card mass-screen-error" role="alert" style={{ marginBottom: '1rem' }}>
+            <strong>Experience requirement not met.</strong>{' '}
+            {experienceGate.reason ||
+              `Candidate has ${experienceGate.candidate_years} years; job requires ${experienceGate.required_years}+.`}{' '}
+            ATS scoring and JD comparison were skipped. You can still save the candidate or pick a different job and re-upload.
+          </div>
+        )}
+
+        {experienceConsistency && (
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="card-title">Experience from employment history</div>
+            <p className="text-muted" style={{ marginBottom: '0.5rem' }}>
+              Calculated from company date ranges
+              {experienceConsistency.employment_years != null
+                ? `: ${experienceConsistency.employment_years} years`
+                : ' (no dated roles found)'}
+              {experienceConsistency.claimed_years != null
+                ? ` · Summary claims ${experienceConsistency.claimed_years} years`
+                : ''}
+            </p>
+            {experienceConsistency.roles.length > 0 && (
+              <ul className="ats-breakdown">
+                {experienceConsistency.roles.map((r, i) => (
+                  <li key={`${r.company}-${r.title}-${i}`}>
+                    <span className="ats-breakdown-label">
+                      {r.title}
+                      {r.company ? ` · ${r.company}` : ''}
+                    </span>
+                    <span className="ats-breakdown-score">
+                      {r.years != null ? `${r.years} yrs` : '—'}
+                    </span>
+                    <span className="ats-breakdown-detail text-muted">
+                      {[r.start_date, r.end_date].filter(Boolean).join(' – ') || 'Dates missing'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {experienceConsistency.mismatch && (
+              <p className="form-error" role="alert" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
+                {experienceConsistency.reason}
+              </p>
+            )}
           </div>
         )}
 

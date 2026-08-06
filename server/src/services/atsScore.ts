@@ -1,4 +1,5 @@
 import type { ParsedProfile } from './ai.js';
+import { buildSkillHaystack, matchSkillList } from './skillMatch.js';
 
 /**
  * ATS score for an uploaded resume — 0-100, computed right after parsing.
@@ -269,23 +270,15 @@ function scoreJobMatch(
     };
   }
 
-  const haystack = normalizeKeyword(
-    [
-      resumeText,
-      profile.professional_summary || '',
-      ...(profile.skills || []),
-      ...(profile.technical_skills || []),
-      ...(profile.experience || []).map((e) => `${e.title || ''} ${e.description || ''}`),
-    ].join(' ')
-  );
+  const haystack = buildSkillHaystack([
+    resumeText,
+    profile.professional_summary || '',
+    ...(profile.skills || []),
+    ...(profile.technical_skills || []),
+    ...(profile.experience || []).map((e) => `${e.title || ''} ${e.description || ''}`),
+  ]);
 
-  const matched: string[] = [];
-  const missing: string[] = [];
-  for (const skill of required) {
-    const needle = normalizeKeyword(skill);
-    if (needle && haystack.includes(needle)) matched.push(skill);
-    else missing.push(skill);
-  }
+  const { matched, missing } = matchSkillList(required, haystack);
 
   const ratio = matched.length / required.length;
   return {

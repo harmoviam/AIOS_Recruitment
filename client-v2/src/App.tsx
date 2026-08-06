@@ -13,6 +13,7 @@ import DashboardPage from './pages/DashboardPage';
 import PipelinePage from './pages/PipelinePage';
 import CandidatesListPage from './pages/CandidatesListPage';
 import AddCandidatePage from './pages/AddCandidatePage';
+import MassScreenPage from './pages/MassScreenPage';
 import ImportCandidatesPage from './pages/ImportCandidatesPage';
 import CandidateDetailPage from './pages/CandidateDetailPage';
 import FollowUpCenterPage from './pages/FollowUpCenterPage';
@@ -123,6 +124,7 @@ function AppRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="candidates" element={<OrgWorkspaceRoute><CandidatesListPage /></OrgWorkspaceRoute>} />
         <Route path="candidates/new" element={<OrgWorkspaceRoute><AddCandidatePage /></OrgWorkspaceRoute>} />
+        <Route path="candidates/mass-screen" element={<OrgWorkspaceRoute><MassScreenPage /></OrgWorkspaceRoute>} />
         <Route path="candidates/import" element={<OrgWorkspaceRoute><ImportCandidatesPage /></OrgWorkspaceRoute>} />
         <Route path="candidates/:id" element={<OrgWorkspaceRoute><CandidateDetailPage /></OrgWorkspaceRoute>} />
         <Route path="pipeline" element={<OrgWorkspaceRoute><PipelinePage /></OrgWorkspaceRoute>} />

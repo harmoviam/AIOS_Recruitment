@@ -245,6 +245,25 @@ export const api = {
   downloadResume: (candidateId: number, filename?: string) =>
     download(`/candidates/${candidateId}/resume/download`, filename || 'resume'),
 
+  startMassScreen: (jobId: number, filesBySlot: Array<{ slot: number; file: File }>) => {
+    const form = new FormData();
+    form.append('job_id', String(jobId));
+    for (const { slot, file } of filesBySlot) {
+      form.append(`resume_${slot}`, file);
+    }
+    return uploadRequest<import('../types').MassScreenBatch>('/candidates/mass-screen', form);
+  },
+  getMassScreenBatch: (batchId: string) =>
+    request<import('../types').MassScreenBatch>(`/candidates/mass-screen/${batchId}`),
+  decideMassScreen: (
+    batchId: string,
+    decisions: Array<{ slot: number; decision: 'shortlisted' | 'rejected'; remarks?: string }>
+  ) =>
+    request<import('../types').MassScreenBatch>(`/candidates/mass-screen/${batchId}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({ decisions }),
+    }),
+
   getJobs: () => request<import('../types').Job[]>('/jobs'),
   generateJobDescription: (data: { title: string; client?: string; location?: string; open_positions?: number }) =>
     request<{ description: string }>('/jobs/generate-description', {

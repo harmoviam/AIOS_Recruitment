@@ -295,6 +295,7 @@ router.post('/', canManageJobs, async (req, res) => {
     min_experience,
     max_experience,
     required_skills,
+    preferred_skills,
     salary,
     shift,
     job_type,
@@ -317,12 +318,12 @@ router.post('/', canManageJobs, async (req, res) => {
       title, client, location, status, assigned_to, open_positions, description, tenure_days, tenant_id,
       latitude, longitude, address, city, state, country, pincode,
       required_qualification, required_languages, min_age, max_age, min_experience, max_experience,
-      required_skills, salary, shift, job_type, gender_preference, industry
+      required_skills, preferred_skills, salary, shift, job_type, gender_preference, industry
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9,
       $10, $11, $12, $13, $14, $15, $16,
       $17, $18, $19, $20, $21, $22,
-      $23::jsonb, $24, $25, $26, $27, $28
+      $23::jsonb, $24::jsonb, $25, $26, $27, $28, $29
     ) RETURNING *`,
     [
       title,
@@ -348,6 +349,7 @@ router.post('/', canManageJobs, async (req, res) => {
       min_experience != null ? Number(min_experience) : null,
       max_experience != null ? Number(max_experience) : null,
       JSON.stringify(Array.isArray(required_skills) ? required_skills : []),
+      JSON.stringify(Array.isArray(preferred_skills) ? preferred_skills : []),
       salary || null,
       shift || null,
       job_type || null,
@@ -386,7 +388,7 @@ router.patch('/:id', canManageJobs, async (req, res) => {
     'required_qualification', 'min_age', 'max_age', 'min_experience', 'max_experience',
     'salary', 'shift', 'job_type', 'gender_preference',
   ] as const;
-  const jsonFields = ['required_languages', 'required_skills'] as const;
+  const jsonFields = ['required_languages', 'required_skills', 'preferred_skills'] as const;
   if (
     req.body.tenure_days !== undefined &&
     req.body.tenure_days !== null &&

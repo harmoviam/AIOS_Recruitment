@@ -56,6 +56,7 @@ const EMPTY_FORM = {
   required_qualification: '',
   required_languages: '',
   required_skills: '',
+  preferred_skills: '',
   salary: '',
   shift: '',
   job_type: '',
@@ -151,6 +152,7 @@ export default function JobsPage() {
       required_qualification: job.required_qualification || '',
       required_languages: (job.required_languages || []).join(', '),
       required_skills: (job.required_skills || []).join(', '),
+      preferred_skills: (job.preferred_skills || []).join(', '),
       salary: job.salary || '',
       shift: job.shift || '',
       job_type: job.job_type || '',
@@ -214,6 +216,7 @@ export default function JobsPage() {
       pincode: jobLocation.pincode || null,
       required_languages: splitList(form.required_languages),
       required_skills: splitList(form.required_skills),
+      preferred_skills: splitList(form.preferred_skills),
       min_experience: form.min_experience ? Number(form.min_experience) : null,
       max_experience: form.max_experience ? Number(form.max_experience) : null,
       min_age: form.min_age ? Number(form.min_age) : null,
@@ -383,7 +386,32 @@ export default function JobsPage() {
               <input className="input-field" placeholder="Shift (Day / Night)" value={form.shift} onChange={(e) => setForm({ ...form, shift: e.target.value })} />
               <input className="input-field" placeholder="Required qualification" value={form.required_qualification} onChange={(e) => setForm({ ...form, required_qualification: e.target.value })} />
               <input className="input-field" placeholder="Required languages (comma-separated)" value={form.required_languages} onChange={(e) => setForm({ ...form, required_languages: e.target.value })} />
-              <input className="input-field" placeholder="Required skills (comma-separated)" value={form.required_skills} onChange={(e) => setForm({ ...form, required_skills: e.target.value })} />
+              <div>
+                <label className="form-label" htmlFor="job-mandatory-skills">Mandatory skills</label>
+                <input
+                  id="job-mandatory-skills"
+                  className="input-field"
+                  placeholder="e.g. React, TypeScript, Node.js"
+                  value={form.required_skills}
+                  onChange={(e) => setForm({ ...form, required_skills: e.target.value })}
+                />
+                <p className="text-muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+                  Required for mass screening eligibility (comma-separated)
+                </p>
+              </div>
+              <div>
+                <label className="form-label" htmlFor="job-preferred-skills">Preferred skills</label>
+                <input
+                  id="job-preferred-skills"
+                  className="input-field"
+                  placeholder="e.g. GraphQL, AWS, Docker"
+                  value={form.preferred_skills}
+                  onChange={(e) => setForm({ ...form, preferred_skills: e.target.value })}
+                />
+                <p className="text-muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+                  Nice-to-have skills used in eligibility scoring (comma-separated)
+                </p>
+              </div>
               <div>
                 <label className="form-label" htmlFor="job-min-exp">Min experience (years)</label>
                 <input
@@ -396,6 +424,9 @@ export default function JobsPage() {
                   value={form.min_experience}
                   onChange={(e) => setForm({ ...form, min_experience: e.target.value })}
                 />
+                <p className="text-muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+                  Used as a hard gate on resume / mass screen — below this skips ATS &amp; eligibility
+                </p>
               </div>
               <div>
                 <label className="form-label" htmlFor="job-max-exp">Max experience (years)</label>
