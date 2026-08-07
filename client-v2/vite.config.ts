@@ -12,7 +12,20 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       proxy: {
-        '/api': { target: `http://localhost:${apiPort}`, changeOrigin: true },
+        '/api': {
+          target: `http://localhost:${apiPort}`,
+          changeOrigin: true,
+          // Keep SSE plan streams flushing through the dev proxy.
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes, _req, res) => {
+              const ct = proxyRes.headers['content-type'];
+              if (typeof ct === 'string' && ct.includes('text/event-stream')) {
+                res.setHeader('Cache-Control', 'no-cache, no-transform');
+                res.setHeader('X-Accel-Buffering', 'no');
+              }
+            });
+          },
+        },
       },
     },
   };

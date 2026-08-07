@@ -76,6 +76,76 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+/** Consume a POST SSE stream (auth headers required — EventSource cannot do this). */
+async function postSse(
+  path: string,
+  body: unknown,
+  onEvent: (event: string, data: Record<string, unknown>) => void
+): Promise<void> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const tenantSlug = getTenantSlug();
+  if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(networkErrorMessage());
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(parseApiError(res, data, text));
+  }
+
+  if (!res.body) throw new Error('Streaming response not supported by this browser');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const raw = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+
+      let eventName = 'message';
+      const dataLines: string[] = [];
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+      }
+      if (!dataLines.length) continue;
+      try {
+        const data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+        onEvent(eventName, data);
+      } catch {
+        /* ignore malformed chunk */
+      }
+    }
+  }
+}
+
 async function download(path: string, filename: string) {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -672,6 +742,44 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /** Progressive plan — fires intent → recommendations → content as each stage finishes. */
+  sourcingCopilotPlanStream: async (
+    body: Record<string, unknown>,
+    onEvent: (event: import('../types/sourcing').CopilotPlanStreamEvent) => void
+  ) => {
+    await postSse('/sourcing/copilot/plan/stream', body, (name, data) => {
+      if (name === 'status' && typeof data.stage === 'string') {
+        onEvent({
+          type: 'status',
+          stage: data.stage as import('../types/sourcing').CopilotPlanStage,
+        });
+      } else if (name === 'intent') {
+        onEvent({
+          type: 'intent',
+          intent: (data.intent as import('../types/sourcing').StructuredIntent | null) ?? null,
+        });
+      } else if (name === 'recommendations') {
+        onEvent({
+          type: 'recommendations',
+          recommendations: data.recommendations as import('../types/sourcing').RecommendationResult,
+        });
+      } else if (name === 'content') {
+        onEvent({
+          type: 'content',
+          content: (data.content as import('../types/sourcing').ContentPack | null) ?? null,
+        });
+      } else if (name === 'done') {
+        onEvent({ type: 'done' });
+      } else if (name === 'error') {
+        onEvent({
+          type: 'error',
+          error: typeof data.error === 'string' ? data.error : 'Could not build a plan',
+          intent: (data.intent as import('../types/sourcing').StructuredIntent | null) ?? null,
+          status: typeof data.status === 'number' ? data.status : undefined,
+        });
+      }
+    });
+  },
   sourcingCopilotPeople: (body: Record<string, unknown>) =>
     request<import('../types/sourcing').CopilotPeopleResponse>('/sourcing/copilot/people', {
       method: 'POST',
@@ -703,6 +811,8 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
+  sourcingDeleteCampaign: (id: string) =>
+    request<{ ok: boolean }>(`/sourcing/campaigns/${id}`, { method: 'DELETE' }),
   sourcingAttachCampaignSource: (id: string, body: Record<string, unknown>) =>
     request<import('../types/sourcing').SourcingCampaignDetail>(`/sourcing/campaigns/${id}/sources`, {
       method: 'POST',

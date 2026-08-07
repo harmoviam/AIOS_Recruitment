@@ -91,6 +91,16 @@ export interface CopilotPlanResponse {
   content: ContentPack | null;
 }
 
+export type CopilotPlanStage = 'parsing' | 'recommending' | 'generating_content';
+
+export type CopilotPlanStreamEvent =
+  | { type: 'status'; stage: CopilotPlanStage }
+  | { type: 'intent'; intent: StructuredIntent | null }
+  | { type: 'recommendations'; recommendations: RecommendationResult }
+  | { type: 'content'; content: ContentPack | null }
+  | { type: 'done' }
+  | { type: 'error'; error: string; intent?: StructuredIntent | null; status?: number };
+
 export interface PeopleSearchFilters {
   jobTitle?: string;
   skills?: string[];

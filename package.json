@@ -14,6 +14,10 @@
     "db:up": "docker compose up -d postgres",
     "livekit:up": "docker compose up -d livekit",
     "livekit:down": "docker compose stop livekit",
+    "waha:up": "docker compose up -d waha",
+    "waha:down": "docker compose stop waha",
+    "waha:logs": "docker compose logs -f waha",
+    "waha:status": "curl -s -H \"X-Api-Key: ${WAHA_API_KEY:-dev-waha-key}\" http://localhost:3001/api/sessions/${WAHA_SESSION:-default}",
     "db:init": "npm run db:init --prefix server",
     "setup": "npm install && npm install --prefix server && npm install --prefix client-v2 && cp -n .env.example .env 2>/dev/null || true"
   },

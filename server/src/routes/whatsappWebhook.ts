@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
-import { verifyWebhookToken } from '../services/whatsapp.js';
+import { verifyWebhookToken } from '../services/whatsapp/index.js';
 
 /**
  * Meta WhatsApp Cloud API webhook.

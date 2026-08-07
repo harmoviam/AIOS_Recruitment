@@ -137,6 +137,20 @@ router.patch(
   })
 );
 
+router.delete(
+  '/:id',
+  requireSourcingWrite,
+  asyncHandler(async (req, res) => {
+    try {
+      const deleted = await campaignRepo.deleteCampaign(tid(req), idParam.parse(req.params.id));
+      if (!deleted) return res.status(404).json({ error: 'Campaign not found' });
+      res.json({ ok: true });
+    } catch (err) {
+      handleSourcingError(res, err);
+    }
+  })
+);
+
 router.post(
   '/:id/sources',
   requireSourcingWrite,

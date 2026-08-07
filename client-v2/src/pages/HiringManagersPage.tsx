@@ -242,6 +242,7 @@ export default function HiringManagersPage() {
                       Login details
                     </button>
                     <Link to={`/recruiters?hm=${hm.id}`} className="button-pill button-secondary btn-sm">Manage team</Link>
+                    <Link to={`/candidates?hm=${hm.id}`} className="button-pill button-secondary btn-sm">Candidates</Link>
                   </td>
                 </tr>
               ))}

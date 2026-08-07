@@ -156,6 +156,38 @@ async function textCall(system: string, prompt: string): Promise<string | null> 
   }
 }
 
+/**
+ * OpenAI-compatible chat completion with tool calling for the recruiting agent.
+ * Fail-soft: returns { message: null, error } instead of throwing.
+ */
+export async function chatCompletionWithTools(input: {
+  messages: OpenAI.Chat.ChatCompletionMessageParam[];
+  tools: OpenAI.Chat.ChatCompletionTool[];
+  temperature?: number;
+  maxTokens?: number;
+}): Promise<{
+  message: OpenAI.Chat.ChatCompletionMessage | null;
+  error?: string;
+}> {
+  if (aiMode() === 'disabled') {
+    return { message: null, error: AI_NOT_CONFIGURED };
+  }
+  try {
+    const response = await getClient().chat.completions.create({
+      model: cfg().model,
+      max_tokens: input.maxTokens ?? 4096,
+      temperature: input.temperature ?? 0.2,
+      messages: input.messages,
+      tools: input.tools,
+      tool_choice: 'auto',
+    });
+    return { message: response.choices[0]?.message ?? null };
+  } catch (err) {
+    console.warn('AI tool chat failed:', (err as Error).message);
+    return { message: null, error: humanizeAiError(err) ?? (err as Error).message };
+  }
+}
+
 // ── Message suggestions (WhatsApp inbox + candidate outreach) ──────────
 
 export const MESSAGE_SUGGESTION_COUNT = 10;

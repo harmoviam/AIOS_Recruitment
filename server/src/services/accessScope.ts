@@ -59,6 +59,28 @@ export function candidateScopeSql(
 }
 
 /**
+ * Admin/org filter: candidates owned by a hiring manager or by recruiters
+ * assigned to that HM (`users.managed_by_id`). Same union as an HM's default scope.
+ */
+export function hmCandidateFilterSql(
+  hmId: number,
+  tenantId: number,
+  alias = 'c',
+  startIndex = 1
+) {
+  const col = `${alias}.recruiter_id`;
+  return {
+    sql: ` AND (${col} = $${startIndex} OR ${col} IN (
+      SELECT r.id FROM users r
+      WHERE r.tenant_id = $${startIndex + 1} AND r.role = 'recruiter'
+        AND r.managed_by_id = $${startIndex}
+    ))`,
+    params: [hmId, tenantId] as unknown[],
+    nextIndex: startIndex + 2,
+  };
+}
+
+/**
  * Guard for by-id routes. Tenant membership alone is not enough — without this
  * a recruiter or HM could read and edit any candidate in the workspace by URL.
  */

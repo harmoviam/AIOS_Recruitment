@@ -8,7 +8,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import SideDrawer from '../components/ui/SideDrawer';
 import Tabs from '../components/ui/Tabs';
 import { riskBadgeClass } from '../types';
-import type { Candidate, Job, RecruiterStat } from '../types';
+import type { Candidate, HiringManager, Job, RecruiterStat } from '../types';
 
 type HmScope = 'my' | 'team';
 
@@ -16,11 +16,13 @@ export default function CandidatesListPage() {
   const { user } = useAuth();
   const isRecruiter = user?.role === 'recruiter';
   const isHm = user?.role === 'hiring_manager';
+  const isAdmin = user?.role === 'admin';
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [teamRecruiters, setTeamRecruiters] = useState<RecruiterStat[]>([]);
+  const [hiringManagers, setHiringManagers] = useState<HiringManager[]>([]);
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [jobFilter, setJobFilter] = useState('');
@@ -31,6 +33,8 @@ export default function CandidatesListPage() {
   const [bulkStage, setBulkStage] = useState('');
   const filterParam = searchParams.get('filter');
   const scopeParam = searchParams.get('scope');
+  const hmFilterParam = searchParams.get('hm');
+  const hmFilter = isAdmin && hmFilterParam ? hmFilterParam : '';
 
   // Sidebar links navigate to /candidates?scope=my|team — keep the HM tabs in sync.
   useEffect(() => {
@@ -41,13 +45,19 @@ export default function CandidatesListPage() {
     }
   }, [scopeParam, isHm]);
 
+  const selectedHm = isAdmin && hmFilter
+    ? hiringManagers.find((h) => String(h.id) === hmFilter)
+    : null;
+
   const baseTitle = isRecruiter
     ? 'My Candidates'
     : isHm
       ? hmScope === 'my'
         ? 'My Candidates'
         : 'My Team Candidates'
-      : 'All Candidates';
+      : selectedHm
+        ? `${selectedHm.name}'s Candidates`
+        : 'All Candidates';
   const listTitle = filterParam === 'hot' ? `🔥 Hot Candidates` : baseTitle;
 
   const loadCandidates = () => {
@@ -63,6 +73,10 @@ export default function CandidatesListPage() {
       params.scope = hmScope;
       if (hmScope === 'team' && recruiterFilter) params.recruiter_id = recruiterFilter;
     }
+    if (isAdmin && hmFilter) {
+      params.hm_id = hmFilter;
+      if (recruiterFilter) params.recruiter_id = recruiterFilter;
+    }
     api.getCandidates(params).then(setCandidates);
   };
 
@@ -71,13 +85,26 @@ export default function CandidatesListPage() {
     if (isHm) {
       api.getRecruiterStats().then(setTeamRecruiters).catch(() => setTeamRecruiters([]));
     }
-  }, [isHm]);
+    if (isAdmin) {
+      api.getHiringManagers().then(setHiringManagers).catch(() => setHiringManagers([]));
+    }
+  }, [isHm, isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !hmFilter) {
+      if (isAdmin) setTeamRecruiters([]);
+      return;
+    }
+    api.getRecruiterStats({ hm_id: Number(hmFilter) })
+      .then(setTeamRecruiters)
+      .catch(() => setTeamRecruiters([]));
+  }, [isAdmin, hmFilter]);
 
   useEffect(() => {
     setSelected(new Set());
     loadCandidates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, jobFilter, stageFilter, filterParam, hmScope, recruiterFilter]);
+  }, [search, jobFilter, stageFilter, filterParam, hmScope, recruiterFilter, hmFilter]);
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -116,10 +143,27 @@ export default function CandidatesListPage() {
   };
 
   const scopeParams = (): Record<string, string> => {
-    if (!isHm) return {};
-    const p: Record<string, string> = { scope: hmScope };
-    if (hmScope === 'team' && recruiterFilter) p.recruiter_id = recruiterFilter;
-    return p;
+    if (isHm) {
+      const p: Record<string, string> = { scope: hmScope };
+      if (hmScope === 'team' && recruiterFilter) p.recruiter_id = recruiterFilter;
+      return p;
+    }
+    if (isAdmin && hmFilter) {
+      const p: Record<string, string> = { hm_id: hmFilter };
+      if (recruiterFilter) p.recruiter_id = recruiterFilter;
+      return p;
+    }
+    return {};
+  };
+
+  const setHmUrlFilter = (hmId: string) => {
+    setRecruiterFilter('');
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (hmId) next.set('hm', hmId);
+      else next.delete('hm');
+      return next;
+    }, { replace: true });
   };
 
   const bulkExport = () => {
@@ -145,7 +189,9 @@ export default function CandidatesListPage() {
                 ? hmScope === 'my'
                   ? 'Candidates you personally own — full control over stages and follow-ups.'
                   : 'Candidates managed by recruiters on your team. You can override any recruiter action.'
-                : 'Search, filter, and bulk-manage your candidate registry.'
+                : selectedHm
+                  ? `Candidates owned by ${selectedHm.name} or recruiters on their team.`
+                  : 'Search, filter, and bulk-manage your candidate registry.'
           }
           actions={
             <>
@@ -203,7 +249,21 @@ export default function CandidatesListPage() {
               <option key={j.id} value={j.id}>{j.title}</option>
             ))}
           </select>
-          {isHm && hmScope === 'team' && (
+          {isAdmin && (
+            <select
+              className="input-field filter-select"
+              value={hmFilter}
+              onChange={(e) => setHmUrlFilter(e.target.value)}
+            >
+              <option value="">All hiring managers</option>
+              {hiringManagers.map((hm) => (
+                <option key={hm.id} value={hm.id}>
+                  {hm.name}{hm.company ? ` — ${hm.company}` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          {((isHm && hmScope === 'team') || (isAdmin && !!hmFilter)) && (
             <select
               className="input-field filter-select"
               value={recruiterFilter}

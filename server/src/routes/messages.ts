@@ -10,7 +10,7 @@ import {
 import {
   probeWhatsAppAuth,
   whatsappIntegrationStatus,
-} from '../services/whatsapp.js';
+} from '../services/whatsapp/index.js';
 import { interviewScheduledMessage } from '../services/messageTemplates.js';
 import { storeAndSendCandidateWhatsApp } from '../services/candidateMessaging.js';
 import { aiMode, generateInterviewScheduledMessage, MESSAGE_SUGGESTION_COUNT, suggestMessages } from '../services/ai.js';

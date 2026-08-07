@@ -156,6 +156,27 @@ export default function SourcingCampaignsPage() {
     }
   }
 
+  async function deleteCampaign() {
+    if (!selected) return;
+    const confirmed = window.confirm(
+      `Delete “${selected.name}”? This cannot be undone. Any public posting linked to it will be closed.`
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    try {
+      await api.sourcingDeleteCampaign(selected.id);
+      setCampaigns((prev) => prev.filter((campaign) => campaign.id !== selected.id));
+      setTotal((prev) => Math.max(0, prev - 1));
+      setSelected(null);
+      showToast('Campaign deleted', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not delete campaign', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function detachSource(sourceId: string) {
     if (!selected) return;
     setSaving(true);
@@ -287,6 +308,15 @@ export default function SourcingCampaignsPage() {
                 </div>
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="button-pill button-secondary btn-sm"
+                  onClick={deleteCampaign}
+                  disabled={saving}
+                  style={{ color: 'var(--danger)' }}
+                >
+                  Delete campaign
+                </button>
                 <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Status</label>
                 <select
                   className="form-input"

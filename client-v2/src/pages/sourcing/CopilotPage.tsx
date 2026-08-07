@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { showToast } from '../../utils/toast';
-import type { CopilotPlanResponse, StructuredIntent } from '../../types/sourcing';
+import type {
+  ContentPack,
+  CopilotPlanStage,
+  RecommendationResult,
+  StructuredIntent,
+} from '../../types/sourcing';
 import { PlanSummaryCards, RecommendationsTable } from './components';
 
 const EXAMPLES = [
@@ -10,6 +15,14 @@ const EXAMPLES = [
   'Hire 20 fresher voice process agents in Mohali, salary up to 22000',
   'Looking for 30 international voice candidates in Mohali for night shift',
 ];
+
+const STAGE_LABEL: Record<CopilotPlanStage, string> = {
+  parsing: 'Understanding your request…',
+  recommending: 'Finding the best sourcing channels…',
+  generating_content: 'Writing ready-to-post content…',
+};
+
+const STAGE_ORDER: CopilotPlanStage[] = ['parsing', 'recommending', 'generating_content'];
 
 function IntentField({ label, value, unresolved }: { label: string; value: string; unresolved?: boolean }) {
   return (
@@ -23,21 +36,65 @@ function IntentField({ label, value, unresolved }: { label: string; value: strin
   );
 }
 
+function StageProgress({ stage, done }: { stage: CopilotPlanStage | null; done: boolean }) {
+  if (!stage && !done) return null;
+  const activeIdx = done ? STAGE_ORDER.length : STAGE_ORDER.indexOf(stage!);
+  return (
+    <div
+      className="card"
+      style={{ marginTop: '1rem', display: 'grid', gap: '0.55rem' }}
+      aria-live="polite"
+    >
+      <div className="card-title">{done ? 'Plan ready' : STAGE_LABEL[stage!]}</div>
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+        {STAGE_ORDER.map((s, i) => {
+          const complete = done || i < activeIdx;
+          const current = !done && i === activeIdx;
+          return (
+            <span
+              key={s}
+              style={{
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                padding: '0.25rem 0.55rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: complete || current ? 'var(--surface-2)' : 'transparent',
+                color: complete || current ? 'var(--text)' : 'var(--text-secondary)',
+                opacity: complete || current ? 1 : 0.65,
+              }}
+            >
+              {complete ? '✓ ' : current ? '… ' : ''}
+              {s === 'parsing' ? 'Understand' : s === 'recommending' ? 'Channels' : 'Content'}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function SourcingCopilotPage() {
   const navigate = useNavigate();
   const [text, setText] = useState('');
   const [intent, setIntent] = useState<StructuredIntent | null>(null);
-  const [plan, setPlan] = useState<CopilotPlanResponse | null>(null);
+  const [recommendations, setRecommendations] = useState<RecommendationResult | null>(null);
+  const [content, setContent] = useState<ContentPack | null>(null);
   const [error, setError] = useState('');
   const [parsing, setParsing] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [stage, setStage] = useState<CopilotPlanStage | null>(null);
+  const [planDone, setPlanDone] = useState(false);
 
   const busy = parsing || planning;
 
   async function previewIntent() {
     setParsing(true);
     setError('');
-    setPlan(null);
+    setRecommendations(null);
+    setContent(null);
+    setStage(null);
+    setPlanDone(false);
     try {
       setIntent(await api.sourcingCopilotParse(text));
     } catch (err) {
@@ -48,21 +105,54 @@ export default function SourcingCopilotPage() {
   }
 
   async function generatePlan() {
+    const priorIntent = intent;
     setPlanning(true);
     setError('');
+    setIntent(null);
+    setRecommendations(null);
+    setContent(null);
+    setPlanDone(false);
+    setStage('parsing');
+
+    let sawError = false;
     try {
-      const data = await api.sourcingCopilotPlan({
-        text,
-        cityId: intent?.cityId,
-        roleId: intent?.roleId,
-        hiringCount: intent?.hiringCount,
-        joiningTimelineDays: intent?.joiningTimelineDays,
-        salaryMax: intent?.salaryHint,
-        includeContent: true,
-      });
-      setPlan(data);
-      if (data.intent) setIntent(data.intent);
-      sessionStorage.setItem('sourcing_last_result', JSON.stringify(data.recommendations));
+      await api.sourcingCopilotPlanStream(
+        {
+          text,
+          cityId: priorIntent?.cityId,
+          roleId: priorIntent?.roleId,
+          hiringCount: priorIntent?.hiringCount,
+          joiningTimelineDays: priorIntent?.joiningTimelineDays,
+          salaryMax: priorIntent?.salaryHint,
+          includeContent: true,
+        },
+        (event) => {
+          if (event.type === 'status') {
+            setStage(event.stage);
+          } else if (event.type === 'intent') {
+            if (event.intent) setIntent(event.intent);
+          } else if (event.type === 'recommendations') {
+            setRecommendations(event.recommendations);
+            sessionStorage.setItem(
+              'sourcing_last_result',
+              JSON.stringify(event.recommendations)
+            );
+          } else if (event.type === 'content') {
+            setContent(event.content);
+          } else if (event.type === 'done') {
+            setPlanDone(true);
+            setStage(null);
+          } else if (event.type === 'error') {
+            sawError = true;
+            if (event.intent) setIntent(event.intent);
+            setError(event.error || 'Could not build a plan. Try adding a city and role.');
+          }
+        }
+      );
+      if (!sawError) {
+        setPlanDone(true);
+        setStage(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not build a plan. Try adding a city and role.');
     } finally {
@@ -150,6 +240,8 @@ export default function SourcingCopilotPage() {
 
         {error && <div className="alert-banner danger" style={{ marginTop: '1rem' }}>{error}</div>}
 
+        {(planning || planDone) && <StageProgress stage={stage} done={planDone && !planning} />}
+
         {intent && (
           <div className="card" style={{ marginTop: '1rem' }}>
             <div className="card-title">
@@ -172,54 +264,61 @@ export default function SourcingCopilotPage() {
           </div>
         )}
 
-        {plan && (
+        {recommendations && (
           <div style={{ marginTop: '1.25rem', display: 'grid', gap: '1rem' }}>
-            <PlanSummaryCards summary={plan.recommendations.planSummary} />
-            <RecommendationsTable recommendations={plan.recommendations.recommendations} />
+            <PlanSummaryCards summary={recommendations.planSummary} />
+            <RecommendationsTable recommendations={recommendations.recommendations} />
             <p style={{ margin: '-0.5rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
               Projections are estimated from configured source attributes and recorded performance.
               “Sample data” identifies preconfigured demonstration records, not live platform results.
             </p>
-            {plan.content && plan.content.items.length > 0 && (
-              <div className="card">
-                <div className="card-title">Ready-to-post content</div>
-                <div style={{ display: 'grid', gap: '0.85rem' }}>
-                  {plan.content.items.slice(0, 2).map((item) => (
-                    <div
-                      key={item.channel}
-                      style={{
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-sm)',
-                        padding: '0.85rem 1rem',
-                        background: 'var(--surface-2)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
-                        <strong style={{ fontSize: '0.9rem' }}>{item.title}</strong>
-                        <button
-                          type="button"
-                          className="button-pill button-secondary btn-sm"
-                          onClick={() => copyContent(item.body)}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                      <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem', margin: 0, fontFamily: 'inherit', color: 'var(--text-secondary)' }}>
-                        {item.body}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  className="link-button"
-                  type="button"
-                  style={{ marginTop: '0.75rem' }}
-                  onClick={() => navigate('/sourcing/content')}
+          </div>
+        )}
+
+        {planning && recommendations && !content && stage === 'generating_content' && (
+          <div className="card" style={{ marginTop: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            Writing ready-to-post content…
+          </div>
+        )}
+
+        {content && content.items.length > 0 && (
+          <div className="card" style={{ marginTop: '1rem' }}>
+            <div className="card-title">Ready-to-post content</div>
+            <div style={{ display: 'grid', gap: '0.85rem' }}>
+              {content.items.slice(0, 2).map((item) => (
+                <div
+                  key={item.channel}
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.85rem 1rem',
+                    background: 'var(--surface-2)',
+                  }}
                 >
-                  Open Content Studio for all channels →
-                </button>
-              </div>
-            )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
+                    <strong style={{ fontSize: '0.9rem' }}>{item.title}</strong>
+                    <button
+                      type="button"
+                      className="button-pill button-secondary btn-sm"
+                      onClick={() => copyContent(item.body)}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem', margin: 0, fontFamily: 'inherit', color: 'var(--text-secondary)' }}>
+                    {item.body}
+                  </pre>
+                </div>
+              ))}
+            </div>
+            <button
+              className="link-button"
+              type="button"
+              style={{ marginTop: '0.75rem' }}
+              onClick={() => navigate('/sourcing/content')}
+            >
+              Open Content Studio for all channels →
+            </button>
           </div>
         )}
       </div>

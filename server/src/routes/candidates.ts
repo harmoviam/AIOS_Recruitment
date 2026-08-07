@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import multer from 'multer';
 import { pool } from '../db.js';
-import { assertCandidateAccess, candidateScopeSql } from '../services/accessScope.js';
+import { assertCandidateAccess, candidateScopeSql, hmCandidateFilterSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
   assertJobInTenant,
@@ -167,8 +167,26 @@ function statusFilterClause(status: string, i: number): { sql: string; nextIndex
   return { sql: ` AND c.stage = $${i} AND c.offer_status IS NULL`, nextIndex: i + 1 };
 }
 
+async function applyAdminHmFilter(
+  req: Request,
+  hmIdRaw: unknown,
+  alias: string,
+  startIndex: number
+): Promise<{ sql: string; params: unknown[]; nextIndex: number } | null> {
+  const role = req.user!.role;
+  if (role !== 'admin' && role !== 'super_admin') return null;
+  const hmId = Number(hmIdRaw);
+  if (!Number.isFinite(hmId) || hmId <= 0) return null;
+  const { rows } = await pool.query(
+    `SELECT id FROM users WHERE id = $1 AND tenant_id = $2 AND role = 'hiring_manager'`,
+    [hmId, tid(req)]
+  );
+  if (!rows[0]) return null;
+  return hmCandidateFilterSql(hmId, tid(req), alias, startIndex);
+}
+
 router.get('/', async (req, res) => {
-  const { job_id, stage, status, search, recruiter_id, scope, hot, limit, offset } = req.query;
+  const { job_id, stage, status, search, recruiter_id, scope, hot, hm_id, limit, offset } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.*, COUNT(*) OVER() AS total_count, j.title AS job_title, u.name AS recruiter_name,
@@ -219,6 +237,14 @@ router.get('/', async (req, res) => {
   params.push(...userScope.params);
   i = userScope.nextIndex;
 
+  // Admin filter: narrow All Candidates to one hiring manager's book of business.
+  const hmFilter = await applyAdminHmFilter(req, hm_id, 'c', i);
+  if (hmFilter) {
+    sql += hmFilter.sql;
+    params.push(...hmFilter.params);
+    i = hmFilter.nextIndex;
+  }
+
   // Filter down to a specific recruiter (used by HM/admin recruiter dropdown).
   if (recruiter_id) {
     sql += ` AND c.recruiter_id = $${i++}`;
@@ -247,7 +273,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/export', async (req, res) => {
-  const { job_id, stage, status, search, ids, recruiter_id, scope } = req.query;
+  const { job_id, stage, status, search, ids, recruiter_id, scope, hm_id } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.name, c.email, c.phone, c.stage, j.title AS job_title, u.name AS recruiter_name, c.ai_score, c.updated_at
@@ -290,6 +316,13 @@ router.get('/export', async (req, res) => {
   sql += userScope.sql;
   params.push(...userScope.params);
   i = userScope.nextIndex;
+
+  const hmFilter = await applyAdminHmFilter(req, hm_id, 'c', i);
+  if (hmFilter) {
+    sql += hmFilter.sql;
+    params.push(...hmFilter.params);
+    i = hmFilter.nextIndex;
+  }
 
   if (recruiter_id) {
     sql += ` AND c.recruiter_id = $${i++}`;

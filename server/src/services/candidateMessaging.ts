@@ -1,5 +1,5 @@
 import { pool } from '../db.js';
-import { sendWhatsAppText, withSenderSignature, type WaSendResult } from './whatsapp.js';
+import { sendWhatsAppText, withSenderSignature, type WaSendResult } from './whatsapp/index.js';
 
 export interface CandidateMessageResult {
   message: { id: number; candidate_id: number; sender: string; content: string; is_outgoing: boolean; sent_at: string };

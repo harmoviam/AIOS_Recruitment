@@ -21,5 +21,37 @@ services:
     environment:
       LIVEKIT_KEYS: "devkey: secret"
 
+  # WAHA — self-hosted WhatsApp HTTP API for development and internal testing.
+  # NOT started by `npm run dev`; opt in with `npm run waha:up`, then scan the
+  # QR from `npm run waha:logs`. Uses an unofficial WhatsApp session, so pair a
+  # dedicated spare SIM and never a number tied to real recruiting.
+  waha:
+    image: devlikeapro/waha:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      # NOWEB is browserless (~150MB) and avoids Chromium-on-arm64 flakiness.
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WHATSAPP_API_KEY: ${WAHA_API_KEY:-dev-waha-key}
+      # Create the session on first boot, otherwise there is nothing to pair
+      # and no QR is ever printed. Must match WAHA_SESSION in the API's .env.
+      WHATSAPP_START_SESSION: ${WAHA_SESSION:-default}
+      WHATSAPP_RESTART_ALL_SESSIONS: "true"
+      WAHA_PRINT_QR: "true"
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:-waha}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:-waha}
+      # Inbound replies arrive in a later phase; until that route exists,
+      # pointing WAHA at it would only generate retrying 404s.
+      # WHATSAPP_HOOK_URL: http://host.docker.internal:3010/api/whatsapp/waha
+      # WHATSAPP_HOOK_EVENTS: message,session.status
+    volumes:
+      # Holds the paired session. Losing this forces a re-scan, which WhatsApp
+      # treats as suspicious — keep the volume across restarts.
+      - waha_sessions:/app/.sessions
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres_data:
+  waha_sessions:

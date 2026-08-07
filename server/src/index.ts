@@ -29,6 +29,7 @@ import billingRoutes from './routes/billing.js';
 import pollRoutes from './routes/poll.js';
 import readinessRoutes from './routes/readiness.js';
 import sourcingRoutes from './routes/sourcing/index.js';
+import agentRoutes from './routes/agent.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -63,6 +64,7 @@ app.use('/api/readiness', readinessRoutes); // unauthenticated — AI readiness 
 app.use('/api/billing', billingRoutes);
 app.use('/api/poll', pollRoutes);
 app.use('/api/sourcing', sourcingRoutes);
+app.use('/api/agent', agentRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

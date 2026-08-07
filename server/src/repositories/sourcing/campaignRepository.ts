@@ -231,3 +231,35 @@ export async function detachCampaignSource(tenantId: number, campaignId: string,
   );
   return (rowCount ?? 0) > 0;
 }
+
+export async function deleteCampaign(tenantId: number, campaignId: string) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Preserve historical activity and published-job records, but detach them
+    // from the campaign. Closing a linked job removes it from the public page.
+    await client.query(
+      `UPDATE sourcing_recruiter_activity SET campaign_id = NULL
+       WHERE tenant_id = $1 AND campaign_id = $2`,
+      [tenantId, campaignId]
+    );
+    await client.query(
+      `UPDATE jobs SET status = 'closed', sourcing_campaign_id = NULL
+       WHERE tenant_id = $1 AND sourcing_campaign_id = $2`,
+      [tenantId, campaignId]
+    );
+
+    const { rowCount } = await client.query(
+      `DELETE FROM sourcing_campaign WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, campaignId]
+    );
+    await client.query('COMMIT');
+    return (rowCount ?? 0) > 0;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}

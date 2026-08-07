@@ -1,14 +1,15 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { requireSourcingRead } from '../../services/sourcing/access.js';
 import { handleSourcingError } from '../../services/sourcing/httpErrors.js';
+import { getConversationService } from '../../services/sourcing/providers.js';
 import {
-  getConversationService,
-  getContentGeneratorService,
-  getRecommendationService,
-} from '../../services/sourcing/providers.js';
+  CopilotPlanHttpError,
+  runCopilotPlan,
+  type CopilotPlanEvent,
+} from '../../services/sourcing/copilotPlanService.js';
 import { pool } from '../../db.js';
 import { extractPeopleSearchFilters } from '../../services/ai.js';
 import { filtersFromIntent, mergeFilters } from '../../services/sourcing/people/filtersFromIntent.js';
@@ -31,6 +32,24 @@ const planSchema = z.object({
   languages: z.array(z.string()).optional(),
   includeContent: z.boolean().optional(),
 });
+
+function writeSse(res: Response, event: string, data: unknown) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function emitPlanSse(res: Response, event: CopilotPlanEvent) {
+  if (event.type === 'status') {
+    writeSse(res, 'status', { stage: event.stage });
+  } else if (event.type === 'intent') {
+    writeSse(res, 'intent', { intent: event.intent });
+  } else if (event.type === 'recommendations') {
+    writeSse(res, 'recommendations', { recommendations: event.recommendations });
+  } else if (event.type === 'content') {
+    writeSse(res, 'content', { content: event.content });
+  } else if (event.type === 'done') {
+    writeSse(res, 'done', { ok: true });
+  }
+}
 
 router.post(
   '/parse',
@@ -55,75 +74,64 @@ router.post(
   asyncHandler(async (req, res) => {
     try {
       const body = planSchema.parse(req.body);
-      let cityId = body.cityId;
-      let roleId = body.roleId;
-      let hiringCount = body.hiringCount;
-      let intent = null;
-
-      if (body.text) {
-        intent = await getConversationService().parse(
-          { text: body.text },
-          { tenantId: tid(req), userId: req.user!.id }
-        );
-        cityId = cityId || intent.cityId;
-        roleId = roleId || intent.roleId;
-        hiringCount = hiringCount || intent.hiringCount;
+      const result = await runCopilotPlan(body, { tenantId: tid(req), userId: req.user!.id }, () => {});
+      res.json(result);
+    } catch (err) {
+      if (err instanceof CopilotPlanHttpError) {
+        return res.status(err.status).json({ error: err.message, intent: err.intent });
       }
+      handleSourcingError(res, err);
+    }
+  })
+);
 
-      if (!cityId || !roleId || !hiringCount) {
-        return res.status(400).json({
-          error: 'cityId, roleId, and hiringCount are required (confirm structured intent)',
-          intent,
+/** Brief pause so each SSE stage can paint before the next chunk (heuristics are otherwise instant). */
+function paceStream(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 140));
+}
+
+/** Progressive plan: SSE events status → intent → recommendations → content → done */
+router.post(
+  '/plan/stream',
+  requireSourcingRead,
+  asyncHandler(async (req, res) => {
+    let body: z.infer<typeof planSchema>;
+    try {
+      body = planSchema.parse(req.body);
+    } catch (err) {
+      return handleSourcingError(res, err);
+    }
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    try {
+      await runCopilotPlan(body, { tenantId: tid(req), userId: req.user!.id }, async (event) => {
+        emitPlanSse(res, event);
+        if (event.type !== 'done') await paceStream();
+      });
+    } catch (err) {
+      if (err instanceof CopilotPlanHttpError) {
+        writeSse(res, 'error', {
+          error: err.message,
+          intent: err.intent,
+          status: err.status,
+        });
+      } else if (err instanceof z.ZodError) {
+        writeSse(res, 'error', { error: 'Validation Failed', status: 400 });
+      } else {
+        console.error('Copilot plan stream failed:', err);
+        writeSse(res, 'error', {
+          error: err instanceof Error ? err.message : 'Could not build a plan',
+          status: 500,
         });
       }
-
-      const criteria = {
-        cityId,
-        roleId,
-        hiringCount,
-        experienceLevelId: body.experienceLevelId,
-        joiningTimelineDays: body.joiningTimelineDays ?? intent?.joiningTimelineDays,
-        salaryMin: body.salaryMin ?? intent?.salaryHint,
-        salaryMax: body.salaryMax ?? intent?.salaryHint,
-        shift: body.shift,
-        languages: body.languages,
-        limit: 20,
-      };
-
-      const recommendations = await getRecommendationService().recommend(criteria, {
-        tenantId: tid(req),
-        userId: req.user!.id,
-      });
-
-      let content = null;
-      if (body.includeContent !== false) {
-        const city = await pool.query(`SELECT name FROM sourcing_city WHERE id = $1 AND tenant_id = $2`, [
-          cityId,
-          tid(req),
-        ]);
-        const role = await pool.query(`SELECT name FROM sourcing_role WHERE id = $1 AND tenant_id = $2`, [
-          roleId,
-          tid(req),
-        ]);
-        content = await getContentGeneratorService().generate(
-          {
-            cityName: String(city.rows[0]?.name || intent?.cityName || ''),
-            roleName: String(role.rows[0]?.name || intent?.roleName || ''),
-            hiringCount,
-            salaryMin: criteria.salaryMin,
-            salaryMax: criteria.salaryMax,
-            experienceLabel: intent?.experienceHint,
-            shift: body.shift,
-            languages: body.languages,
-            sourceName: recommendations.recommendations[0]?.sourceName,
-          },
-          { tenantId: tid(req), userId: req.user!.id }
-        );
-      }
-
-      res.json({ intent, recommendations, content });
-    } catch (err) {
-      handleSourcingError(res, err);
+    } finally {
+      res.end();
     }
   })
 );
