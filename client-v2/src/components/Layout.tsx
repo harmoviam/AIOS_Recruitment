@@ -33,9 +33,10 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: 'Sourcing Copilot',
+    title: 'Sourcing',
     orgOnly: true,
     items: [
+      { to: '/ai-sourcing', label: 'AI Talent Sourcing', orgOnly: true },
       { to: '/sourcing/copilot', label: 'Copilot', orgOnly: true, adminOnly: true },
       { to: '/sourcing/people', label: 'Candidate Profiles', orgOnly: true, adminOnly: true },
       { to: '/sourcing/search', label: 'Find Sources', orgOnly: true, adminOnly: true },
@@ -117,7 +118,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
 }
 
 function iconFor(to: string): string {
-  if (to.startsWith('/sourcing')) return 'chart';
+  if (to.startsWith('/ai-sourcing') || to.startsWith('/sourcing')) return 'chart';
   const path = to.split('?')[0];
   switch (path) {
     case '/': return 'home';

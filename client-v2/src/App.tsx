@@ -49,6 +49,7 @@ import SourcingCampaignsPage from './pages/sourcing/CampaignsPage';
 import SourcingDashboardPage from './pages/sourcing/DashboardPage';
 import SourcingContentStudioPage from './pages/sourcing/ContentStudioPage';
 import SourcingSourcesPage from './pages/sourcing/SourcesPage';
+import AiSourcingPage from './pages/ai-sourcing/AiSourcingPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -138,6 +139,7 @@ function AppRoutes() {
         <Route path="interviews/:id/evaluate" element={<OrgWorkspaceRoute><InterviewEvaluationPage /></OrgWorkspaceRoute>} />
         <Route path="reports" element={<OrgWorkspaceRoute><ReportsPage /></OrgWorkspaceRoute>} />
         <Route path="analytics" element={<OrgWorkspaceRoute><AnalyticsPage /></OrgWorkspaceRoute>} />
+        <Route path="ai-sourcing" element={<OrgWorkspaceRoute><AiSourcingPage /></OrgWorkspaceRoute>} />
         <Route path="sourcing" element={<OrgWorkspaceRoute><AdminRoute><SourcingDashboardPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/search" element={<OrgWorkspaceRoute><AdminRoute><SourcingSearchPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/copilot" element={<OrgWorkspaceRoute><AdminRoute><SourcingCopilotPage /></AdminRoute></OrgWorkspaceRoute>} />

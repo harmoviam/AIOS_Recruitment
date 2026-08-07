@@ -834,4 +834,31 @@ export const api = {
       `/sourcing/sources${q}`
     );
   },
+
+  // AI Talent Sourcing Agent (internal ATS pool) — distinct from /sourcing Copilot
+  aiSourcingParse: (body: { query: string }) =>
+    request<import('../types/aiSourcing').AiSourcingParseResult>('/ai-sourcing/parse', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  aiSourcingSearch: (body: {
+    query: string;
+    criteria?: import('../types/aiSourcing').CandidateSearchCriteria;
+    limit?: number;
+    offset?: number;
+  }) =>
+    request<import('../types/aiSourcing').AiSourcingSearchResult>('/ai-sourcing/search', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  aiSourcingSearchById: (id: string) =>
+    request<import('../types/aiSourcing').AiSourcingSearchResult>(`/ai-sourcing/search/${id}`),
+  aiSourcingRecent: (limit = 10) =>
+    request<{ items: import('../types/aiSourcing').AiSourcingRecentItem[] }>(
+      `/ai-sourcing/searches/recent?limit=${limit}`
+    ),
+  aiSourcingRecommended: () =>
+    request<{ items: import('../types/aiSourcing').AiSourcingRecommendedItem[] }>(
+      '/ai-sourcing/recommended'
+    ),
 };
