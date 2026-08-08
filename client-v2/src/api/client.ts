@@ -846,6 +846,7 @@ export const api = {
     criteria?: import('../types/aiSourcing').CandidateSearchCriteria;
     limit?: number;
     offset?: number;
+    jobId?: number | null;
   }) =>
     request<import('../types/aiSourcing').AiSourcingSearchResult>('/ai-sourcing/search', {
       method: 'POST',
@@ -861,4 +862,26 @@ export const api = {
     request<{ items: import('../types/aiSourcing').AiSourcingRecommendedItem[] }>(
       '/ai-sourcing/recommended'
     ),
+  aiSourcingAnalyzeJob: (jobId: number) =>
+    request<import('../types/aiSourcing').AiJobIntelligenceResult>(
+      `/ai-sourcing/jobs/${jobId}/analyze`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  aiSourcingSearchFromJob: (
+    jobId: number,
+    body?: { limit?: number; offset?: number; refresh?: boolean }
+  ) =>
+    request<import('../types/aiSourcing').AiSourcingSearchResult>(
+      `/ai-sourcing/jobs/${jobId}/search`,
+      { method: 'POST', body: JSON.stringify(body || {}) }
+    ),
+  aiSourcingNormalizeSkills: (skills: string[]) =>
+    request<{
+      normalized: string[];
+      expanded: string[];
+      expansions: Array<{ input: string; canonical: string | null; allTerms: string[] }>;
+    }>('/ai-sourcing/skills/normalize', {
+      method: 'POST',
+      body: JSON.stringify({ skills }),
+    }),
 };

@@ -68,14 +68,29 @@ export class RequirementParserService {
         l.skills && l.skills.length
           ? Array.from(new Set([...l.skills, ...h.skills])).slice(0, 30)
           : h.skills,
+      preferredSkills:
+        l.preferredSkills && l.preferredSkills.length
+          ? Array.from(new Set([...l.preferredSkills, ...h.preferredSkills])).slice(0, 30)
+          : h.preferredSkills,
       keywords:
         l.keywords && l.keywords.length
           ? Array.from(new Set([...l.keywords, ...h.keywords])).slice(0, 30)
           : h.keywords,
+      roles:
+        l.roles && l.roles.length
+          ? Array.from(new Set([...l.roles, ...h.roles])).slice(0, 10)
+          : h.roles,
+      industries:
+        l.industries && l.industries.length
+          ? Array.from(new Set([...l.industries, ...h.industries])).slice(0, 15)
+          : h.industries,
       jobTitle: preferDefined(l.jobTitle, h.jobTitle) ?? null,
       location: preferDefined(l.location, h.location) ?? null,
+      seniority: preferDefined(l.seniority, h.seniority) ?? null,
       minExperienceYears: preferDefined(l.minExperienceYears, h.minExperienceYears) ?? null,
       maxExperienceYears: preferDefined(l.maxExperienceYears, h.maxExperienceYears) ?? null,
+      noticePeriodMaxDays: preferDefined(l.noticePeriodMaxDays, h.noticePeriodMaxDays) ?? null,
+      maxSalaryLpa: preferDefined(l.maxSalaryLpa, h.maxSalaryLpa) ?? null,
       stage: preferDefined(l.stage, h.stage) ?? null,
       minAiScore: preferDefined(l.minAiScore, h.minAiScore) ?? null,
     });

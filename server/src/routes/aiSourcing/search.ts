@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import {
   requireAiSourcingSearch,
@@ -12,6 +13,18 @@ import {
 
 const router = Router();
 
+const aiSourcingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as Request).user?.id;
+    return userId != null ? `ai-sourcing:${userId}` : ipKeyGenerator(req.ip ?? '');
+  },
+  message: { error: 'Too many AI sourcing requests. Wait a minute and try again.' },
+});
+
 const parseBodySchema = z.object({
   query: z.string().trim().min(3).max(1000),
 });
@@ -19,11 +32,17 @@ const parseBodySchema = z.object({
 const criteriaInputSchema = z
   .object({
     skills: z.array(z.string()).max(30).optional(),
+    preferredSkills: z.array(z.string()).max(30).optional(),
     keywords: z.array(z.string()).max(30).optional(),
+    roles: z.array(z.string()).max(10).optional(),
+    industries: z.array(z.string()).max(15).optional(),
     jobTitle: z.string().max(120).nullable().optional(),
     location: z.string().max(120).nullable().optional(),
+    seniority: z.string().max(40).nullable().optional(),
     minExperienceYears: z.number().min(0).max(50).nullable().optional(),
     maxExperienceYears: z.number().min(0).max(50).nullable().optional(),
+    noticePeriodMaxDays: z.number().min(0).max(365).nullable().optional(),
+    maxSalaryLpa: z.number().min(0).max(500).nullable().optional(),
     stage: z
       .enum(['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'])
       .nullable()
@@ -37,6 +56,7 @@ const searchBodySchema = z.object({
   criteria: criteriaInputSchema,
   limit: z.number().int().min(1).max(100).optional(),
   offset: z.number().int().min(0).optional(),
+  jobId: z.number().int().positive().optional().nullable(),
 });
 
 function zodBadRequest(res: import('express').Response, err: unknown): boolean {
@@ -50,6 +70,7 @@ function zodBadRequest(res: import('express').Response, err: unknown): boolean {
 router.post(
   '/parse',
   requireAiSourcingSearch,
+  aiSourcingLimiter,
   asyncHandler(async (req, res) => {
     try {
       const body = parseBodySchema.parse(req.body);
@@ -65,6 +86,7 @@ router.post(
 router.post(
   '/search',
   requireAiSourcingSearch,
+  aiSourcingLimiter,
   asyncHandler(async (req, res) => {
     try {
       const body = searchBodySchema.parse(req.body);
@@ -85,6 +107,7 @@ router.post(
         criteria: body.criteria,
         limit: body.limit,
         offset: body.offset,
+        jobId: body.jobId,
       });
       res.status(201).json(result);
     } catch (err) {

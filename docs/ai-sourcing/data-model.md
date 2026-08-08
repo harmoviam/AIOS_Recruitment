@@ -102,18 +102,25 @@ ai_sourcing_search_filters (
 
 ---
 
-## 4. Phase roadmap tables (design only — do not migrate yet)
+## 4. Sprint 2 migrations (implemented)
 
-Documented for planning; **not created in Sprint 1**.
+| Table | Purpose |
+|-------|---------|
+| `ai_job_intelligence` | Structured JD intel per job |
+| `candidate_ai_profiles` | Normalized AI candidate profile (raw resume untouched) |
+| `ai_skills` / `ai_skill_aliases` / `ai_skill_relationships` | Skill ontology |
+| `ai_sourcing_searches.job_id` | Optional job link |
+
+## 5. Later tables (design only)
 
 | Table | Purpose | Suggested phase |
 |-------|---------|-----------------|
-| `ai_sourcing_search_filters` | Normalized filter rows | Sprint 2 |
-| `ai_sourcing_saved_queries` | Named bookmarks / team shares | Sprint 3 |
-| `ai_sourcing_result_feedback` | Thumbs / hired outcomes for learning | Sprint 4+ |
-| `ai_sourcing_embeddings` | Candidate chunk vectors | Later (needs vector infra) |
-| `ai_sourcing_outreach_drafts` | Message drafts from results | Later |
-| `ai_sourcing_boolean_queries` | Advanced Boolean AST | Later |
+| `ai_sourcing_search_filters` | Normalized filter rows | Later |
+| `candidate_embeddings` | Vector chunks | Sprint 3 |
+| `candidate_match_scores` / `candidate_match_explanations` | Explainable ranking | Sprint 3 |
+| `ai_sourcing_saved_queries` | Named bookmarks | Sprint 4 |
+| `ai_sourcing_result_feedback` | Learning signals | Sprint 4+ |
+| `outreach_*` | Outreach campaigns | Sprint 6 |
 
 ---
 

@@ -30,6 +30,11 @@ const SKILL_LEXICON = [
   'docker',
   'kubernetes',
   'k8s',
+  'eks',
+  'aks',
+  'helm',
+  'terraform',
+  'cloudformation',
   'sql',
   'postgres',
   'postgresql',
@@ -62,9 +67,12 @@ const SKILL_LEXICON = [
   'excel',
   'power bi',
   'tableau',
+  'spring boot',
+  'microservices',
 ];
 
 const ROLE_PATTERNS: Array<{ re: RegExp; title: string; confidence: number }> = [
+  { re: /\b(?:aws\s+)?cloud\s+architects?\b/i, title: 'Cloud Architect', confidence: 0.85 },
   { re: /\b(?:react|frontend|front[- ]end)\s+(?:developer|engineer|dev)s?\b/i, title: 'Frontend Developer', confidence: 0.75 },
   { re: /\b(?:backend|back[- ]end)\s+(?:developer|engineer|dev)s?\b/i, title: 'Backend Developer', confidence: 0.75 },
   { re: /\b(?:full[- ]?stack)\s+(?:developer|engineer|dev)s?\b/i, title: 'Full Stack Developer', confidence: 0.75 },
@@ -77,6 +85,31 @@ const ROLE_PATTERNS: Array<{ re: RegExp; title: string; confidence: number }> = 
   { re: /\b(?:project)\s+managers?\b/i, title: 'Project Manager', confidence: 0.7 },
   { re: /\b(?:voice\s+process|customer\s+support|call\s+center|call\s+centre)\b/i, title: 'Voice Process', confidence: 0.8 },
   { re: /\b(?:developers?|engineers?|analysts?|consultants?)\b/i, title: 'Developer', confidence: 0.45 },
+];
+
+const INDUSTRY_LEXICON = [
+  'healthcare',
+  'pharma',
+  'pharmaceutical',
+  'fintech',
+  'finance',
+  'banking',
+  'insurance',
+  'ecommerce',
+  'e-commerce',
+  'retail',
+  'telecom',
+  'manufacturing',
+  'edtech',
+  'education',
+];
+
+const SENIORITY_PATTERNS: Array<{ re: RegExp; value: string; confidence: number }> = [
+  { re: /\b(?:principal|staff)\b/i, value: 'principal', confidence: 0.8 },
+  { re: /\b(?:lead|tech\s*lead)\b/i, value: 'lead', confidence: 0.75 },
+  { re: /\b(?:senior|sr\.?)\b/i, value: 'senior', confidence: 0.8 },
+  { re: /\b(?:mid[- ]?level|intermediate)\b/i, value: 'mid', confidence: 0.7 },
+  { re: /\b(?:junior|jr\.?|entry[- ]level)\b/i, value: 'junior', confidence: 0.75 },
 ];
 
 const CITY_LEXICON = [
@@ -197,9 +230,44 @@ export function heuristicParseRequirements(query: string): {
   for (const p of ROLE_PATTERNS) {
     if (p.re.test(text)) {
       criteria.jobTitle = p.title;
+      criteria.roles = [p.title];
       fieldConfidence.jobTitle = p.confidence;
+      fieldConfidence.roles = p.confidence;
       break;
     }
+  }
+
+  for (const s of SENIORITY_PATTERNS) {
+    if (s.re.test(text)) {
+      criteria.seniority = s.value;
+      fieldConfidence.seniority = s.confidence;
+      break;
+    }
+  }
+
+  const industries: string[] = [];
+  for (const ind of INDUSTRY_LEXICON) {
+    if (lower.includes(ind)) {
+      industries.push(ind === 'e-commerce' ? 'ecommerce' : ind);
+    }
+  }
+  criteria.industries = uniqLower(industries).slice(0, 8);
+  if (criteria.industries.length) fieldConfidence.industries = 0.85;
+
+  const notice =
+    text.match(/notice\s+period\s*(?:under|below|less\s+than|<|within)?\s*(\d+)\s*days?/i) ||
+    text.match(/(\d+)\s*days?\s+notice/i);
+  if (notice) {
+    criteria.noticePeriodMaxDays = Number(notice[1]);
+    fieldConfidence.noticePeriodMaxDays = 0.9;
+  }
+
+  const salary =
+    text.match(/(?:salary|ctc|package)\s*(?:below|under|less\s+than|<)\s*(?:₹|rs\.?\s*)?(\d+(?:\.\d+)?)\s*(?:lpa|lakh)/i) ||
+    text.match(/(?:below|under|less\s+than|<)\s*(?:₹|rs\.?\s*)?(\d+(?:\.\d+)?)\s*(?:lpa|lakh)/i);
+  if (salary) {
+    criteria.maxSalaryLpa = Number(salary[1]);
+    fieldConfidence.maxSalaryLpa = 0.85;
   }
 
   for (const s of STAGE_MAP) {

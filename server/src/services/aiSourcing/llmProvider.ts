@@ -17,11 +17,18 @@ export type LlmParseResult = {
   raw?: unknown;
 };
 
+export type JsonCompletionInput = {
+  system: string;
+  user: string;
+};
+
 /** Provider-agnostic LLM surface for AI Sourcing parsing. */
 export interface LLMProvider {
   readonly name: string;
   isAvailable(): boolean;
   parseRequirements(query: string): Promise<LlmParseResult | null>;
+  /** Optional generic JSON completion used by JD / candidate intelligence. */
+  completeJson?(input: JsonCompletionInput): Promise<Record<string, unknown> | null>;
 }
 
 function aiCfg() {
@@ -57,8 +64,8 @@ export class OpenAiCompatibleProvider implements LLMProvider {
     return this.client;
   }
 
-  async parseRequirements(query: string): Promise<LlmParseResult | null> {
-    if (!this.isAvailable() || !query.trim()) return null;
+  async completeJson(input: JsonCompletionInput): Promise<Record<string, unknown> | null> {
+    if (!this.isAvailable()) return null;
     try {
       const c = aiCfg();
       const completion = await this.getClient().chat.completions.create({
@@ -66,19 +73,30 @@ export class OpenAiCompatibleProvider implements LLMProvider {
         temperature: 0,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: REQUIREMENT_PARSER_SYSTEM },
-          {
-            role: 'user',
-            content:
-              requirementParserUserPrompt(query) +
-              '\n\nRespond with JSON keys: skills, keywords, jobTitle, location, minExperienceYears, maxExperienceYears, stage, minAiScore, fieldConfidence. Schema hint: ' +
-              JSON.stringify(REQUIREMENT_PARSER_JSON_SCHEMA),
-          },
+          { role: 'system', content: input.system },
+          { role: 'user', content: input.user },
         ],
       });
       const text = completion.choices[0]?.message?.content;
       if (!text) return null;
-      const raw = JSON.parse(text) as Record<string, unknown>;
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch (err) {
+      console.warn('[ai-sourcing] LLM JSON completion failed:', (err as Error).message);
+      return null;
+    }
+  }
+
+  async parseRequirements(query: string): Promise<LlmParseResult | null> {
+    if (!this.isAvailable() || !query.trim()) return null;
+    try {
+      const raw = await this.completeJson({
+        system: REQUIREMENT_PARSER_SYSTEM,
+        user:
+          requirementParserUserPrompt(query) +
+          '\n\nRespond with JSON keys: skills, preferredSkills, keywords, roles, jobTitle, location, industries, seniority, minExperienceYears, maxExperienceYears, noticePeriodMaxDays, maxSalaryLpa, stage, minAiScore, fieldConfidence. Schema hint: ' +
+          JSON.stringify(REQUIREMENT_PARSER_JSON_SCHEMA),
+      });
+      if (!raw) return null;
       const { fieldConfidence: confRaw, ...rest } = raw;
       const criteria = parseCriteria({ ...emptyCriteria(), ...rest });
       const fieldConfidence: FieldConfidence = {};

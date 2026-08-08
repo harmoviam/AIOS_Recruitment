@@ -130,8 +130,39 @@ Recent searches for current user within tenant.
 
 ---
 
+## Sprint 2 endpoints
+
+### `POST /jobs/:jobId/analyze`
+
+Tenant-scoped JD intelligence. Returns `intelligence`, derived `criteria`, `parserMode`, `promptVersion`.
+
+### `GET /jobs/:jobId/intelligence`
+
+Cached JD intelligence (404 if never analyzed).
+
+### `POST /jobs/:jobId/search`
+
+Analyze (or reuse cached intel) → hybrid search → persist `ai_sourcing_searches` with `job_id`.
+
+### `POST /candidates/:candidateId/intelligence`
+
+Build/refresh `candidate_ai_profiles` (never overwrites `resume_text`).
+
+### `GET /candidates/:candidateId/intelligence`
+
+Cached AI profile.
+
+### `GET /skills` · `POST /skills/normalize`
+
+List ontology skills; normalize + expand skill terms (EKS → kubernetes, aws, …).
+
+Search results additionally include `hybridScore`, `matchSignals`, `expandedSkills`.
+
+---
+
 ## Conventions
 
 - Success payloads are **raw JSON objects** (no global `{ data }` envelope) — matches ATS/sourcing.
 - Validation via Zod; `400` on schema failure.
 - Pagination: `limit` capped (default 25, max 100).
+- Parse/search rate-limited: 30/min per user.

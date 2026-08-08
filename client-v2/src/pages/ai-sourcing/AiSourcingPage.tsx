@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
+import type { Job } from '../../types';
 import type {
   AiSourcingCandidateHit,
   AiSourcingParseResult,
@@ -8,18 +9,26 @@ import type {
   AiSourcingRecommendedItem,
   CandidateSearchCriteria,
   FieldConfidence,
+  JobIntelligence,
 } from '../../types/aiSourcing';
 
-const EXAMPLE_QUERY = 'React developers in Bangalore with 3+ years';
+const EXAMPLE_QUERY =
+  'Find AWS Cloud Architects in Bangalore with healthcare experience, Terraform, Kubernetes, 10+ years experience, salary below 55 LPA and notice period below 30 days';
 
 function emptyCriteria(): CandidateSearchCriteria {
   return {
     skills: [],
+    preferredSkills: [],
     keywords: [],
+    roles: [],
+    industries: [],
     jobTitle: null,
     location: null,
+    seniority: null,
     minExperienceYears: null,
     maxExperienceYears: null,
+    noticePeriodMaxDays: null,
+    maxSalaryLpa: null,
     stage: null,
     minAiScore: null,
   };
@@ -45,12 +54,18 @@ export default function AiSourcingPage() {
   const [showCriteria, setShowCriteria] = useState(false);
   const [results, setResults] = useState<AiSourcingCandidateHit[]>([]);
   const [resultCount, setResultCount] = useState(0);
+  const [expandedSkills, setExpandedSkills] = useState<string[]>([]);
   const [recent, setRecent] = useState<AiSourcingRecentItem[]>([]);
   const [recommended, setRecommended] = useState<AiSourcingRecommendedItem[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<number | ''>('');
+  const [jobIntel, setJobIntel] = useState<JobIntelligence | null>(null);
   const [error, setError] = useState('');
   const [parsing, setParsing] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [analyzingJob, setAnalyzingJob] = useState(false);
   const [skillsInput, setSkillsInput] = useState('');
+  const [industriesInput, setIndustriesInput] = useState('');
 
   const loadMeta = useCallback(() => {
     api
@@ -61,6 +76,10 @@ export default function AiSourcingPage() {
       .aiSourcingRecommended()
       .then((r) => setRecommended(r.items))
       .catch(() => {});
+    api
+      .getJobs()
+      .then((list) => setJobs(Array.isArray(list) ? list : []))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -68,10 +87,30 @@ export default function AiSourcingPage() {
   }, [loadMeta]);
 
   function applyParse(parsed: AiSourcingParseResult) {
-    setCriteria(parsed.criteria);
+    setCriteria({ ...emptyCriteria(), ...parsed.criteria });
     setFieldConfidence(parsed.fieldConfidence);
     setParserMode(parsed.parserMode);
     setSkillsInput((parsed.criteria.skills || []).join(', '));
+    setIndustriesInput((parsed.criteria.industries || []).join(', '));
+    setShowCriteria(true);
+  }
+
+  function applySearchResult(data: {
+    results: AiSourcingCandidateHit[];
+    resultCount: number;
+    criteria: CandidateSearchCriteria;
+    fieldConfidence: FieldConfidence;
+    parserMode: string;
+    expandedSkills?: string[];
+  }) {
+    setResults(data.results);
+    setResultCount(data.resultCount);
+    setCriteria({ ...emptyCriteria(), ...data.criteria });
+    setFieldConfidence(data.fieldConfidence);
+    setParserMode(data.parserMode);
+    setSkillsInput((data.criteria.skills || []).join(', '));
+    setIndustriesInput((data.criteria.industries || []).join(', '));
+    setExpandedSkills(data.expandedSkills || []);
     setShowCriteria(true);
   }
 
@@ -94,9 +133,14 @@ export default function AiSourcingPage() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    const industries = industriesInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     return {
       ...criteria,
       skills,
+      industries,
       jobTitle: criteria.jobTitle || null,
       location: criteria.location || null,
       minExperienceYears:
@@ -107,6 +151,14 @@ export default function AiSourcingPage() {
         criteria.maxExperienceYears === undefined || criteria.maxExperienceYears === null
           ? null
           : Number(criteria.maxExperienceYears),
+      noticePeriodMaxDays:
+        criteria.noticePeriodMaxDays === undefined || criteria.noticePeriodMaxDays === null
+          ? null
+          : Number(criteria.noticePeriodMaxDays),
+      maxSalaryLpa:
+        criteria.maxSalaryLpa === undefined || criteria.maxSalaryLpa === null
+          ? null
+          : Number(criteria.maxSalaryLpa),
     };
   }
 
@@ -124,17 +176,38 @@ export default function AiSourcingPage() {
         body = { query: query.trim(), criteria: parsed.criteria };
       }
       const data = await api.aiSourcingSearch(body);
-      setResults(data.results);
-      setResultCount(data.resultCount);
-      setCriteria(data.criteria);
-      setFieldConfidence(data.fieldConfidence);
-      setParserMode(data.parserMode);
-      setSkillsInput((data.criteria.skills || []).join(', '));
-      setShowCriteria(true);
+      applySearchResult(data);
       loadMeta();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');
     } finally {
+      setSearching(false);
+    }
+  }
+
+  async function analyzeAndSearchJob() {
+    if (!selectedJobId) return;
+    setAnalyzingJob(true);
+    setSearching(true);
+    setError('');
+    try {
+      const intel = await api.aiSourcingAnalyzeJob(Number(selectedJobId));
+      setJobIntel(intel.intelligence);
+      applyParse({
+        query: `Job #${selectedJobId}`,
+        criteria: intel.criteria,
+        fieldConfidence: intel.intelligence.fieldConfidence || {},
+        parserMode: intel.parserMode as 'heuristic' | 'llm' | 'hybrid',
+        unresolvedFields: [],
+      });
+      const data = await api.aiSourcingSearchFromJob(Number(selectedJobId), { refresh: false });
+      applySearchResult(data);
+      setQuery(data.query);
+      loadMeta();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Job sourcing failed');
+    } finally {
+      setAnalyzingJob(false);
       setSearching(false);
     }
   }
@@ -144,13 +217,7 @@ export default function AiSourcingPage() {
     try {
       const data = await api.aiSourcingSearchById(item.id);
       setQuery(data.query);
-      setCriteria(data.criteria);
-      setFieldConfidence(data.fieldConfidence);
-      setParserMode(data.parserMode);
-      setSkillsInput((data.criteria.skills || []).join(', '));
-      setShowCriteria(true);
-      setResults(data.results);
-      setResultCount(data.resultCount);
+      applySearchResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load that search');
     }
@@ -164,9 +231,9 @@ export default function AiSourcingPage() {
       <div className="page-content">
         <h1 className="section-title">AI Talent Sourcing</h1>
         <p className="section-description">
-          Describe who you need in plain language. We interpret the requirement, let you edit the
-          criteria, then search your workspace talent pool. This is separate from{' '}
-          <Link to="/sourcing/copilot">Sourcing Copilot</Link> (channel strategy).
+          Describe who you need in plain language, or source from a job description. We interpret
+          requirements, normalize skills, and run hybrid search across your talent pool. Separate from{' '}
+          <Link to="/sourcing/copilot">Sourcing Copilot</Link>.
         </p>
 
         <div className="card" style={{ display: 'grid', gap: '0.85rem' }}>
@@ -191,7 +258,7 @@ export default function AiSourcingPage() {
               onClick={() => setQuery(EXAMPLE_QUERY)}
               disabled={searching || parsing}
             >
-              {EXAMPLE_QUERY}
+              AWS Cloud Architects in Bangalore…
             </button>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -212,6 +279,50 @@ export default function AiSourcingPage() {
               {parsing ? 'Interpreting…' : 'Interpret criteria'}
             </button>
           </div>
+        </div>
+
+        <div className="card" style={{ marginTop: '1rem', display: 'grid', gap: '0.75rem' }}>
+          <h2 className="card-title" style={{ margin: 0 }}>
+            Source from job (JD intelligence)
+          </h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'end' }}>
+            <div style={{ flex: '1 1 240px' }}>
+              <label className="form-label" htmlFor="ai-sourcing-job">
+                Open job
+              </label>
+              <select
+                id="ai-sourcing-job"
+                className="form-input"
+                value={selectedJobId}
+                onChange={(e) =>
+                  setSelectedJobId(e.target.value ? Number(e.target.value) : '')
+                }
+              >
+                <option value="">Select a job…</option>
+                {jobs.map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {j.title}
+                    {j.city ? ` · ${j.city}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              className="button-pill button-primary"
+              type="button"
+              onClick={analyzeAndSearchJob}
+              disabled={!selectedJobId || analyzingJob || searching}
+            >
+              {analyzingJob ? 'Analyzing JD…' : 'Analyze JD & search'}
+            </button>
+          </div>
+          {jobIntel && (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              JD role: {jobIntel.role || '—'} · Required:{' '}
+              {(jobIntel.requiredSkills || []).slice(0, 8).join(', ') || '—'} · Seniority:{' '}
+              {jobIntel.seniority || '—'}
+            </p>
+          )}
         </div>
 
         {error && (
@@ -238,6 +349,12 @@ export default function AiSourcingPage() {
                 <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                   Parser: {parserMode || '—'} · {formatConfidence(fieldConfidence)}
                 </p>
+                {expandedSkills.length > 0 && (
+                  <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    Skill ontology expanded to: {expandedSkills.slice(0, 12).join(', ')}
+                    {expandedSkills.length > 12 ? '…' : ''}
+                  </p>
+                )}
               </div>
               <div
                 style={{
@@ -255,6 +372,17 @@ export default function AiSourcingPage() {
                     className="form-input"
                     value={skillsInput}
                     onChange={(e) => setSkillsInput(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label" htmlFor="crit-industries">
+                    Industries
+                  </label>
+                  <input
+                    id="crit-industries"
+                    className="form-input"
+                    value={industriesInput}
+                    onChange={(e) => setIndustriesInput(e.target.value)}
                   />
                 </div>
                 <div>
@@ -298,19 +426,37 @@ export default function AiSourcingPage() {
                   />
                 </div>
                 <div>
-                  <label className="form-label" htmlFor="crit-max-exp">
-                    Max years
+                  <label className="form-label" htmlFor="crit-notice">
+                    Max notice (days)
                   </label>
                   <input
-                    id="crit-max-exp"
+                    id="crit-notice"
                     className="form-input"
                     type="number"
                     min={0}
-                    value={criteria.maxExperienceYears ?? ''}
+                    value={criteria.noticePeriodMaxDays ?? ''}
                     onChange={(e) =>
                       setCriteria((c) => ({
                         ...c,
-                        maxExperienceYears: e.target.value === '' ? null : Number(e.target.value),
+                        noticePeriodMaxDays: e.target.value === '' ? null : Number(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="form-label" htmlFor="crit-salary">
+                    Max salary (LPA)
+                  </label>
+                  <input
+                    id="crit-salary"
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={criteria.maxSalaryLpa ?? ''}
+                    onChange={(e) =>
+                      setCriteria((c) => ({
+                        ...c,
+                        maxSalaryLpa: e.target.value === '' ? null : Number(e.target.value),
                       }))
                     }
                   />
@@ -360,7 +506,7 @@ export default function AiSourcingPage() {
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               {(recommended.length
                 ? recommended
-                : [{ label: 'React mid-level in Bangalore', query: EXAMPLE_QUERY }]
+                : [{ label: 'AWS Cloud Architects', query: EXAMPLE_QUERY }]
               ).map((item) => (
                 <button
                   key={item.query}
@@ -395,7 +541,8 @@ export default function AiSourcingPage() {
                     <th>Exp</th>
                     <th>Location</th>
                     <th>Stage</th>
-                    <th>AI</th>
+                    <th>Hybrid</th>
+                    <th>Why</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -408,7 +555,10 @@ export default function AiSourcingPage() {
                       <td>{row.experienceYears}</td>
                       <td>{row.location || '—'}</td>
                       <td>{row.stage}</td>
-                      <td>{row.aiScore?.toFixed?.(1) ?? row.aiScore}</td>
+                      <td>{row.hybridScore ?? '—'}</td>
+                      <td style={{ fontSize: '0.8rem', maxWidth: 220 }}>
+                        {(row.matchSignals || []).slice(0, 3).join(' · ') || '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -15,6 +15,7 @@ import {
   type ParseRequirementsResult,
   type RequirementParserService,
 } from './requirementParserService.js';
+import { intelligenceToCriteria, jdIntelligenceService } from './jdIntelligenceService.js';
 
 export type SavedSearchResponse = {
   id: string;
@@ -27,6 +28,8 @@ export type SavedSearchResponse = {
   limit: number;
   offset: number;
   createdAt: string;
+  jobId?: number | null;
+  expandedSkills?: string[];
 };
 
 export type RecentSearchItem = {
@@ -39,7 +42,7 @@ export type RecentSearchItem = {
 };
 
 /**
- * Orchestrates parse → (optional edit) → structured search → persistence.
+ * Orchestrates parse → (optional edit) → structured/hybrid search → persistence.
  */
 export class SearchRequirementService {
   constructor(private readonly parser: RequirementParserService = createRequirementParserService()) {}
@@ -55,6 +58,7 @@ export class SearchRequirementService {
       criteria?: unknown;
       limit?: number;
       offset?: number;
+      jobId?: number | null;
     }
   ): Promise<SavedSearchResponse> {
     const query = input.query.trim();
@@ -65,8 +69,7 @@ export class SearchRequirementService {
 
     if (input.criteria != null) {
       criteria = parseCriteria(input.criteria);
-      // Still run parser for confidence/metadata when query present
-      if (query) {
+      if (query && query !== 'Structured search' && query !== 'Job-based search') {
         parsed = await this.parser.parse(query);
         fieldConfidence = parsed.fieldConfidence;
         parserMode = parsed.parserMode;
@@ -86,8 +89,8 @@ export class SearchRequirementService {
     const preview = page.results.slice(0, 25);
     const { rows } = await pool.query(
       `INSERT INTO ai_sourcing_searches
-         (tenant_id, user_id, query_text, criteria_json, field_confidence, result_count, result_preview, parser_mode)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, $8)
+         (tenant_id, user_id, query_text, criteria_json, field_confidence, result_count, result_preview, parser_mode, job_id)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, $8, $9)
        RETURNING id, created_at`,
       [
         req.tenant!.id,
@@ -98,6 +101,7 @@ export class SearchRequirementService {
         page.resultCount,
         JSON.stringify(preview),
         parserMode,
+        input.jobId ?? null,
       ]
     );
 
@@ -112,12 +116,33 @@ export class SearchRequirementService {
       limit: page.limit,
       offset: page.offset,
       createdAt: new Date(rows[0].created_at as string).toISOString(),
+      jobId: input.jobId ?? null,
+      expandedSkills: page.expandedSkills,
     };
+  }
+
+  async searchFromJob(
+    req: Request,
+    jobId: number,
+    opts: { limit?: number; offset?: number; refresh?: boolean } = {}
+  ): Promise<SavedSearchResponse> {
+    let intel = opts.refresh ? null : await jdIntelligenceService.get(req, jobId);
+    if (!intel) {
+      intel = await jdIntelligenceService.analyze(req, jobId);
+    }
+    const criteria = intel.criteria || intelligenceToCriteria(intel.intelligence);
+    return this.searchAndPersist(req, {
+      query: `Job #${jobId}: ${intel.intelligence.role || 'Open role'}`,
+      criteria,
+      limit: opts.limit,
+      offset: opts.offset,
+      jobId,
+    });
   }
 
   async getById(req: Request, id: string): Promise<SavedSearchResponse | null> {
     const { rows } = await pool.query(
-      `SELECT id, query_text, criteria_json, field_confidence, result_count, result_preview, parser_mode, created_at, user_id
+      `SELECT id, query_text, criteria_json, field_confidence, result_count, result_preview, parser_mode, created_at, user_id, job_id
        FROM ai_sourcing_searches
        WHERE id = $1 AND tenant_id = $2`,
       [id, req.tenant!.id]
@@ -142,6 +167,7 @@ export class SearchRequirementService {
       limit: results.length,
       offset: 0,
       createdAt: new Date(rows[0].created_at as string).toISOString(),
+      jobId: (rows[0].job_id as number) ?? null,
     };
   }
 
@@ -187,12 +213,13 @@ export const RECOMMENDED_SEARCHES = [
     query: 'Java backend engineers in Pune with 5+ years experience',
   },
   {
-    label: 'Voice process Mohali',
-    query: 'International voice process candidates in Mohali with 1+ years',
+    label: 'AWS Cloud Architects',
+    query:
+      'Find AWS Cloud Architects in Bangalore with healthcare experience, Terraform, Kubernetes, 10+ years experience, salary below 55 LPA and notice period below 30 days',
   },
   {
-    label: 'Freshers in Hyderabad',
-    query: 'Fresher graduates in Hyderabad for customer support',
+    label: 'Voice process Mohali',
+    query: 'International voice process candidates in Mohali with 1+ years',
   },
   {
     label: 'DevOps remote',

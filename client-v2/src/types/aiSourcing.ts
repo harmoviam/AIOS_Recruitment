@@ -1,10 +1,16 @@
 export type CandidateSearchCriteria = {
   skills: string[];
+  preferredSkills: string[];
   keywords: string[];
+  roles: string[];
+  industries: string[];
   jobTitle?: string | null;
   location?: string | null;
+  seniority?: string | null;
   minExperienceYears?: number | null;
   maxExperienceYears?: number | null;
+  noticePeriodMaxDays?: number | null;
+  maxSalaryLpa?: number | null;
   stage?: string | null;
   minAiScore?: number | null;
 };
@@ -30,6 +36,8 @@ export type AiSourcingCandidateHit = {
   location: string | null;
   jobTitle: string | null;
   aiScore: number;
+  hybridScore?: number;
+  matchSignals?: string[];
 };
 
 export type AiSourcingSearchResult = {
@@ -43,6 +51,8 @@ export type AiSourcingSearchResult = {
   limit: number;
   offset: number;
   createdAt: string;
+  jobId?: number | null;
+  expandedSkills?: string[];
 };
 
 export type AiSourcingRecentItem = {
@@ -57,4 +67,29 @@ export type AiSourcingRecentItem = {
 export type AiSourcingRecommendedItem = {
   label: string;
   query: string;
+};
+
+export type JobIntelligence = {
+  role?: string | null;
+  roles?: string[];
+  seniority?: string | null;
+  requiredSkills?: string[];
+  preferredSkills?: string[];
+  industries?: string[];
+  minExperienceYears?: number | null;
+  maxExperienceYears?: number | null;
+  location?: string | null;
+  noticePeriodMaxDays?: number | null;
+  maxSalaryLpa?: number | null;
+  summary?: string | null;
+  fieldConfidence?: FieldConfidence;
+};
+
+export type AiJobIntelligenceResult = {
+  jobId: number;
+  intelligence: JobIntelligence;
+  criteria: CandidateSearchCriteria;
+  parserMode: string;
+  promptVersion: string;
+  updatedAt: string;
 };

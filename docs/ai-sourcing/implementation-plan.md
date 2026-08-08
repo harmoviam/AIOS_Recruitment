@@ -1,97 +1,56 @@
 # AI Sourcing Agent — Implementation Plan
 
 **Date:** 2026-08-08  
-**Constraint:** Sprint 1 only. Do not start Sprint 2.
+**Branch:** `feature/ai-sourcing-agent`
 
 ---
 
-## Goals (Sprint 1)
+## Sprint 1 — Complete
 
-1. Document architecture / gaps / data model / APIs / security.
-2. Migrate `ai_sourcing_searches` (Sprint 1 tables only).
-3. Ship `/ai-sourcing` UI (NL input, examples, recommended, recent, editable criteria, basic results).
-4. Backend: parse + structured search + persistence + feature flag + tenant isolation.
-5. LLMProvider abstraction with heuristic fallback; prompts under `prompts/`.
-6. Tests + build validation + completion report.
+NL requirement parsing, structured ATS search, `/ai-sourcing` UI, audit docs, `AI_SOURCING_ENABLED`.  
+See `SPRINT-1-COMPLETION-REPORT.md`.
 
 ---
 
-## Sprint 1 work packages
+## Sprint 2 — Complete
 
-### WP0 — Docs (`docs/ai-sourcing/`)
-- architecture-audit, gap-analysis, implementation-plan, data-model, api-contract, security-review
+1. JD intelligence (`JDIntelligenceService` + `ai_job_intelligence`)
+2. Resume / candidate intelligence (`CandidateIntelligenceService` + `candidate_ai_profiles`)
+3. Skill ontology (`ai_skills` / aliases / relationships) + expansion in search
+4. Hybrid search (structured filters + FTS + ontology; soft notice/salary filters)
+5. Rate limits on parse/search; job-linked search APIs; UI job analyze flow
 
-### WP1 — Database
-- `server/src/migrations/aiSourcing.ts`
-- Call from `initDb()`
-- Table: `ai_sourcing_searches` (criteria JSON; no separate filters table yet)
-
-### WP2 — Backend module
-```
-server/src/
-  routes/aiSourcing/
-  services/aiSourcing/
-  dto/aiSourcing/
-  prompts/ai-sourcing/
-```
-- Feature flag middleware / guard: `AI_SOURCING_ENABLED`
-- Access: map `AI_SOURCING_VIEW` / `AI_SOURCING_SEARCH` → roles that can list candidates (`admin`, `recruiter`, `hiring_manager`, `super_admin` with tenant)
-- Services: `RequirementParserService`, `SearchRequirementService`, `CandidateSearchService`
-- `LLMProvider` interface + `OpenAiCompatibleProvider` + always-available heuristic parser
-
-### WP3 — APIs
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/api/ai-sourcing/health` | Module health + flag |
-| POST | `/api/ai-sourcing/parse` | NL → criteria + confidence |
-| POST | `/api/ai-sourcing/search` | Parse/merge criteria → search → persist |
-| GET | `/api/ai-sourcing/search/:id` | Fetch saved search + preview |
-| GET | `/api/ai-sourcing/searches/recent` | Recent for current user/tenant |
-| GET | `/api/ai-sourcing/recommended` | Suggested NL queries |
-
-### WP4 — Frontend
-- Page: `client-v2/src/pages/ai-sourcing/AiSourcingPage.tsx`
-- Route `/ai-sourcing` in `App.tsx`
-- Nav item in `Layout.tsx`
-- API methods on `api` client
-- Wireframe HTML sketch under `wireframes/ai-sourcing/` for reference
-
-### WP5 — Quality
-- Unit tests: heuristic parser, criteria validation, SQL criteria builder (pure)
-- `tsc` build server + client; oxlint client; vitest server
-- Completion report
+See `SPRINT-2-COMPLETION-REPORT.md`.
 
 ---
 
-## Out of scope (Sprint 2+)
+## Sprint 3 — Next (not started)
 
-- Vector / embedding search
-- External provider federation (PDL already under `/sourcing/people`)
-- Boolean query builder, saved filter libraries
-- Outreach sequences from results
-- Full 3-panel workspace polish
-- Learning-to-rank / feedback loops
-- Permission table + CASL
-- Redis queue for long-running enrichment
+1. Vector embeddings (`EmbeddingService`, candidate/job/requirement vectors)
+2. Semantic search (`SemanticSearchService`) — prefer pgvector if adopted
+3. Explainable AI match score with configurable weights
+4. Match explanation persistence
+5. Find similar candidates
 
 ---
 
-## Sequencing
+## Sequencing (remaining)
 
 ```
-Docs → Migration → DTO/validation → Parser (heuristic) → LLMProvider → Search service
-  → Routes → Feature flag → Client page → Tests → Report
+Sprint 3: embeddings → semantic + explainable score
+Sprint 4: profile polish → similar candidates → copilot refine → search history analytics
+Sprint 5: talent pools → rediscovery
+…
 ```
 
 ---
 
-## Definition of done (Sprint 1)
+## Definition of done (Sprint 2)
 
-- [x] Docs written from codebase facts
-- [x] Flag off → 403 `AI_SOURCING_DISABLED` for secured routes
-- [x] Heuristic parse works without AI keys
-- [x] Search respects tenant + `candidateScopeSql`
-- [x] UI loads at `/ai-sourcing` with edit-criteria flow
-- [x] Tests + builds green
+- [x] JD analyze + persist without overwriting job description
+- [x] Candidate AI profile without overwriting raw resume
+- [x] Skill ontology seeded and used in hybrid search
+- [x] Hybrid ranking returns hybridScore + matchSignals
+- [x] Job → search API + UI
+- [x] Tests + builds + db:init green
 - [x] Completion report published
-- [x] No commit unless user asks

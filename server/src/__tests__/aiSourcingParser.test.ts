@@ -92,6 +92,7 @@ describe('criteria validation & SQL builder', () => {
     expect(sql).toMatch(/experience_years/);
     expect(sql).toMatch(/current_location ILIKE/);
     expect(sql).toMatch(/jsonb_array_elements_text/);
+    expect(sql).toMatch(/technical_skills/);
     expect(params).toContain(3);
     expect(params).toContain('%Bangalore%');
     expect(params).toContainEqual(['react']);
