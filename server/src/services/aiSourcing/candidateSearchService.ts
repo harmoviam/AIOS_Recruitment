@@ -267,9 +267,16 @@ export class CandidateSearchService {
       i = clauses.nextIndex;
     }
 
-    // Hybrid ranking: FTS rank + existing AI score (semantic vectors deferred to Sprint 3)
+    // Hybrid ranking: FTS rank + existing AI score (semantic vectors deferred to Sprint 3).
+    // Repeat the rank expression in ORDER BY — PG does not resolve SELECT aliases inside COALESCE().
     sql += ` ORDER BY
-               (COALESCE(fts_rank, 0) * 4 + COALESCE(c.ai_score, 0)) DESC,
+               (
+                 CASE
+                   WHEN c.search_tsv @@ websearch_to_tsquery('english', $2)
+                   THEN ts_rank_cd(c.search_tsv, websearch_to_tsquery('english', $2))
+                   ELSE 0
+                 END * 4 + COALESCE(c.ai_score, 0)
+               ) DESC,
                c.updated_at DESC
              LIMIT $${i++} OFFSET $${i++}`;
     params.push(limit, offset);
