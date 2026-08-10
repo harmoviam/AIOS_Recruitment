@@ -459,7 +459,10 @@ export const api = {
     const q = hmId ? `?hm_id=${hmId}` : '';
     return request<import('../types').TeamPerformance>(`/recruiters/team-performance${q}`);
   },
-  getMyWorkflow: () => request<import('../types').RecruiterWorkflow>('/recruiters/my-workflow'),
+  getMyWorkflow: (period?: 'today' | '7d' | '30d') => {
+    const q = period ? `?period=${period}` : '?period=today';
+    return request<import('../types').RecruiterWorkflow>(`/recruiters/my-workflow${q}`);
+  },
   getOrganizationOverview: () => request<import('../types').OrganizationOverview>('/organization/overview'),
   createRecruiter: (data: { email: string; password: string; name: string; company_id?: number; managed_by_id?: number }) =>
     request('/recruiters', { method: 'POST', body: JSON.stringify(data) }),

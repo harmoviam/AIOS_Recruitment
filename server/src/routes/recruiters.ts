@@ -41,21 +41,50 @@ function hmRecruiterFilter(alias: string, hmId: number, _companyId: number | nul
 }
 
 router.get('/my-workflow', async (req, res) => {
-  if (req.user!.role !== 'recruiter') {
-    return res.status(403).json({ error: 'Recruiter access only' });
+  const role = req.user!.role;
+  if (role !== 'recruiter' && role !== 'hiring_manager') {
+    return res.status(403).json({ error: 'Recruiter or hiring manager access only' });
   }
   const uid = req.user!.id;
   const tenantId = tid(req);
 
-  const [byStage, followUps, interviewsToday, joiningsMtd, recentActivities] = await Promise.all([
+  const rawPeriod = String(req.query.period || 'today');
+  const period = rawPeriod === '7d' || rawPeriod === '30d' ? rawPeriod : 'today';
+  // Inclusive window ending at end of today. "Last month" = last 30 days.
+  const periodStartSql =
+    period === '7d'
+      ? `(CURRENT_DATE - INTERVAL '6 days')`
+      : period === '30d'
+        ? `(CURRENT_DATE - INTERVAL '29 days')`
+        : `CURRENT_DATE`;
+
+  const [byStage, statusCounts, followUps, interviewsInPeriod, joiningsInPeriod, recentActivities] = await Promise.all([
     pool.query(
       `SELECT stage, COUNT(*)::int AS count FROM candidates
-       WHERE tenant_id = $1 AND recruiter_id = $2 GROUP BY stage`,
+       WHERE tenant_id = $1 AND recruiter_id = $2
+         AND created_at >= ${periodStartSql}
+         AND created_at < CURRENT_DATE + INTERVAL '1 day'
+       GROUP BY stage`,
       [tenantId, uid]
     ),
     pool.query(
-      `SELECT COUNT(*) FILTER (WHERE f.status NOT IN ('completed'))::int AS pending,
-        COUNT(*) FILTER (WHERE f.due_at < NOW() AND f.status NOT IN ('completed', 'missed'))::int AS overdue
+      `SELECT stage, COUNT(*)::int AS count FROM candidates
+       WHERE tenant_id = $1 AND recruiter_id = $2
+         AND stage IN ('selected', 'rejected', 'email_sent', 'ho_pending')
+       GROUP BY stage`,
+      [tenantId, uid]
+    ),
+    pool.query(
+      `SELECT COUNT(*) FILTER (
+          WHERE f.status NOT IN ('completed')
+            AND f.due_at >= ${periodStartSql}
+            AND f.due_at < CURRENT_DATE + INTERVAL '1 day'
+        )::int AS pending,
+        COUNT(*) FILTER (
+          WHERE f.due_at < NOW() AND f.status NOT IN ('completed', 'missed')
+            AND f.due_at >= ${periodStartSql}
+            AND f.due_at < CURRENT_DATE + INTERVAL '1 day'
+        )::int AS overdue
        FROM follow_ups f
        JOIN candidates c ON c.id = f.candidate_id
        WHERE f.tenant_id = $1 AND c.recruiter_id = $2`,
@@ -64,35 +93,45 @@ router.get('/my-workflow', async (req, res) => {
     pool.query(
       `SELECT COUNT(*)::int AS c FROM interviews i
        JOIN candidates c ON c.id = i.candidate_id
-       WHERE c.tenant_id = $1 AND c.recruiter_id = $2 AND i.scheduled_at::date = CURRENT_DATE`,
+       WHERE c.tenant_id = $1 AND c.recruiter_id = $2
+         AND i.scheduled_at >= ${periodStartSql}
+         AND i.scheduled_at < CURRENT_DATE + INTERVAL '1 day'`,
       [tenantId, uid]
     ),
     pool.query(
       `SELECT COUNT(*)::int AS c FROM candidates
        WHERE tenant_id = $1 AND recruiter_id = $2 AND stage = 'joined'
-       AND updated_at >= DATE_TRUNC('month', NOW())`,
+         AND COALESCE(joined_at, updated_at) >= ${periodStartSql}
+         AND COALESCE(joined_at, updated_at) < CURRENT_DATE + INTERVAL '1 day'`,
       [tenantId, uid]
     ),
     pool.query(
       `SELECT a.id, a.type, a.description, a.created_at FROM activities a
-       WHERE a.tenant_id = $1 AND a.candidate_id IN (SELECT id FROM candidates WHERE recruiter_id = $2)
+       WHERE a.tenant_id = $1
+         AND a.candidate_id IN (SELECT id FROM candidates WHERE recruiter_id = $2)
+         AND a.created_at >= ${periodStartSql}
+         AND a.created_at < CURRENT_DATE + INTERVAL '1 day'
        ORDER BY a.created_at DESC LIMIT 8`,
       [tenantId, uid]
     ),
   ]);
 
   const totalCandidates = byStage.rows.reduce((s, r) => s + r.count, 0);
-  const selectedCount = byStage.rows.find((r) => r.stage === 'selected')?.count ?? 0;
+  const statusCount = (stage: string) => statusCounts.rows.find((r) => r.stage === stage)?.count ?? 0;
   const joinedCount = byStage.rows.find((r) => r.stage === 'joined')?.count ?? 0;
 
   res.json({
+    period,
     kpis: {
       totalCandidates,
       pendingFollowups: followUps.rows[0].pending,
       overdueFollowups: followUps.rows[0].overdue,
-      interviewsToday: interviewsToday.rows[0].c,
-      joiningsMtd: joiningsMtd.rows[0].c,
-      selected: selectedCount,
+      interviewsToday: interviewsInPeriod.rows[0].c,
+      joiningsMtd: joiningsInPeriod.rows[0].c,
+      selected: statusCount('selected'),
+      rejected: statusCount('rejected'),
+      emailSent: statusCount('email_sent'),
+      hoPending: statusCount('ho_pending'),
       joined: joinedCount,
     },
     pipeline: byStage.rows,

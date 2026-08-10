@@ -742,6 +742,32 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 .section-title { font-size: 1.45rem; font-weight: 800; margin-bottom: 0.35rem; }
 .section-description { margin-bottom: 1.4rem; color: var(--text-secondary); font-size: 0.92rem; max-width: 70ch; }
 
+.period-filters {
+    display: inline-flex;
+    gap: 0.35rem;
+    padding: 0.25rem;
+    margin-bottom: 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-muted, var(--bg-secondary, #f8fafc));
+}
+.period-filter-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.period-filter-btn:hover { color: var(--text-primary); }
+.period-filter-btn.active {
+    background: var(--primary);
+    color: #fff;
+}
+
 .page-header { margin-bottom: 1.25rem; }
 .page-header .breadcrumb { margin-bottom: 0.6rem; }
 .page-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
