@@ -10,7 +10,7 @@ import { FALLBACK_RED_FLAG_QUESTIONS, RED_FLAG_SIGNALS, SCREENING_QUESTIONS, ats
 import type { Application, Candidate, Interview, Job, Message, TimelineEvent } from '../types';
 import { inferJobIndustry, isBpoIndustry } from '../utils/industries';
 
-const APPLICATION_STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
+const APPLICATION_STAGES = ['applied', 'screening', 'interview', 'selected', 'email_sent', 'ho_pending', 'rejected', 'joined'];
 
 const DETAIL_TABS = [
   { id: 'profile', label: 'Profile' },
@@ -713,7 +713,7 @@ export default function CandidateDetailPage() {
                         >
                           {APPLICATION_STAGES.map((s) => (
                             <option key={s} value={s}>
-                              {s.charAt(0).toUpperCase() + s.slice(1)}
+                              {s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                             </option>
                           ))}
                         </select>

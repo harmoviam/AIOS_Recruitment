@@ -135,7 +135,7 @@ async function populateResumeText(tenantId: number, candidateId: number): Promis
   }
 }
 
-const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
+const STAGES = ['applied', 'screening', 'interview', 'selected', 'email_sent', 'ho_pending', 'rejected', 'joined'];
 // Red-flag signals observed in the first 3 minutes of the call, scored 1-5.
 const RED_FLAG_FIELDS = [
   'low_energy',
@@ -1788,6 +1788,9 @@ function mapImportStatusToStage(status: string): string {
   const s = status.toLowerCase();
   if (s.includes('interview')) return 'interview';
   if (s.includes('screen')) return 'screening';
+  if (s.includes('ho') && s.includes('pending')) return 'ho_pending';
+  if (s.includes('email') && s.includes('sent')) return 'email_sent';
+  if (s.includes('email sent')) return 'email_sent';
   if (s.includes('select')) return 'selected';
   if (s.includes('reject')) return 'rejected';
   if (s.includes('join')) return 'joined';
