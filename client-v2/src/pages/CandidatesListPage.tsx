@@ -68,6 +68,9 @@ export default function CandidatesListPage() {
     if (filterParam === 'new') params.stage = 'applied';
     if (filterParam === 'joined') params.stage = 'joined';
     if (filterParam === 'selected') params.stage = 'selected';
+    if (filterParam === 'rejected') params.stage = 'rejected';
+    if (filterParam === 'email_sent') params.stage = 'email_sent';
+    if (filterParam === 'ho_pending') params.stage = 'ho_pending';
     if (filterParam === 'hot') params.hot = 'true';
     if (isHm) {
       params.scope = hmScope;
@@ -229,6 +232,8 @@ export default function CandidatesListPage() {
               <option value="screening">Screening</option>
               <option value="interview">Interview</option>
               <option value="selected">Selected</option>
+              <option value="email_sent">Email Sent</option>
+              <option value="ho_pending">HO Pending</option>
               <option value="joined">Joined</option>
               <option value="rejected">Rejected</option>
             </optgroup>
@@ -351,6 +356,8 @@ export default function CandidatesListPage() {
               {allSelectedInScreening && <option value="screening_rejected">Screening Rejected</option>}
               <option value="interview">Interview</option>
               <option value="selected">Selected</option>
+              <option value="email_sent">Email Sent</option>
+              <option value="ho_pending">HO Pending</option>
               {allSelectedInOfferStage && <option value="offer_rejected">Offer Rejected</option>}
               <option value="rejected">Rejected</option>
               <option value="joined">Joined</option>

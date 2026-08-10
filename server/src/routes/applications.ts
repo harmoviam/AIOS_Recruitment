@@ -21,7 +21,7 @@ router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
 
-const STAGES = ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'];
+const STAGES = ['applied', 'screening', 'interview', 'selected', 'email_sent', 'ho_pending', 'rejected', 'joined'];
 const OFFER_STATUSES = [
   'accepted',
   'offer_rejected',

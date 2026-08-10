@@ -481,6 +481,8 @@ export default function AiSourcingPage() {
                     <option value="screening">Screening</option>
                     <option value="interview">Interview</option>
                     <option value="selected">Selected</option>
+                    <option value="email_sent">Email Sent</option>
+                    <option value="ho_pending">HO Pending</option>
                     <option value="rejected">Rejected</option>
                     <option value="joined">Joined</option>
                   </select>

@@ -139,6 +139,8 @@ const CITY_LEXICON = [
 const STAGE_MAP: Array<{ re: RegExp; stage: CandidateSearchCriteria['stage']; confidence: number }> = [
   { re: /\b(?:in\s+)?screening\b/i, stage: 'screening', confidence: 0.7 },
   { re: /\b(?:in\s+)?interview\b/i, stage: 'interview', confidence: 0.7 },
+  { re: /\b(?:email\s*sent|sent\s*email)\b/i, stage: 'email_sent', confidence: 0.65 },
+  { re: /\bho\s*pending\b/i, stage: 'ho_pending', confidence: 0.65 },
   { re: /\b(?:selected|offered)\b/i, stage: 'selected', confidence: 0.65 },
   { re: /\brejected\b/i, stage: 'rejected', confidence: 0.65 },
   { re: /\bjoined\b/i, stage: 'joined', confidence: 0.65 },

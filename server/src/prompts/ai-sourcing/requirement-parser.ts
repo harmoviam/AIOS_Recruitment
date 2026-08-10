@@ -7,7 +7,7 @@ export const REQUIREMENT_PARSER_SYSTEM = `You extract structured ATS candidate-s
 Only include values explicitly stated or strongly implied. Never invent skills, locations, or experience ranges.
 Return JSON matching the schema. Skills are short lowercase terms (e.g. "react", "java", "voice process").
 "5+ years" → minExperienceYears 5. "fresher" / "entry level" → maxExperienceYears 1.
-Pipeline stages if mentioned must be one of: applied, screening, interview, selected, rejected, joined.
+Pipeline stages if mentioned must be one of: applied, screening, interview, selected, email_sent, ho_pending, rejected, joined.
 jobTitle is a short role phrase when the recruiter names a role. location is a city/region string.
 keywords are additional free-text terms useful for full-text search that are not skills.`;
 
@@ -27,7 +27,7 @@ export const REQUIREMENT_PARSER_JSON_SCHEMA = {
     maxExperienceYears: { type: ['number', 'null'] },
     stage: {
       type: ['string', 'null'],
-      enum: ['applied', 'screening', 'interview', 'selected', 'rejected', 'joined', null],
+      enum: ['applied', 'screening', 'interview', 'selected', 'email_sent', 'ho_pending', 'rejected', 'joined', null],
     },
     minAiScore: { type: ['number', 'null'] },
     fieldConfidence: {

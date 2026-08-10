@@ -120,6 +120,8 @@ export const STAGE_COLORS: Record<string, string> = {
   screening_rejected: '#9A3412',
   interview: '#4F46E5',
   selected: '#0D9488',
+  email_sent: '#0284C7',
+  ho_pending: '#C026D3',
   rejected: '#6B7280',
   joined: '#059669',
   new: '#2563EB',

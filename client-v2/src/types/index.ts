@@ -812,6 +812,8 @@ export const STAGES = [
   { id: 'screening', label: 'Screening' },
   { id: 'interview', label: 'Interview Scheduled' },
   { id: 'selected', label: 'Selected' },
+  { id: 'email_sent', label: 'Email Sent' },
+  { id: 'ho_pending', label: 'HO Pending' },
   { id: 'rejected', label: 'Rejected' },
   { id: 'joined', label: 'Joined' },
 ] as const;
@@ -1113,7 +1115,10 @@ export interface TeamPerformance {
   recruiters: TeamPerformanceRecruiter[];
 }
 
+export type WorkflowPeriod = 'today' | '7d' | '30d';
+
 export interface RecruiterWorkflow {
+  period?: WorkflowPeriod;
   kpis: {
     totalCandidates: number;
     pendingFollowups: number;
@@ -1121,6 +1126,9 @@ export interface RecruiterWorkflow {
     interviewsToday: number;
     joiningsMtd: number;
     selected: number;
+    rejected: number;
+    emailSent: number;
+    hoPending: number;
     joined: number;
   };
   pipeline: { stage: string; count: number }[];

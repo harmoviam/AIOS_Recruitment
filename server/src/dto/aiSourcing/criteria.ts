@@ -15,7 +15,7 @@ export const candidateSearchCriteriaSchema = z.object({
   noticePeriodMaxDays: z.number().min(0).max(365).optional().nullable(),
   maxSalaryLpa: z.number().min(0).max(500).optional().nullable(),
   stage: z
-    .enum(['applied', 'screening', 'interview', 'selected', 'rejected', 'joined'])
+    .enum(['applied', 'screening', 'interview', 'selected', 'email_sent', 'ho_pending', 'rejected', 'joined'])
     .optional()
     .nullable(),
   minAiScore: z.number().min(0).max(10).optional().nullable(),
