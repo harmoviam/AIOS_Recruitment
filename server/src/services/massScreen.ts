@@ -529,38 +529,6 @@ async function processBatchInBackground(
       await saveBatchSlotsSafe(batchId, tenantId, () => [...slotMap.values()]);
     });
 
-    // Auto-reject under-YOE slots so recruiters don't triage them further.
-    const userId = batch.created_by;
-    if (userId) {
-      for (const s of [...slotMap.values()]) {
-        if (!s.experience_rejected || s.status !== 'scored' || !s.parsed_profile) continue;
-        try {
-          const candidateId = await persistSlotAsCandidate({
-            tenantId,
-            userId,
-            jobId: job.id,
-            slot: s,
-            decision: 'rejected',
-            remarks: s.remarks || s.experience_gate?.reason || 'Insufficient experience',
-          });
-          slotMap.set(s.slot, {
-            ...s,
-            status: 'decided',
-            decision: 'rejected',
-            remarks: s.remarks || s.experience_gate?.reason || 'Insufficient experience',
-            candidate_id: candidateId,
-            resume_excerpt: undefined,
-          });
-        } catch (err) {
-          console.warn(
-            `Mass screen auto-reject (experience) failed for slot ${s.slot}:`,
-            (err as Error).message
-          );
-        }
-      }
-      await saveBatchSlotsSafe(batchId, tenantId, () => [...slotMap.values()]);
-    }
-
     const afterParse = [...slotMap.values()];
     const toEnrich = afterParse.filter(
       (s) => s.status === 'scored' && s.ai_status === 'pending' && !s.experience_rejected
@@ -635,22 +603,7 @@ export async function applyMassScreenDecisions(input: {
     }
 
     if (decision.decision === 'shortlisted') {
-      if (slot.experience_rejected) {
-        throw Object.assign(
-          new Error(
-            `Slot ${decision.slot}: Cannot shortlist — insufficient experience` +
-              (slot.experience_gate?.reason ? ` (${slot.experience_gate.reason})` : '')
-          ),
-          { status: 400 }
-        );
-      }
-      const score = slot.eligibility_score ?? 0;
-      if (!(score > 8)) {
-        throw Object.assign(
-          new Error(`Slot ${decision.slot}: Shortlist requires eligibility score > 8 (got ${score})`),
-          { status: 400 }
-        );
-      }
+      // The experience and eligibility gates are advisory; recruiters may override them.
     } else if (decision.decision === 'rejected') {
       if (!decision.remarks?.trim()) {
         throw Object.assign(new Error(`Slot ${decision.slot}: Reject requires remarks`), {

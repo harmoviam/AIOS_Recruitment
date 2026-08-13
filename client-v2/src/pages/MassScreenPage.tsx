@@ -483,8 +483,8 @@ export default function MassScreenPage() {
                 {pendingDecideCount > 0 ? ` · ${pendingDecideCount} remaining` : ''}
               </div>
               <p className="text-muted" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                Shortlist requires Eligibility &gt; 8. Reject always requires remarks. Resumes below the
-                job&apos;s min experience are auto-rejected (no ATS or eligibility score). You can decide
+                Shortlist and Reject are available for every scored resume. Resumes below the
+                job&apos;s min experience are flagged for review (no ATS or eligibility score), but you can override the recommendation. You can decide
                 as soon as a row is scored — AI notes may fill in later.
               </p>
               {selectedJob?.min_experience != null && Number(selectedJob.min_experience) > 0 ? (
@@ -545,10 +545,7 @@ export default function MassScreenPage() {
                   const decision = slot.decision || localDecisions[slot.slot]?.decision;
                   const canShortlist =
                     slot.status === 'scored' &&
-                    !decided &&
-                    !slot.experience_rejected &&
-                    (slot.eligibility_score ?? 0) > 8;
-                  // Experience rejects are normally auto-decided; allow manual reject if that failed.
+                    !decided;
                   const canReject = slot.status === 'scored' && !decided;
                   const eligibleHighlight =
                     !slot.experience_rejected && (slot.eligibility_score ?? 0) > 8;
@@ -783,7 +780,7 @@ export default function MassScreenPage() {
                             title={
                               canShortlist
                                 ? 'Move to Screening (Shortlisted)'
-                                : 'Eligibility must be greater than 8'
+                                : 'Available after scoring'
                             }
                             onClick={() => void applyDecision(slot.slot, 'shortlisted')}
                           >
