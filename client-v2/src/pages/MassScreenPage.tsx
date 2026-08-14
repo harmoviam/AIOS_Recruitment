@@ -3,10 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
+import { useAuth } from '../context/AuthContext';
 import type { Job, MassScreenBatch, MassScreenSlot } from '../types';
 
 const SLOT_COUNT = 3;
 const POLL_MS = 1500;
+const EMAIL_SIGNER_KEY = 'mass_screen_email_signer';
 
 type Step = 'upload' | 'triage';
 
@@ -22,17 +24,122 @@ function scoreClass(score: number | undefined): string {
   return 'mass-score-low';
 }
 
-function slotLabel(slot: MassScreenSlot): string {
+function cleanName(value: string | null | undefined): string {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return '';
+  // Ignore generic placeholders parsers sometimes emit
+  if (/^(unknown|n\/?a|null|candidate|resume|curriculum\s*vitae|cv)$/i.test(trimmed)) return '';
+  return trimmed;
+}
+
+function looksLikeOrgAdminName(name: string): boolean {
+  return /\badmin\b/i.test(name) || /^earlyjobs\b/i.test(name);
+}
+
+function resolveDefaultSigner(user: { name?: string; role?: string } | null): string {
+  try {
+    const saved = localStorage.getItem(EMAIL_SIGNER_KEY)?.trim();
+    if (saved) return saved;
+  } catch {
+    /* ignore */
+  }
+  const name = (user?.name || '').trim();
+  if (!name) return '';
+  if (user?.role === 'recruiter' || user?.role === 'hiring_manager') return name;
+  // Avoid signing candidate emails as "EarlyJobs Admin" / similar org accounts
+  if (looksLikeOrgAdminName(name)) return '';
+  return name;
+}
+
+function candidateDisplayName(slot: MassScreenSlot): string {
   return (
-    slot.parsed_profile?.name ||
-    slot.original_filename ||
-    slot.filename ||
-    `Resume ${slot.slot + 1}`
+    cleanName(slot.parsed_profile?.name) ||
+    cleanName(slot.original_filename) ||
+    cleanName(slot.filename) ||
+    `Candidate #${slot.slot + 1}`
   );
+}
+
+function candidateIdentityMeta(slot: MassScreenSlot): string[] {
+  const parts: string[] = [];
+  const email = cleanName(slot.parsed_profile?.email);
+  const phone = cleanName(slot.parsed_profile?.phone);
+  const file = cleanName(slot.original_filename || slot.filename);
+  const name = cleanName(slot.parsed_profile?.name);
+  if (email) parts.push(email);
+  if (phone) parts.push(phone);
+  // Show filename when we have a real person name (so file ≠ the only identity)
+  if (file && name && file.toLowerCase() !== name.toLowerCase()) parts.push(file);
+  return parts;
+}
+
+function firstName(fullName: string): string {
+  const token = fullName.trim().split(/\s+/)[0] || fullName;
+  // Avoid greeting with a filename
+  if (/\.(pdf|docx?|txt)$/i.test(token) || /^candidate\s*#?\d+$/i.test(fullName)) return 'there';
+  return token;
+}
+
+type SkillGapEmail = {
+  to: string;
+  subject: string;
+  body: string;
+  fullText: string;
+};
+
+function buildSkillGapEmail(opts: {
+  candidateName: string;
+  candidateEmail?: string | null;
+  jobTitle: string;
+  missingMandatory: string[];
+  matchedMandatory?: string[];
+  signerName?: string | null;
+}): SkillGapEmail | null {
+  const missing = opts.missingMandatory.map((s) => s.trim()).filter(Boolean);
+  if (missing.length === 0) return null;
+
+  const jobTitle = opts.jobTitle.trim() || 'the open role';
+  const greet = firstName(opts.candidateName);
+  const missingList = missing.map((s) => `• ${s}`).join('\n');
+  const matched = (opts.matchedMandatory || []).map((s) => s.trim()).filter(Boolean);
+  const matchedLine =
+    matched.length > 0
+      ? `\nWe did note relevant experience with: ${matched.join(', ')}.\n`
+      : '';
+  const signer = (opts.signerName || '').trim() || 'Recruiting Team';
+
+  const subject = `Quick clarification on your application — ${jobTitle}`;
+  const body = `Hi ${greet},
+
+Thank you for applying for the ${jobTitle} role.
+
+While reviewing your profile, we could not clearly find the following mandatory skill${missing.length === 1 ? '' : 's'} on your resume:
+
+${missingList}
+${matchedLine}
+If you do have experience with ${missing.length === 1 ? 'this' : 'these'}, please reply with a short note (or an updated resume) so we can continue evaluating your application.
+
+Looking forward to your response at earliest.
+
+Best regards,
+${signer}`;
+
+  const to = cleanName(opts.candidateEmail);
+  const fullText = [
+    to ? `To: ${to}` : null,
+    `Subject: ${subject}`,
+    '',
+    body,
+  ]
+    .filter((line) => line != null)
+    .join('\n');
+
+  return { to, subject, body, fullText };
 }
 
 export default function MassScreenPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [step, setStep] = useState<Step>('upload');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState('');
@@ -45,6 +152,8 @@ export default function MassScreenPage() {
   const [decidingSlot, setDecidingSlot] = useState<number | null>(null);
   const [rejectSlot, setRejectSlot] = useState<number | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
+  const [copiedEmailKey, setCopiedEmailKey] = useState<string | null>(null);
+  const [emailSigner, setEmailSigner] = useState('');
   const [localDecisions, setLocalDecisions] = useState<
     Record<number, { decision: 'shortlisted' | 'rejected'; remarks?: string }>
   >({});
@@ -54,6 +163,22 @@ export default function MassScreenPage() {
   useEffect(() => {
     api.getJobs().then(setJobs).catch(() => setJobs([]));
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    setEmailSigner((prev) => (prev.trim() ? prev : resolveDefaultSigner(user)));
+  }, [user]);
+
+  const updateEmailSigner = (value: string) => {
+    setEmailSigner(value);
+    try {
+      const trimmed = value.trim();
+      if (trimmed) localStorage.setItem(EMAIL_SIGNER_KEY, trimmed);
+      else localStorage.removeItem(EMAIL_SIGNER_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const selectedJob = useMemo(
     () => jobs.find((j) => String(j.id) === jobId) || null,
@@ -151,6 +276,56 @@ export default function MassScreenPage() {
   const pendingDecideCount = actionableSlots.filter(
     (s) => s.status !== 'decided' && !localDecisions[s.slot]
   ).length;
+
+  const jobTitleForEmail = selectedJob?.title || (batch ? `Job #${batch.job_id}` : 'the open role');
+
+  const skillGapEmails = useMemo(() => {
+    if (!batch) return [] as Array<{ slot: number; name: string; draft: SkillGapEmail }>;
+    return batch.slots
+      .slice()
+      .sort((a, b) => a.slot - b.slot)
+      .flatMap((slot) => {
+        const missing = slot.eligibility?.mandatory_missing || [];
+        if (
+          missing.length === 0 ||
+          slot.experience_rejected ||
+          (slot.status !== 'scored' && slot.status !== 'decided')
+        ) {
+          return [];
+        }
+        const draft = buildSkillGapEmail({
+          candidateName: candidateDisplayName(slot),
+          candidateEmail: slot.parsed_profile?.email,
+          jobTitle: jobTitleForEmail,
+          missingMandatory: missing,
+          matchedMandatory: slot.eligibility?.mandatory_matched,
+          signerName: emailSigner,
+        });
+        if (!draft) return [];
+        return [{ slot: slot.slot, name: candidateDisplayName(slot), draft }];
+      });
+  }, [batch, jobTitleForEmail, emailSigner]);
+
+  const copyText = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedEmailKey(key);
+      window.setTimeout(() => {
+        setCopiedEmailKey((current) => (current === key ? null : current));
+      }, 2000);
+    } catch {
+      setError('Could not copy to clipboard. Select the text and copy manually.');
+    }
+  };
+
+  const openMailto = (draft: SkillGapEmail) => {
+    if (!draft.to) {
+      setError('No email on the resume for this candidate — copy the draft and send manually.');
+      return;
+    }
+    const href = `mailto:${draft.to}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+    window.location.href = href;
+  };
 
   const applyDecision = async (
     slot: number,
@@ -308,14 +483,56 @@ export default function MassScreenPage() {
                 {pendingDecideCount > 0 ? ` · ${pendingDecideCount} remaining` : ''}
               </div>
               <p className="text-muted" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                Shortlist requires Eligibility &gt; 8. Reject always requires remarks. Resumes below the
-                job&apos;s min experience are auto-rejected (no ATS or eligibility score). You can decide
+                Shortlist and Reject are available for every scored resume. Resumes below the
+                job&apos;s min experience are flagged for review (no ATS or eligibility score), but you can override the recommendation. You can decide
                 as soon as a row is scored — AI notes may fill in later.
               </p>
               {selectedJob?.min_experience != null && Number(selectedJob.min_experience) > 0 ? (
                 <p className="text-muted" style={{ marginTop: '0.35rem', marginBottom: 0 }}>
                   Min experience for this job: {selectedJob.min_experience}+ years
                 </p>
+              ) : null}
+              {skillGapEmails.length > 0 ? (
+                <div className="mass-gap-email-summary">
+                  <p style={{ margin: '0 0 0.5rem' }}>
+                    <strong>{skillGapEmails.length}</strong> candidate
+                    {skillGapEmails.length === 1 ? '' : 's'} missing mandatory skill
+                    {skillGapEmails.length === 1 ? '' : 's'} — drafts ready to send for clarification.
+                  </p>
+                  <label className="field-label" htmlFor="mass-email-signer">
+                    Sign emails as (recruiter name)
+                  </label>
+                  <input
+                    id="mass-email-signer"
+                    className="input-field"
+                    value={emailSigner}
+                    onChange={(e) => updateEmailSigner(e.target.value)}
+                    placeholder="e.g. Priya Verma"
+                    autoComplete="name"
+                  />
+                  <p className="text-muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.8rem' }}>
+                    Used in the “Best regards” line. Saved for next time on this browser.
+                  </p>
+                  <button
+                    type="button"
+                    className="button-pill button-secondary btn-sm"
+                    onClick={() =>
+                      void copyText(
+                        'all-gap-emails',
+                        skillGapEmails
+                          .map(
+                            ({ name, draft }) =>
+                              `—— ${name} ——\n${draft.fullText}`
+                          )
+                          .join('\n\n')
+                      )
+                    }
+                  >
+                    {copiedEmailKey === 'all-gap-emails'
+                      ? '✓ All drafts copied'
+                      : 'Copy all skill-gap emails'}
+                  </button>
+                </div>
               ) : null}
             </div>
 
@@ -328,13 +545,25 @@ export default function MassScreenPage() {
                   const decision = slot.decision || localDecisions[slot.slot]?.decision;
                   const canShortlist =
                     slot.status === 'scored' &&
-                    !decided &&
-                    !slot.experience_rejected &&
-                    (slot.eligibility_score ?? 0) > 8;
-                  // Experience rejects are normally auto-decided; allow manual reject if that failed.
+                    !decided;
                   const canReject = slot.status === 'scored' && !decided;
                   const eligibleHighlight =
                     !slot.experience_rejected && (slot.eligibility_score ?? 0) > 8;
+                  const displayName = candidateDisplayName(slot);
+                  const identityMeta = candidateIdentityMeta(slot);
+                  const skillGapDraft =
+                    !slot.experience_rejected &&
+                    (slot.status === 'scored' || slot.status === 'decided') &&
+                    (slot.eligibility?.mandatory_missing?.length ?? 0) > 0
+                      ? buildSkillGapEmail({
+                          candidateName: displayName,
+                          candidateEmail: slot.parsed_profile?.email,
+                          jobTitle: jobTitleForEmail,
+                          missingMandatory: slot.eligibility!.mandatory_missing,
+                          matchedMandatory: slot.eligibility?.mandatory_matched,
+                          signerName: emailSigner,
+                        })
+                      : null;
 
                   return (
                     <div
@@ -344,23 +573,28 @@ export default function MassScreenPage() {
                       } ${slot.experience_rejected ? 'experience-rejected' : ''}`}
                     >
                       <div className="mass-triage-main">
-                        <div className="mass-triage-title">
-                          <span className="mass-slot-index">#{slot.slot + 1}</span>
-                          <strong>{slotLabel(slot)}</strong>
-                          {slot.status === 'queued' || slot.status === 'parsing' ? (
-                            <span className="text-muted"> · {slot.status}…</span>
-                          ) : null}
-                          {slot.status === 'error' ? (
-                            <span className="mass-error-inline"> · {slot.error || 'Error'}</span>
-                          ) : null}
-                          {decided ? (
-                            <span className={`mass-decision-badge ${decision}`}>
-                              {decision === 'shortlisted'
-                                ? 'Shortlisted'
-                                : slot.experience_rejected
-                                  ? 'Rejected (experience)'
-                                  : 'Rejected'}
-                            </span>
+                        <div className="mass-triage-identity">
+                          <div className="mass-triage-title">
+                            <span className="mass-slot-badge">Slot {slot.slot + 1}</span>
+                            <h3 className="mass-candidate-name">{displayName}</h3>
+                            {slot.status === 'queued' || slot.status === 'parsing' ? (
+                              <span className="text-muted">{slot.status}…</span>
+                            ) : null}
+                            {slot.status === 'error' ? (
+                              <span className="mass-error-inline">{slot.error || 'Error'}</span>
+                            ) : null}
+                            {decided ? (
+                              <span className={`mass-decision-badge ${decision}`}>
+                                {decision === 'shortlisted'
+                                  ? 'Shortlisted'
+                                  : slot.experience_rejected
+                                    ? 'Rejected (experience)'
+                                    : 'Rejected'}
+                              </span>
+                            ) : null}
+                          </div>
+                          {identityMeta.length > 0 ? (
+                            <div className="mass-candidate-meta">{identityMeta.join(' · ')}</div>
                           ) : null}
                         </div>
 
@@ -421,27 +655,45 @@ export default function MassScreenPage() {
                             </div>
 
                             {slot.eligibility && (
-                              <div className="mass-skill-chips">
-                                {slot.eligibility.mandatory_matched.map((s) => (
-                                  <span key={`mm-${s}`} className="chip chip-ok">
-                                    M: {s}
-                                  </span>
-                                ))}
-                                {slot.eligibility.mandatory_missing.map((s) => (
-                                  <span key={`mx-${s}`} className="chip chip-miss">
-                                    M missing: {s}
-                                  </span>
-                                ))}
-                                {slot.eligibility.preferred_matched.map((s) => (
-                                  <span key={`pm-${s}`} className="chip chip-ok">
-                                    P: {s}
-                                  </span>
-                                ))}
-                                {slot.eligibility.preferred_missing.map((s) => (
-                                  <span key={`px-${s}`} className="chip chip-miss">
-                                    P missing: {s}
-                                  </span>
-                                ))}
+                              <div className="mass-skill-sections" aria-label={`Skills for ${displayName}`}>
+                                <div className="mass-skill-group">
+                                  <div className="mass-skill-group-label">Mandatory</div>
+                                  <div className="mass-skill-chips">
+                                    {slot.eligibility.mandatory_matched.length === 0 &&
+                                    slot.eligibility.mandatory_missing.length === 0 ? (
+                                      <span className="text-muted">—</span>
+                                    ) : null}
+                                    {slot.eligibility.mandatory_matched.map((s) => (
+                                      <span key={`mm-${s}`} className="chip chip-ok">
+                                        {s}
+                                      </span>
+                                    ))}
+                                    {slot.eligibility.mandatory_missing.map((s) => (
+                                      <span key={`mx-${s}`} className="chip chip-miss">
+                                        Missing: {s}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="mass-skill-group">
+                                  <div className="mass-skill-group-label">Preferred</div>
+                                  <div className="mass-skill-chips">
+                                    {slot.eligibility.preferred_matched.length === 0 &&
+                                    slot.eligibility.preferred_missing.length === 0 ? (
+                                      <span className="text-muted">—</span>
+                                    ) : null}
+                                    {slot.eligibility.preferred_matched.map((s) => (
+                                      <span key={`pm-${s}`} className="chip chip-ok">
+                                        {s}
+                                      </span>
+                                    ))}
+                                    {slot.eligibility.preferred_missing.map((s) => (
+                                      <span key={`px-${s}`} className="chip chip-miss">
+                                        Missing: {s}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
                               </div>
                             )}
 
@@ -452,6 +704,60 @@ export default function MassScreenPage() {
                               <p className="text-muted">
                                 Remarks: {slot.remarks || localDecisions[slot.slot]?.remarks}
                               </p>
+                            ) : null}
+
+                            {skillGapDraft ? (
+                              <details className="mass-gap-email" open>
+                                <summary>
+                                  Email draft — clarify missing mandatory skill
+                                  {slot.eligibility!.mandatory_missing.length === 1 ? '' : 's'}
+                                </summary>
+                                <div className="mass-gap-email-meta text-muted">
+                                  {skillGapDraft.to
+                                    ? `To: ${skillGapDraft.to}`
+                                    : 'No email on resume — copy and send manually'}
+                                  <br />
+                                  Subject: {skillGapDraft.subject}
+                                </div>
+                                <pre className="mass-gap-email-body">{skillGapDraft.body}</pre>
+                                <div className="mass-gap-email-actions">
+                                  <button
+                                    type="button"
+                                    className="button-pill button-secondary btn-sm"
+                                    onClick={() =>
+                                      void copyText(`body-${slot.slot}`, skillGapDraft.body)
+                                    }
+                                  >
+                                    {copiedEmailKey === `body-${slot.slot}`
+                                      ? '✓ Body copied'
+                                      : 'Copy body'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="button-pill button-secondary btn-sm"
+                                    onClick={() =>
+                                      void copyText(`full-${slot.slot}`, skillGapDraft.fullText)
+                                    }
+                                  >
+                                    {copiedEmailKey === `full-${slot.slot}`
+                                      ? '✓ Copied'
+                                      : 'Copy full email'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="button-pill button-primary btn-sm"
+                                    disabled={!skillGapDraft.to}
+                                    title={
+                                      skillGapDraft.to
+                                        ? 'Open in your email client'
+                                        : 'No candidate email on file'
+                                    }
+                                    onClick={() => openMailto(skillGapDraft)}
+                                  >
+                                    Open in email
+                                  </button>
+                                </div>
+                              </details>
                             ) : null}
                           </>
                         ) : null}
@@ -474,7 +780,7 @@ export default function MassScreenPage() {
                             title={
                               canShortlist
                                 ? 'Move to Screening (Shortlisted)'
-                                : 'Eligibility must be greater than 8'
+                                : 'Available after scoring'
                             }
                             onClick={() => void applyDecision(slot.slot, 'shortlisted')}
                           >

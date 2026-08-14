@@ -487,6 +487,27 @@ export interface Job {
   gender_preference?: string | null;
   /** Sector (Information Technology, BPO, …) — distinct from job_type work mode. */
   industry?: string | null;
+  /** LinkedIn SJP sync (from job_external_postings). */
+  linkedin_status?: 'pending' | 'live' | 'closed' | 'error' | null;
+  linkedin_last_error?: string | null;
+  linkedin_last_synced_at?: string | null;
+  linkedin_external_id?: string | null;
+}
+
+export interface LinkedInJobPostingStatus {
+  provider: 'LINKEDIN';
+  status: 'pending' | 'live' | 'closed' | 'error' | 'not_posted';
+  externalJobPostingId: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  configured: boolean;
+}
+
+export interface LinkedInJobCapabilities {
+  configured: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+  hasCompanyUrn: boolean;
 }
 
 export interface InterviewVideoTokenResponse {

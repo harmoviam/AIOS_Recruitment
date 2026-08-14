@@ -4,6 +4,7 @@ import { DB_SCHEMA, pool, useSchema } from './dbConfig.js';
 import { migrateSourcingIntelligence } from './migrations/sourcingIntelligence.js';
 import { migratePeopleSearch } from './migrations/peopleSearch.js';
 import { migrateAiSourcing } from './migrations/aiSourcing.js';
+import { migrateLinkedInJobPosting } from './migrations/linkedinJobPosting.js';
 import { seedMohaliSourcingPack } from './services/sourcing/seed/mohaliSeed.js';
 import { candidateJoinPath, extractJoinToken, generateJoinCode, normalizeMeetingLink } from './services/livekit.js';
 
@@ -208,6 +209,7 @@ export async function initDb() {
     await migrateSourcingIntelligence(client);
     await migratePeopleSearch(client);
     await migrateAiSourcing(client);
+    await migrateLinkedInJobPosting(client);
     await migrateMassScreenBatches(client);
     // Campaign → careers-page publishing: a job can originate from a campaign.
     await client.query(

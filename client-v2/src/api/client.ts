@@ -335,6 +335,22 @@ export const api = {
     }),
 
   getJobs: () => request<import('../types').Job[]>('/jobs'),
+  getLinkedInJobCapabilities: () =>
+    request<import('../types').LinkedInJobCapabilities>('/jobs/linkedin/capabilities'),
+  getLinkedInJobStatus: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/status`),
+  publishJobToLinkedIn: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/publish`, {
+      method: 'POST',
+    }),
+  syncJobOnLinkedIn: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/sync`, {
+      method: 'POST',
+    }),
+  closeJobOnLinkedIn: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/close`, {
+      method: 'POST',
+    }),
   generateJobDescription: (data: { title: string; client?: string; location?: string; open_positions?: number }) =>
     request<{ description: string }>('/jobs/generate-description', {
       method: 'POST',

@@ -25,8 +25,22 @@ import {
 } from './experienceConsistency.js';
 
 export const MASS_SCREEN_MAX_FILES = 3;
-const PARSE_CONCURRENCY = 3;
-const AI_CONCURRENCY = 2;
+/** Per-batch parallel parse workers (capped further by the global gate). */
+const PARSE_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.MASS_SCREEN_PARSE_CONCURRENCY) || 3
+);
+/** Per-batch parallel AI enrichment workers (capped further by the global gate). */
+const AI_CONCURRENCY = Math.max(1, Number(process.env.MASS_SCREEN_AI_CONCURRENCY) || 2);
+/**
+ * Global caps across ALL recruiter batches on this API process.
+ * Without these, 4 recruiters × 3 resumes can stampede the parser / LLM.
+ */
+const GLOBAL_PARSE_LIMIT = Math.max(
+  1,
+  Number(process.env.MASS_SCREEN_GLOBAL_PARSE_LIMIT) || 4
+);
+const GLOBAL_AI_LIMIT = Math.max(1, Number(process.env.MASS_SCREEN_GLOBAL_AI_LIMIT) || 2);
 
 export type MassScreenSlotStatus =
   | 'queued'
@@ -181,6 +195,50 @@ async function runPool<T>(
     }
   });
   await Promise.all(runners);
+}
+
+/** Simple promise semaphore — shared across all in-flight mass-screen batches. */
+function createSemaphore(limit: number) {
+  let active = 0;
+  const waiters: Array<() => void> = [];
+  return async function withPermit<T>(fn: () => Promise<T>): Promise<T> {
+    if (active >= limit) {
+      await new Promise<void>((resolve) => waiters.push(resolve));
+    }
+    active += 1;
+    try {
+      return await fn();
+    } finally {
+      active -= 1;
+      const next = waiters.shift();
+      if (next) next();
+    }
+  };
+}
+
+const withGlobalParseSlot = createSemaphore(GLOBAL_PARSE_LIMIT);
+const withGlobalAiSlot = createSemaphore(GLOBAL_AI_LIMIT);
+
+/** Serialize DB slot writes per batch so parallel workers don't clobber each other. */
+const batchSaveChains = new Map<string, Promise<void>>();
+
+async function saveBatchSlotsSafe(
+  batchId: string,
+  tenantId: number,
+  getSlots: () => MassScreenSlot[],
+  status?: MassScreenBatch['status']
+): Promise<void> {
+  const prev = batchSaveChains.get(batchId) || Promise.resolve();
+  const next = prev
+    .catch(() => undefined)
+    .then(() => saveBatchSlots(batchId, tenantId, getSlots(), status));
+  batchSaveChains.set(
+    batchId,
+    next.finally(() => {
+      if (batchSaveChains.get(batchId) === next) batchSaveChains.delete(batchId);
+    })
+  );
+  await next;
 }
 
 function mergeSkills(profile: ParsedProfile): string[] {
@@ -457,44 +515,19 @@ async function processBatchInBackground(
       const current = slotMap.get(slot);
       if (!current) return;
       slotMap.set(slot, { ...current, status: 'parsing' });
-      await saveBatchSlots(batchId, tenantId, [...slotMap.values()], 'processing');
+      await saveBatchSlotsSafe(
+        batchId,
+        tenantId,
+        () => [...slotMap.values()],
+        'processing'
+      );
 
-      const scored = await processSlot(tenantId, job, file, current);
+      const scored = await withGlobalParseSlot(() =>
+        processSlot(tenantId, job, file, current)
+      );
       slotMap.set(slot, scored);
-      await saveBatchSlots(batchId, tenantId, [...slotMap.values()]);
+      await saveBatchSlotsSafe(batchId, tenantId, () => [...slotMap.values()]);
     });
-
-    // Auto-reject under-YOE slots so recruiters don't triage them further.
-    const userId = batch.created_by;
-    if (userId) {
-      for (const s of [...slotMap.values()]) {
-        if (!s.experience_rejected || s.status !== 'scored' || !s.parsed_profile) continue;
-        try {
-          const candidateId = await persistSlotAsCandidate({
-            tenantId,
-            userId,
-            jobId: job.id,
-            slot: s,
-            decision: 'rejected',
-            remarks: s.remarks || s.experience_gate?.reason || 'Insufficient experience',
-          });
-          slotMap.set(s.slot, {
-            ...s,
-            status: 'decided',
-            decision: 'rejected',
-            remarks: s.remarks || s.experience_gate?.reason || 'Insufficient experience',
-            candidate_id: candidateId,
-            resume_excerpt: undefined,
-          });
-        } catch (err) {
-          console.warn(
-            `Mass screen auto-reject (experience) failed for slot ${s.slot}:`,
-            (err as Error).message
-          );
-        }
-      }
-      await saveBatchSlots(batchId, tenantId, [...slotMap.values()]);
-    }
 
     const afterParse = [...slotMap.values()];
     const toEnrich = afterParse.filter(
@@ -502,9 +535,9 @@ async function processBatchInBackground(
     );
 
     await runPool(toEnrich, AI_CONCURRENCY, async (slot) => {
-      const enriched = await enrichSlotWithAi(job, slot);
+      const enriched = await withGlobalAiSlot(() => enrichSlotWithAi(job, slot));
       slotMap.set(slot.slot, enriched);
-      await saveBatchSlots(batchId, tenantId, [...slotMap.values()]);
+      await saveBatchSlotsSafe(batchId, tenantId, () => [...slotMap.values()]);
     });
 
     // Mark any remaining pending AI as skipped (e.g. empty queue race).
@@ -515,7 +548,12 @@ async function processBatchInBackground(
     }
 
     const finalSlots = [...slotMap.values()].sort((a, b) => a.slot - b.slot);
-    await saveBatchSlots(batchId, tenantId, finalSlots, recomputeBatchStatus(finalSlots));
+    await saveBatchSlotsSafe(
+      batchId,
+      tenantId,
+      () => finalSlots,
+      recomputeBatchStatus(finalSlots)
+    );
   } catch (err) {
     console.warn('Mass screen batch processing failed:', (err as Error).message);
   }
@@ -565,22 +603,7 @@ export async function applyMassScreenDecisions(input: {
     }
 
     if (decision.decision === 'shortlisted') {
-      if (slot.experience_rejected) {
-        throw Object.assign(
-          new Error(
-            `Slot ${decision.slot}: Cannot shortlist — insufficient experience` +
-              (slot.experience_gate?.reason ? ` (${slot.experience_gate.reason})` : '')
-          ),
-          { status: 400 }
-        );
-      }
-      const score = slot.eligibility_score ?? 0;
-      if (!(score > 8)) {
-        throw Object.assign(
-          new Error(`Slot ${decision.slot}: Shortlist requires eligibility score > 8 (got ${score})`),
-          { status: 400 }
-        );
-      }
+      // The experience gate is advisory: recruiters may override it after reviewing the resume.
     } else if (decision.decision === 'rejected') {
       if (!decision.remarks?.trim()) {
         throw Object.assign(new Error(`Slot ${decision.slot}: Reject requires remarks`), {
