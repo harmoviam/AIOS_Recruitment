@@ -303,6 +303,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ folder_path: folderPath, rows: selectedRows, default_job_id: defaultJobId }),
     }),
+  repairFolderResumes: (folderPath: string) =>
+    request<{ attached: number; not_found: number; already_had_resume: number; errors: string[] }>(
+      '/candidates/repair-folder-resumes',
+      { method: 'POST', body: JSON.stringify({ folder_path: folderPath }) }
+    ),
   getCandidateSuggestions: (id: number) =>
     request<{ suggestions: string[]; ai_score: number; salary_expectation?: string }>(
       `/candidates/${id}/suggestions`

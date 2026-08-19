@@ -1968,7 +1968,7 @@ router.post('/import-folder', enforceCandidateLimit(), async (req, res) => {
         : [];
       const expRaw = (row.experience_years || row.experience || row.exp || '0').trim();
       const experienceYears = parseFloat(expRaw) || 0;
-      const notes = (row.notes || row.note || row.summary || '').trim();
+      const notes = (row.notes || row.note || row.summary || '').replace(/\x00/g, '').trim();
 
       if (!name) { skipped++; continue; }
 
@@ -2022,6 +2022,94 @@ router.post('/import-folder', enforceCandidateLimit(), async (req, res) => {
   }
 
   res.json({ imported, skipped, errors });
+});
+
+router.post('/repair-folder-resumes', async (req, res) => {
+  const { folder_path } = req.body as { folder_path?: string };
+  if (!folder_path) return res.status(400).json({ error: 'folder_path required' });
+
+  const tenantId = tid(req);
+  const csvPath = path.join(folder_path, 'all_resumes_summary.csv');
+  let csvText: string;
+  try {
+    csvText = await fs.readFile(csvPath, 'utf-8');
+  } catch {
+    return res.status(400).json({ error: `Cannot read ${csvPath}` });
+  }
+
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 2) return res.json({ attached: 0, not_found: 0, errors: [] });
+
+  const headers = lines[0].split(',').map((h) => h.trim());
+  const filenameIdx = headers.indexOf('Filename');
+  const nameIdx = headers.indexOf('Name');
+  const phoneIdx = headers.indexOf('Phone');
+
+  const csvRows: { filename: string; name: string; phone: string }[] = [];
+  for (const line of lines.slice(1)) {
+    const cols: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (const ch of line) {
+      if (ch === '"') { inQuotes = !inQuotes; }
+      else if (ch === ',' && !inQuotes) { cols.push(current.trim()); current = ''; }
+      else { current += ch; }
+    }
+    cols.push(current.trim());
+    const filename = (filenameIdx >= 0 && cols[filenameIdx] ? cols[filenameIdx] : '').replace(/^"|"$/g, '').trim();
+    const name = (nameIdx >= 0 && cols[nameIdx] ? cols[nameIdx] : '').replace(/^"|"$/g, '').trim();
+    const phone = (phoneIdx >= 0 && cols[phoneIdx] ? cols[phoneIdx] : '').replace(/^"|"$/g, '').trim();
+    if (filename && filename.toLowerCase().endsWith('.pdf') && (name || phone)) {
+      csvRows.push({ filename, name, phone });
+    }
+  }
+
+  const { rows: candidates } = await pool.query(
+    'SELECT id, name, phone, resume_meta FROM candidates WHERE tenant_id = $1',
+    [tenantId]
+  );
+
+  const byPhone = new Map<string, typeof candidates[0]>();
+  const byName = new Map<string, typeof candidates[0]>();
+  for (const c of candidates) {
+    const normPhone = (c.phone || '').replace(/\s/g, '');
+    if (normPhone) byPhone.set(normPhone, c);
+    const normName = (c.name || '').toLowerCase().trim();
+    if (normName) byName.set(normName, c);
+  }
+
+  let attached = 0;
+  let notFound = 0;
+  const errors: string[] = [];
+
+  for (const row of csvRows) {
+    const normPhone = row.phone.replace(/\s/g, '');
+    const match = (normPhone && byPhone.get(normPhone)) || byName.get(row.name.toLowerCase().trim());
+    if (!match) { notFound++; continue; }
+    if (match.resume_meta) { continue; }
+
+    const pdfPath = path.join(folder_path, row.filename);
+    try {
+      const pdfBuffer = await fs.readFile(pdfPath);
+      const storagePath = await saveCandidateResume(tenantId, match.id, pdfBuffer, '.pdf', 'application/pdf');
+      const resumeMeta = {
+        storage_path: storagePath,
+        original_filename: row.filename,
+        mime_type: 'application/pdf',
+        file_size_bytes: pdfBuffer.length,
+      };
+      await pool.query(
+        'UPDATE candidates SET resume_meta = $1::jsonb WHERE id = $2 AND tenant_id = $3',
+        [JSON.stringify(resumeMeta), match.id, tenantId]
+      );
+      void populateResumeText(tenantId, match.id);
+      attached++;
+    } catch (err) {
+      errors.push(`Failed to attach ${row.filename} for ${match.name}: ${(err as Error).message}`);
+    }
+  }
+
+  res.json({ attached, not_found: notFound, already_had_resume: csvRows.length - attached - notFound, errors });
 });
 
 export default router;

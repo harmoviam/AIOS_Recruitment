@@ -21,6 +21,8 @@ export default function ImportCandidatesFolderPage() {
   const [scanError, setScanError] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [repairing, setRepairing] = useState(false);
+  const [repairResult, setRepairResult] = useState<{ attached: number; not_found: number; already_had_resume: number; errors: string[] } | null>(null);
 
   useEffect(() => {
     api.getJobs().then(setJobs);
@@ -75,6 +77,7 @@ export default function ImportCandidatesFolderPage() {
           skills: c.skills,
           experience_years: c.experience,
           notes: c.summary,
+          filename: c.filename,
         }));
       const result = await api.importFromFolder(
         folderPath.trim(),
@@ -92,6 +95,25 @@ export default function ImportCandidatesFolderPage() {
       setStep('done');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleRepair = async () => {
+    if (!folderPath.trim()) return;
+    setRepairing(true);
+    setRepairResult(null);
+    try {
+      const result = await api.repairFolderResumes(folderPath.trim());
+      setRepairResult(result);
+    } catch (err) {
+      setRepairResult({
+        attached: 0,
+        not_found: 0,
+        already_had_resume: 0,
+        errors: [err instanceof Error ? err.message : 'Repair failed'],
+      });
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -273,6 +295,35 @@ export default function ImportCandidatesFolderPage() {
               </button>
               <button type="button" className="button-pill button-primary" onClick={() => navigate('/candidates')}>
                 View Candidates →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'done' && (
+          <div className="card" style={{ marginTop: '1rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>Repair Missing Resumes</h3>
+            <p className="text-muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
+              If some candidates were imported without their CV attached, this will scan the folder again and attach missing PDFs by matching name or phone.
+            </p>
+            {repairResult && (
+              <div className="import-summary" style={{ marginTop: '0.75rem' }}>
+                <span className="summary-chip success">✓ {repairResult.attached} attached</span>
+                <span className="summary-chip warning">⊘ {repairResult.already_had_resume} already had resume</span>
+                <span className="summary-chip warning">? {repairResult.not_found} not matched</span>
+                {repairResult.errors.length > 0 && (
+                  <span className="summary-chip error">✗ {repairResult.errors.length} errors</span>
+                )}
+              </div>
+            )}
+            <div className="form-actions" style={{ marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="button-pill button-primary"
+                disabled={repairing || !folderPath.trim()}
+                onClick={handleRepair}
+              >
+                {repairing ? 'Repairing…' : 'Repair Missing Resumes'}
               </button>
             </div>
           </div>
