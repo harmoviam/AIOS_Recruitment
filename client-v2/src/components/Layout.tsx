@@ -20,6 +20,7 @@ const navSections: NavSection[] = [
       { to: '/candidates?scope=my', label: 'My Candidates', hmOnly: true, orgOnly: true },
       { to: '/candidates?scope=team', label: 'My Team Candidates', hmOnly: true, orgOnly: true },
       { to: '/pipeline', label: 'Pipeline (Kanban)', orgOnly: true },
+      { to: '/candidates/import-folder', label: 'Import from Folder', orgOnly: true, adminOnly: true },
     ],
   },
   {
@@ -122,6 +123,7 @@ function iconFor(to: string): string {
   switch (path) {
     case '/': return 'home';
     case '/platform': return 'grid';
+    case '/candidates/import-folder': return 'fileText';
     case '/candidates': return to.includes('filter=new') ? 'userPlus' : 'users';
     case '/follow-ups': return 'bell';
     case '/pipeline': return 'kanban';

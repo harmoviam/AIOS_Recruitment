@@ -15,6 +15,7 @@ import CandidatesListPage from './pages/CandidatesListPage';
 import AddCandidatePage from './pages/AddCandidatePage';
 import MassScreenPage from './pages/MassScreenPage';
 import ImportCandidatesPage from './pages/ImportCandidatesPage';
+import ImportCandidatesFolderPage from './pages/ImportCandidatesFolderPage';
 import CandidateDetailPage from './pages/CandidateDetailPage';
 import FollowUpCenterPage from './pages/FollowUpCenterPage';
 import JobsPage from './pages/JobsPage';
@@ -126,6 +127,7 @@ function AppRoutes() {
         <Route path="candidates/new" element={<OrgWorkspaceRoute><AddCandidatePage /></OrgWorkspaceRoute>} />
         <Route path="candidates/mass-screen" element={<OrgWorkspaceRoute><MassScreenPage /></OrgWorkspaceRoute>} />
         <Route path="candidates/import" element={<OrgWorkspaceRoute><ImportCandidatesPage /></OrgWorkspaceRoute>} />
+        <Route path="candidates/import-folder" element={<OrgWorkspaceRoute><ImportCandidatesFolderPage /></OrgWorkspaceRoute>} />
         <Route path="candidates/:id" element={<OrgWorkspaceRoute><CandidateDetailPage /></OrgWorkspaceRoute>} />
         <Route path="pipeline" element={<OrgWorkspaceRoute><PipelinePage /></OrgWorkspaceRoute>} />
         <Route path="follow-ups" element={<OrgWorkspaceRoute><FollowUpCenterPage /></OrgWorkspaceRoute>} />

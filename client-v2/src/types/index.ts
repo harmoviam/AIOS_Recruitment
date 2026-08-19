@@ -1056,6 +1056,24 @@ export interface ImportValidation {
   issues: { row: number; name?: string; phone?: string; issue: string; severity: string }[];
 }
 
+export interface ImportFolderCandidate {
+  filename: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  experience: string;
+  education: string;
+  skills: string;
+  summary: string;
+}
+
+export interface ImportFolderScanResult {
+  candidates: ImportFolderCandidate[];
+  total_files: number;
+  total_pdfs: number;
+}
+
 export interface OrgHmSummary {
   id: number;
   name: string;

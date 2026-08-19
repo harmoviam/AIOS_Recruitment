@@ -1,5 +1,7 @@
 import { Router, type Request } from 'express';
 import multer from 'multer';
+import fs from 'fs/promises';
+import path from 'path';
 import { pool } from '../db.js';
 import { assertCandidateAccess, candidateScopeSql, hmCandidateFilterSql } from '../services/accessScope.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -1864,5 +1866,162 @@ function mapParsedProfileToBody(parsed: ParsedProfile) {
     phone: parsed.phone || null,
   };
 }
+
+router.post('/scan-folder', async (req, res) => {
+  const { folder_path } = req.body as { folder_path?: string };
+  if (!folder_path) return res.status(400).json({ error: 'folder_path required' });
+
+  const csvPath = path.join(folder_path, 'all_resumes_summary.csv');
+  let csvText: string;
+  try {
+    csvText = await fs.readFile(csvPath, 'utf-8');
+  } catch {
+    return res.status(400).json({ error: `Cannot read ${csvPath}` });
+  }
+
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 2) return res.json({ candidates: [], total_files: 0, total_pdfs: 0 });
+
+  const headers = lines[0].split(',').map((h) => h.trim());
+  const nameIdx = headers.indexOf('Name');
+  const emailIdx = headers.indexOf('Email');
+  const phoneIdx = headers.indexOf('Phone');
+  const roleIdx = headers.indexOf('Role');
+  const expIdx = headers.indexOf('Experience');
+  const eduIdx = headers.indexOf('Education');
+  const skillsIdx = headers.indexOf('Skills');
+  const summaryIdx = headers.indexOf('Summary');
+  const filenameIdx = headers.indexOf('Filename');
+
+  const candidates = lines.slice(1).map((line) => {
+    const cols: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (const ch of line) {
+      if (ch === '"') { inQuotes = !inQuotes; }
+      else if (ch === ',' && !inQuotes) { cols.push(current.trim()); current = ''; }
+      else { current += ch; }
+    }
+    cols.push(current.trim());
+
+    return {
+      filename: filenameIdx >= 0 ? (cols[filenameIdx] || '').replace(/^"|"$/g, '') : '',
+      name: nameIdx >= 0 ? (cols[nameIdx] || '').replace(/^"|"$/g, '') : '',
+      email: emailIdx >= 0 ? (cols[emailIdx] || '').replace(/^"|"$/g, '') : '',
+      phone: phoneIdx >= 0 ? (cols[phoneIdx] || '').replace(/^"|"$/g, '') : '',
+      role: roleIdx >= 0 ? (cols[roleIdx] || '').replace(/^"|"$/g, '') : '',
+      experience: expIdx >= 0 ? (cols[expIdx] || '').replace(/^"|"$/g, '') : '',
+      education: eduIdx >= 0 ? (cols[eduIdx] || '').replace(/^"|"$/g, '') : '',
+      skills: skillsIdx >= 0 ? (cols[skillsIdx] || '').replace(/^"|"$/g, '') : '',
+      summary: summaryIdx >= 0 ? (cols[summaryIdx] || '').replace(/^"|"$/g, '') : '',
+    };
+  }).filter((c) => c.name);
+
+  let allFiles: string[] = [];
+  try {
+    allFiles = await fs.readdir(folder_path);
+  } catch { /* ignore */ }
+  const pdfs = allFiles.filter((f) => f.toLowerCase().endsWith('.pdf'));
+
+  res.json({ candidates, total_files: allFiles.length, total_pdfs: pdfs.length });
+});
+
+router.post('/import-folder', enforceCandidateLimit(), async (req, res) => {
+  const { folder_path, rows: rowData, default_job_id } = req.body as {
+    folder_path: string;
+    rows: Record<string, string>[];
+    default_job_id?: number;
+  };
+  if (!folder_path) return res.status(400).json({ error: 'folder_path required' });
+  if (!Array.isArray(rowData) || rowData.length === 0) {
+    return res.status(400).json({ error: 'rows array required' });
+  }
+
+  const tenantId = tid(req);
+  const recruiterId = req.user!.id;
+  const defaultJobId = default_job_id ? Number(default_job_id) : null;
+  if (defaultJobId && !(await assertJobInTenant(defaultJobId, tenantId))) {
+    return res.status(400).json({ error: 'Invalid default job for this workspace' });
+  }
+
+  const { rows: jobs } = await pool.query('SELECT id, title FROM jobs WHERE tenant_id = $1', [tenantId]);
+
+  let imported = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const row of rowData) {
+    try {
+      const name = (
+        row.candidateName || row.candidatename || row.name || ''
+      ).trim();
+      const phone = (
+        row.candidatePhone || row.candidatephone || row.phone || ''
+      ).trim();
+      const email = (
+        row.candidateEmail || row.candidateemail || row.email || ''
+      ).trim();
+      const jobTitle = (row.jobTitle || row.job_title || row.job || row.role || '').trim();
+      const skillsRaw = (row.skills || row.skill || '').trim();
+      const skills = skillsRaw
+        ? skillsRaw.split(/[,;|]/).map((s) => s.trim()).filter(Boolean)
+        : [];
+      const expRaw = (row.experience_years || row.experience || row.exp || '0').trim();
+      const experienceYears = parseFloat(expRaw) || 0;
+      const notes = (row.notes || row.note || row.summary || '').trim();
+
+      if (!name) { skipped++; continue; }
+
+      const jobId = resolveJobId(jobs, jobTitle, defaultJobId);
+
+      const dup = await pool.query(
+        'SELECT id FROM candidates WHERE tenant_id = $1 AND (email = $2 OR phone = $3) LIMIT 1',
+        [tenantId, email || null, phone || null]
+      );
+      if (dup.rows[0]) { skipped++; continue; }
+
+      const aiScore = heuristicCandidateScore(skills, experienceYears);
+
+      const { rows: inserted } = await pool.query(
+        `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score, stage, job_id, recruiter_id, notes, tenant_id, source)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'applied', $7, $8, $9, $10, 'import')
+         RETURNING id`,
+        [name, email || null, phone || null, JSON.stringify(skills), experienceYears, aiScore, jobId, recruiterId, notes || null, tenantId]
+      );
+
+      const candidateId = inserted[0].id;
+
+      await syncPrimaryApplication(tenantId, { id: candidateId, job_id: jobId, stage: 'applied', ai_score: aiScore, recruiter_id: recruiterId, source: 'import' });
+
+      const filename = (row.filename || '').replace(/^"|"$/g, '').trim();
+      if (filename && filename.toLowerCase().endsWith('.pdf')) {
+        const pdfPath = path.join(folder_path, filename);
+        try {
+          const pdfBuffer = await fs.readFile(pdfPath);
+          const storagePath = await saveCandidateResume(tenantId, candidateId, pdfBuffer, '.pdf', 'application/pdf');
+          const resumeMeta = {
+            storage_path: storagePath,
+            original_filename: filename,
+            mime_type: 'application/pdf',
+            file_size_bytes: pdfBuffer.length,
+          };
+          await pool.query(
+            'UPDATE candidates SET resume_meta = $1::jsonb WHERE id = $2 AND tenant_id = $3',
+            [JSON.stringify(resumeMeta), candidateId, tenantId]
+          );
+          void populateResumeText(tenantId, candidateId);
+        } catch (err) {
+          errors.push(`Failed to attach resume for ${name}: ${(err as Error).message}`);
+        }
+      }
+
+      imported++;
+    } catch (err) {
+      errors.push(`Error importing ${(row.candidateName || row.name || 'unknown')}: ${(err as Error).message}`);
+    }
+  }
+
+  res.json({ imported, skipped, errors });
+});
 
 export default router;
