@@ -30,6 +30,7 @@ import pollRoutes from './routes/poll.js';
 import readinessRoutes from './routes/readiness.js';
 import sourcingRoutes from './routes/sourcing/index.js';
 import agentRoutes from './routes/agent.js';
+import { startHarmoviaCandidateSyncWorker } from './services/harmoviaCandidateSync.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -102,6 +103,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 async function start() {
   await initDb();
+  startHarmoviaCandidateSyncWorker();
   app.listen(PORT, () => console.log(`AIOS API running on http://localhost:${PORT}`));
 }
 
