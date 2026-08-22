@@ -140,8 +140,8 @@ jobs:
           # in Secret Manager and are restored via --update-secrets. Everything
           # is guarded on the token secret so deploys still work before WhatsApp
           # is configured.
-          ENV_VARS="NODE_ENV=production,RESUME_PARSER_URL=${RESUME_PARSER_URL}"
-          SECRETS="DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest"
+          ENV_VARS="NODE_ENV=production,RESUME_PARSER_URL=${RESUME_PARSER_URL},HARMOVIA_CRM_URL=https://crm.harmoviajobs.com"
+          SECRETS="DATABASE_URL=harmirecruit-db-url:latest,JWT_SECRET=harmirecruit-jwt-secret:latest,HARMOVIA_INTEGRATION_SECRET=harmirecruit-aios-crm-integration-secret:latest"
 
           APP_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
             --region ${{ env.REGION }} \
