@@ -35,6 +35,21 @@ function statusMeta(status: string): { label: string; className: string } {
   return { label: 'Inactive', className: 'job-status inactive' };
 }
 
+function linkedInStatusLabel(job: Job): string {
+  switch (job.linkedin_status) {
+    case 'live':
+      return 'LinkedIn: Live';
+    case 'closed':
+      return 'LinkedIn: Closed';
+    case 'error':
+      return 'LinkedIn: Error';
+    case 'pending':
+      return 'LinkedIn: Pending';
+    default:
+      return 'LinkedIn: Not posted';
+  }
+}
+
 const EMPTY_LOCATION: Partial<JobLocationValue> = {
   address: '',
   latitude: undefined,
@@ -97,6 +112,8 @@ export default function JobsPage() {
   const [saveError, setSaveError] = useState('');
   const [viewingJd, setViewingJd] = useState<Job | null>(null);
   const [copiedJobId, setCopiedJobId] = useState<number | null>(null);
+  const [linkedInConfigured, setLinkedInConfigured] = useState(false);
+  const [linkedInBusyId, setLinkedInBusyId] = useState<number | null>(null);
 
   const copyApplyLink = (job: Job) => {
     const slug = localStorage.getItem('aios_tenant_slug') || '';
@@ -105,6 +122,46 @@ export default function JobsPage() {
       setCopiedJobId(job.id);
       setTimeout(() => setCopiedJobId((prev) => (prev === job.id ? null : prev)), 2000);
     });
+  };
+
+  const applyLinkedInStatus = (jobId: number, status: import('../types').LinkedInJobPostingStatus) => {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === jobId
+          ? {
+              ...j,
+              linkedin_status: status.status === 'not_posted' ? null : status.status,
+              linkedin_last_error: status.lastError,
+              linkedin_last_synced_at: status.lastSyncedAt,
+              linkedin_external_id: status.externalJobPostingId,
+            }
+          : j
+      )
+    );
+  };
+
+  const runLinkedInAction = async (
+    job: Job,
+    action: 'publish' | 'sync' | 'close'
+  ) => {
+    setLinkedInBusyId(job.id);
+    setSaveError('');
+    try {
+      const status =
+        action === 'publish'
+          ? await api.publishJobToLinkedIn(job.id)
+          : action === 'sync'
+            ? await api.syncJobOnLinkedIn(job.id)
+            : await api.closeJobOnLinkedIn(job.id);
+      applyLinkedInStatus(job.id, status);
+      if (status.status === 'error') {
+        setSaveError(status.lastError || 'LinkedIn action failed');
+      }
+    } catch (err) {
+      setSaveError((err as Error).message || 'LinkedIn action failed');
+    } finally {
+      setLinkedInBusyId(null);
+    }
   };
   const [jdScreeningQuestions, setJdScreeningQuestions] = useState<import('../types').JobScreeningQuestions | null>(null);
   const [loadingJdQuestions, setLoadingJdQuestions] = useState(false);
@@ -126,6 +183,12 @@ export default function JobsPage() {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    api
+      .getLinkedInJobCapabilities()
+      .then((caps) => setLinkedInConfigured(caps.configured))
+      .catch(() => setLinkedInConfigured(false));
+  }, []);
   useRefetchOnFocus(load);
 
   const openCreateForm = () => {
@@ -521,6 +584,9 @@ export default function JobsPage() {
                   <div>Tenure: <strong>{job.tenure_days ? `${job.tenure_days} days` : '90 days (default)'}</strong></div>
                   <div>Match: <strong style={{ color: 'var(--success)' }}>{job.match_percent ?? 0}%</strong></div>
                   <div>In pipeline: <strong>{job.pipeline_count ?? 0}</strong></div>
+                  <div title={job.linkedin_last_error || undefined}>
+                    {linkedInStatusLabel(job)}
+                  </div>
                 </div>
                 <div className="job-card-actions">
                   <button
@@ -542,6 +608,43 @@ export default function JobsPage() {
                   >
                     {copiedJobId === job.id ? 'Link copied ✓' : 'Copy apply link'}
                   </button>
+                  {canManageJobs && linkedInConfigured && (
+                    <>
+                      {job.linkedin_status !== 'live' && (
+                        <button
+                          type="button"
+                          className="button-pill button-secondary btn-sm"
+                          disabled={linkedInBusyId === job.id}
+                          title="Post this job to LinkedIn (Simple Job Postings)"
+                          onClick={() => runLinkedInAction(job, 'publish')}
+                        >
+                          {linkedInBusyId === job.id ? 'LinkedIn…' : 'Post to LinkedIn'}
+                        </button>
+                      )}
+                      {job.linkedin_status === 'live' && (
+                        <>
+                          <button
+                            type="button"
+                            className="button-pill button-secondary btn-sm"
+                            disabled={linkedInBusyId === job.id}
+                            title="Update the LinkedIn listing with the latest job details"
+                            onClick={() => runLinkedInAction(job, 'sync')}
+                          >
+                            {linkedInBusyId === job.id ? 'LinkedIn…' : 'Update on LinkedIn'}
+                          </button>
+                          <button
+                            type="button"
+                            className="button-pill button-secondary btn-sm"
+                            disabled={linkedInBusyId === job.id}
+                            title="Close the LinkedIn job listing"
+                            onClick={() => runLinkedInAction(job, 'close')}
+                          >
+                            Close on LinkedIn
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
                   {canManageJobs && (
                     <>
                       <button
