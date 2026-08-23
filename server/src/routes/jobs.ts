@@ -18,6 +18,15 @@ import {
   mapJobRow,
   recommendJobs,
 } from '../services/jobRecommendation.js';
+import {
+  closeJobOnLinkedIn,
+  getLinkedInCapabilities,
+  getLinkedInPostingStatus,
+  LinkedInJobPostingError,
+  publishJobToLinkedIn,
+  syncJobOnLinkedIn,
+} from '../services/linkedin/jobPostingService.js';
+import { verifyLinkedInAccess } from '../services/linkedin/auth.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -25,6 +34,14 @@ router.use(tenantMiddleware);
 router.use(requireTenant);
 
 const tid = (req: Request) => req.tenant!.id;
+
+function handleLinkedInError(res: Response, err: unknown) {
+  if (err instanceof LinkedInJobPostingError) {
+    return res.status(err.status).json({ error: err.message });
+  }
+  console.error('LinkedIn job posting error:', err);
+  return res.status(500).json({ error: (err as Error).message || 'LinkedIn job posting failed' });
+}
 
 // Placement tenure options; drives the post-joining check-in schedule per job.
 const TENURE_OPTIONS = [30, 45, 60, 90, 120, 150, 180];
@@ -133,6 +150,22 @@ router.get('/recommend/:candidateId', async (req, res) => {
   res.json({ recommendations, suggestions });
 });
 
+router.get('/linkedin/capabilities', async (_req, res) => {
+  try {
+    res.json(await getLinkedInCapabilities());
+  } catch (err) {
+    handleLinkedInError(res, err);
+  }
+});
+
+router.get('/linkedin/verify', canManageJobs, async (_req, res) => {
+  try {
+    res.json(await verifyLinkedInAccess());
+  } catch (err) {
+    handleLinkedInError(res, err);
+  }
+});
+
 router.get('/', async (req, res) => {
   const t = tenantClause(tid(req), 'j', 1);
   const scope = candidateScopeSql(req, 'c', t.nextIndex);
@@ -143,9 +176,15 @@ router.get('/', async (req, res) => {
       (SELECT COUNT(*)::int FROM candidates c
          WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id${scope.sql}) AS pipeline_count,
       (SELECT ROUND(AVG(c.ai_score)::numeric, 1) FROM candidates c
-         WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id${scope.sql}) AS avg_ai_score
+         WHERE c.job_id = j.id AND c.tenant_id = j.tenant_id${scope.sql}) AS avg_ai_score,
+      lep.status AS linkedin_status,
+      lep.last_error AS linkedin_last_error,
+      lep.last_synced_at AS linkedin_last_synced_at,
+      lep.external_job_posting_id AS linkedin_external_id
     FROM jobs j
     LEFT JOIN users u ON j.assigned_to = u.id AND u.tenant_id = j.tenant_id
+    LEFT JOIN job_external_postings lep
+      ON lep.job_id = j.id AND lep.tenant_id = j.tenant_id AND lep.provider = 'LINKEDIN'
     WHERE ${t.sql}
     ORDER BY j.created_at DESC`,
     params
@@ -188,6 +227,74 @@ router.post('/generate-description', async (req, res) => {
     return res.status(502).json({ error: 'JD generation failed — is the parser service running?' });
   }
   res.json({ description });
+});
+
+router.get('/:id/linkedin/status', async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
+    const status = await getLinkedInPostingStatus(tid(req), jobId);
+    res.json(status);
+  } catch (err) {
+    handleLinkedInError(res, err);
+  }
+});
+
+router.post('/:id/linkedin/publish', canManageJobs, async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
+    const status = await publishJobToLinkedIn({
+      tenantId: tid(req),
+      tenantSlug: req.tenant!.slug,
+      jobId,
+      posterEmail: req.user!.email,
+    });
+    if (status.status === 'error') {
+      return res.status(502).json({ error: status.lastError || 'LinkedIn publish failed', status });
+    }
+    res.json(status);
+  } catch (err) {
+    handleLinkedInError(res, err);
+  }
+});
+
+router.post('/:id/linkedin/sync', canManageJobs, async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
+    const status = await syncJobOnLinkedIn({
+      tenantId: tid(req),
+      tenantSlug: req.tenant!.slug,
+      jobId,
+      posterEmail: req.user!.email,
+    });
+    if (status.status === 'error') {
+      return res.status(502).json({ error: status.lastError || 'LinkedIn sync failed', status });
+    }
+    res.json(status);
+  } catch (err) {
+    handleLinkedInError(res, err);
+  }
+});
+
+router.post('/:id/linkedin/close', canManageJobs, async (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
+    const status = await closeJobOnLinkedIn({
+      tenantId: tid(req),
+      tenantSlug: req.tenant!.slug,
+      jobId,
+      posterEmail: req.user!.email,
+    });
+    if (status.status === 'error') {
+      return res.status(502).json({ error: status.lastError || 'LinkedIn close failed', status });
+    }
+    res.json(status);
+  } catch (err) {
+    handleLinkedInError(res, err);
+  }
 });
 
 // Return JD-derived screening questions for a job (generates on first access).

@@ -346,6 +346,22 @@ export const api = {
     }),
 
   getJobs: () => request<import('../types').Job[]>('/jobs'),
+  getLinkedInJobCapabilities: () =>
+    request<import('../types').LinkedInJobCapabilities>('/jobs/linkedin/capabilities'),
+  getLinkedInJobStatus: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/status`),
+  publishJobToLinkedIn: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/publish`, {
+      method: 'POST',
+    }),
+  syncJobOnLinkedIn: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/sync`, {
+      method: 'POST',
+    }),
+  closeJobOnLinkedIn: (id: number) =>
+    request<import('../types').LinkedInJobPostingStatus>(`/jobs/${id}/linkedin/close`, {
+      method: 'POST',
+    }),
   generateJobDescription: (data: { title: string; client?: string; location?: string; open_positions?: number }) =>
     request<{ description: string }>('/jobs/generate-description', {
       method: 'POST',
@@ -848,4 +864,54 @@ export const api = {
       `/sourcing/sources${q}`
     );
   },
+
+  // AI Talent Sourcing Agent (internal ATS pool) — distinct from /sourcing Copilot
+  aiSourcingParse: (body: { query: string }) =>
+    request<import('../types/aiSourcing').AiSourcingParseResult>('/ai-sourcing/parse', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  aiSourcingSearch: (body: {
+    query: string;
+    criteria?: import('../types/aiSourcing').CandidateSearchCriteria;
+    limit?: number;
+    offset?: number;
+    jobId?: number | null;
+  }) =>
+    request<import('../types/aiSourcing').AiSourcingSearchResult>('/ai-sourcing/search', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  aiSourcingSearchById: (id: string) =>
+    request<import('../types/aiSourcing').AiSourcingSearchResult>(`/ai-sourcing/search/${id}`),
+  aiSourcingRecent: (limit = 10) =>
+    request<{ items: import('../types/aiSourcing').AiSourcingRecentItem[] }>(
+      `/ai-sourcing/searches/recent?limit=${limit}`
+    ),
+  aiSourcingRecommended: () =>
+    request<{ items: import('../types/aiSourcing').AiSourcingRecommendedItem[] }>(
+      '/ai-sourcing/recommended'
+    ),
+  aiSourcingAnalyzeJob: (jobId: number) =>
+    request<import('../types/aiSourcing').AiJobIntelligenceResult>(
+      `/ai-sourcing/jobs/${jobId}/analyze`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  aiSourcingSearchFromJob: (
+    jobId: number,
+    body?: { limit?: number; offset?: number; refresh?: boolean }
+  ) =>
+    request<import('../types/aiSourcing').AiSourcingSearchResult>(
+      `/ai-sourcing/jobs/${jobId}/search`,
+      { method: 'POST', body: JSON.stringify(body || {}) }
+    ),
+  aiSourcingNormalizeSkills: (skills: string[]) =>
+    request<{
+      normalized: string[];
+      expanded: string[];
+      expansions: Array<{ input: string; canonical: string | null; allTerms: string[] }>;
+    }>('/ai-sourcing/skills/normalize', {
+      method: 'POST',
+      body: JSON.stringify({ skills }),
+    }),
 };
