@@ -73,23 +73,45 @@ const VGM_TEMPLATE_SAMPLE = [
   '2026-06-22T00:00:00.000Z',
 ];
 
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
+/** Parse RFC-4180-style CSV, including quoted newlines and escaped quotes. */
+export function parseCsvRecords(text: string): string[][] {
+  const source = text.replace(/^\uFEFF/, '');
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+
+  const finishField = () => {
+    record.push(field.trim());
+    field = '';
+  };
+  const finishRecord = () => {
+    finishField();
+    if (record.some((value) => value.length > 0)) records.push(record);
+    record = [];
+  };
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
     if (ch === '"') {
-      inQuotes = !inQuotes;
+      if (inQuotes && source[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
     } else if (ch === ',' && !inQuotes) {
-      result.push(current.trim().replace(/^"|"$/g, ''));
-      current = '';
+      finishField();
+    } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      if (ch === '\r' && source[i + 1] === '\n') i++;
+      finishRecord();
     } else {
-      current += ch;
+      field += ch;
     }
   }
-  result.push(current.trim().replace(/^"|"$/g, ''));
-  return result;
+
+  if (field.length > 0 || record.length > 0) finishRecord();
+  return records;
 }
 
 function normalizeHeader(h: string): string {
@@ -121,14 +143,13 @@ export function parseCandidateImportCsv(text: string): {
   format: 'vgm' | 'generic';
   headers: string[];
 } {
-  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { rows: [], format: 'generic', headers: [] };
+  const records = parseCsvRecords(text);
+  if (records.length < 2) return { rows: [], format: 'generic', headers: [] };
 
-  const rawHeaders = parseCsvLine(lines[0]);
+  const rawHeaders = records[0];
   const vgmFormat = isVgmImportFormat(rawHeaders);
 
-  const rows = lines.slice(1).map((line) => {
-    const cols = parseCsvLine(line);
+  const rows = records.slice(1).map((cols) => {
     if (vgmFormat) return rowFromColumns(cols);
 
     const row: Record<string, string> = {};

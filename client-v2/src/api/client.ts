@@ -289,25 +289,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ rows, skip_errors, default_job_id: defaultJobId }),
     }),
-  scanImportFolder: (folderPath: string) =>
-    request<import('../types').ImportFolderScanResult>('/candidates/scan-folder', {
-      method: 'POST',
-      body: JSON.stringify({ folder_path: folderPath }),
-    }),
   importFromFolder: (
-    folderPath: string,
-    selectedRows: Record<string, string>[],
+    candidate: Record<string, string>,
+    resume: File,
     defaultJobId?: number
-  ) =>
-    request<{ imported: number; skipped: number; errors: string[] }>('/candidates/import-folder', {
-      method: 'POST',
-      body: JSON.stringify({ folder_path: folderPath, rows: selectedRows, default_job_id: defaultJobId }),
-    }),
-  repairFolderResumes: (folderPath: string) =>
-    request<{ attached: number; not_found: number; already_had_resume: number; errors: string[] }>(
-      '/candidates/repair-folder-resumes',
-      { method: 'POST', body: JSON.stringify({ folder_path: folderPath }) }
-    ),
+  ) => {
+    const form = new FormData();
+    form.append('candidate', JSON.stringify(candidate));
+    form.append('resume', resume, resume.name);
+    if (defaultJobId) form.append('default_job_id', String(defaultJobId));
+    return uploadRequest<import('../types').FolderImportOutcome>('/candidates/import-folder', form);
+  },
   getCandidateSuggestions: (id: number) =>
     request<{ suggestions: string[]; ai_score: number; salary_expectation?: string }>(
       `/candidates/${id}/suggestions`

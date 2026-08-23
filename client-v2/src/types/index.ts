@@ -1068,10 +1068,9 @@ export interface ImportFolderCandidate {
   summary: string;
 }
 
-export interface ImportFolderScanResult {
-  candidates: ImportFolderCandidate[];
-  total_files: number;
-  total_pdfs: number;
+export interface FolderImportOutcome {
+  outcome: 'imported' | 'skipped_duplicate' | 'resume_attached';
+  candidate_id: number;
 }
 
 export interface OrgHmSummary {

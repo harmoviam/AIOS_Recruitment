@@ -1,120 +1,171 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
-import type { ImportFolderCandidate, Job } from '../types';
+import type { FolderImportOutcome, Job } from '../types';
+import {
+  inspectCandidateImportFolder,
+  type FolderImportRow,
+} from '../utils/folderImport';
 
 type Step = 'configure' | 'preview' | 'importing' | 'done';
+type ImportAttempt =
+  | { status: 'pending' }
+  | { status: 'complete'; outcome: FolderImportOutcome['outcome'] }
+  | { status: 'failed'; error: string };
+
+const DIRECTORY_INPUT_PROPS = { webkitdirectory: '', directory: '' } as Record<string, string>;
+const IMPORT_CONCURRENCY = 3;
+
+function candidatePayload(row: FolderImportRow): Record<string, string> {
+  const candidate = row.candidate;
+  return {
+    candidateName: candidate.name,
+    candidateEmail: candidate.email,
+    candidatePhone: candidate.phone,
+    jobTitle: candidate.role,
+    skills: candidate.skills,
+    experience_years: candidate.experience,
+    notes: candidate.summary,
+    filename: candidate.filename,
+  };
+}
 
 export default function ImportCandidatesFolderPage() {
   const navigate = useNavigate();
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>('configure');
-  const [folderPath, setFolderPath] = useState('/Users/apple/Downloads/total');
+  const [folderName, setFolderName] = useState('');
   const [defaultJobId, setDefaultJobId] = useState('');
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [candidates, setCandidates] = useState<ImportFolderCandidate[]>([]);
+  const [rows, setRows] = useState<FolderImportRow[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [totalFiles, setTotalFiles] = useState(0);
   const [totalPdfs, setTotalPdfs] = useState(0);
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
-  const [repairing, setRepairing] = useState(false);
-  const [repairResult, setRepairResult] = useState<{ attached: number; not_found: number; already_had_resume: number; errors: string[] } | null>(null);
+  const [readingFolder, setReadingFolder] = useState(false);
+  const [folderError, setFolderError] = useState('');
+  const [attempts, setAttempts] = useState<Record<number, ImportAttempt>>({});
+  const [processed, setProcessed] = useState(0);
+  const [attemptTotal, setAttemptTotal] = useState(0);
 
   useEffect(() => {
-    api.getJobs().then(setJobs);
+    api.getJobs().then(setJobs).catch(() => setJobs([]));
   }, []);
 
-  const handleScan = async () => {
-    if (!folderPath.trim()) return;
-    setScanning(true);
-    setScanError('');
+  const selectableIndexes = useMemo(
+    () => rows.flatMap((row, index) => row.pdfStatus === 'matched' ? [index] : []),
+    [rows]
+  );
+  const missingCount = rows.length - selectableIndexes.length;
+  const completedAttempts = Object.values(attempts).filter((attempt) => attempt.status === 'complete');
+  const importedCount = completedAttempts.filter(
+    (attempt) => attempt.status === 'complete' && attempt.outcome === 'imported'
+  ).length;
+  const repairedCount = completedAttempts.filter(
+    (attempt) => attempt.status === 'complete' && attempt.outcome === 'resume_attached'
+  ).length;
+  const skippedCount = completedAttempts.filter(
+    (attempt) => attempt.status === 'complete' && attempt.outcome === 'skipped_duplicate'
+  ).length;
+  const failedIndexes = Object.entries(attempts).flatMap(([index, attempt]) =>
+    attempt.status === 'failed' ? [Number(index)] : []
+  );
+
+  const resetImport = () => {
+    setFolderName('');
+    setRows([]);
+    setSelected(new Set());
+    setAttempts({});
+    setProcessed(0);
+    setAttemptTotal(0);
+    setFolderError('');
+    if (folderInputRef.current) folderInputRef.current.value = '';
+    setStep('configure');
+  };
+
+  const handleFolder = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setReadingFolder(true);
+    setFolderError('');
     try {
-      const result = await api.scanImportFolder(folderPath.trim());
-      setCandidates(result.candidates);
-      setTotalFiles(result.total_files);
-      setTotalPdfs(result.total_pdfs);
-      setSelected(new Set(result.candidates.map((_, i) => i)));
+      const inspection = await inspectCandidateImportFolder(Array.from(files));
+      setFolderName(inspection.folderName);
+      setRows(inspection.rows);
+      setTotalFiles(inspection.totalFiles);
+      setTotalPdfs(inspection.totalPdfs);
+      setSelected(new Set(
+        inspection.rows.flatMap((row, index) => row.pdfStatus === 'matched' ? [index] : [])
+      ));
+      setAttempts({});
       setStep('preview');
     } catch (err) {
-      setScanError(err instanceof Error ? err.message : 'Failed to scan folder');
+      setFolderError(err instanceof Error ? err.message : 'Unable to read this folder.');
+      if (folderInputRef.current) folderInputRef.current.value = '';
     } finally {
-      setScanning(false);
+      setReadingFolder(false);
     }
   };
 
-  const toggleSelect = (idx: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
+  const toggleSelect = (index: number) => {
+    if (rows[index]?.pdfStatus !== 'matched') return;
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === candidates.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(candidates.map((_, i) => i)));
-    }
+    const allSelected = selectableIndexes.length > 0 &&
+      selectableIndexes.every((index) => selected.has(index));
+    setSelected(allSelected ? new Set() : new Set(selectableIndexes));
   };
 
-  const handleImport = async () => {
-    setImporting(true);
+  const runImport = async (indexes: number[], retry = false) => {
+    if (indexes.length === 0) return;
+    const initialAttempts = retry ? { ...attempts } : {};
+    for (const index of indexes) initialAttempts[index] = { status: 'pending' };
+    setAttempts(initialAttempts);
+    setProcessed(0);
+    setAttemptTotal(indexes.length);
     setStep('importing');
-    try {
-      const selectedRows = candidates
-        .filter((_, i) => selected.has(i))
-        .map((c) => ({
-          candidateName: c.name,
-          candidateEmail: c.email,
-          candidatePhone: c.phone,
-          jobTitle: c.role,
-          skills: c.skills,
-          experience_years: c.experience,
-          notes: c.summary,
-          filename: c.filename,
-        }));
-      const result = await api.importFromFolder(
-        folderPath.trim(),
-        selectedRows,
-        defaultJobId ? Number(defaultJobId) : undefined
-      );
-      setImportResult(result);
-      setStep('done');
-    } catch (err) {
-      setImportResult({
-        imported: 0,
-        skipped: 0,
-        errors: [err instanceof Error ? err.message : 'Import failed'],
-      });
-      setStep('done');
-    } finally {
-      setImporting(false);
-    }
-  };
 
-  const handleRepair = async () => {
-    if (!folderPath.trim()) return;
-    setRepairing(true);
-    setRepairResult(null);
-    try {
-      const result = await api.repairFolderResumes(folderPath.trim());
-      setRepairResult(result);
-    } catch (err) {
-      setRepairResult({
-        attached: 0,
-        not_found: 0,
-        already_had_resume: 0,
-        errors: [err instanceof Error ? err.message : 'Repair failed'],
-      });
-    } finally {
-      setRepairing(false);
-    }
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < indexes.length) {
+        const index = indexes[cursor++];
+        const row = rows[index];
+        if (!row?.resume) continue;
+        try {
+          const result = await api.importFromFolder(
+            candidatePayload(row),
+            row.resume,
+            defaultJobId ? Number(defaultJobId) : undefined
+          );
+          setAttempts((current) => ({
+            ...current,
+            [index]: { status: 'complete', outcome: result.outcome },
+          }));
+        } catch (err) {
+          setAttempts((current) => ({
+            ...current,
+            [index]: {
+              status: 'failed',
+              error: err instanceof Error ? err.message : 'Import failed.',
+            },
+          }));
+        } finally {
+          setProcessed((current) => current + 1);
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(IMPORT_CONCURRENCY, indexes.length) }, () => worker())
+    );
+    setStep('done');
   };
 
   return (
@@ -123,59 +174,39 @@ export default function ImportCandidatesFolderPage() {
       <div className="page-content">
         <PageHeader
           title="Import Candidates from Folder"
-          description="Scan a folder of resume PDFs and import all candidates with their CVs attached."
+          description="Choose a folder of resume PDFs and import all candidates with their CVs attached."
         />
 
         <div className="stepper">
-          <span className={step === 'configure' ? 'active' : ''}>1. Configure</span>
+          <span className={step === 'configure' ? 'active' : ''}>1. Choose Folder</span>
           <span className={step === 'preview' || step === 'importing' ? 'active' : ''}>2. Preview</span>
           <span className={step === 'done' ? 'active' : ''}>3. Done</span>
         </div>
 
         {step === 'configure' && (
           <div className="card">
-            <div className="form-group">
-              <label className="form-label" htmlFor="folder-path">Folder Path *</label>
-              <input
-                id="folder-path"
-                className="input-field"
-                type="text"
-                value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
-                placeholder="/path/to/resume/folder"
-              />
-              <p className="text-muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
-                Folder must contain an <code>all_resumes_summary.csv</code> file and matching PDF resumes.
+            <div className="drop-zone">
+              <p className="drop-zone-title">Choose your candidate resume folder</p>
+              <p className="text-muted">
+                The folder must contain <code>all_resumes_summary.csv</code> and its matching PDF resumes.
+                Files stay on this device until you start the import.
               </p>
+              <label className="button-pill button-primary">
+                {readingFolder ? 'Reading Folder…' : 'Choose Folder'}
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  disabled={readingFolder}
+                  {...DIRECTORY_INPUT_PROPS}
+                  onChange={(event) => void handleFolder(event.target.files)}
+                />
+              </label>
             </div>
-
-            <div className="form-group" style={{ marginTop: '1rem' }}>
-              <label className="form-label" htmlFor="default-job-folder">Default Job (when role column is empty)</label>
-              <select
-                id="default-job-folder"
-                className="input-field"
-                value={defaultJobId}
-                onChange={(e) => setDefaultJobId(e.target.value)}
-              >
-                <option value="">Select job (optional)…</option>
-                {jobs.map((j) => (
-                  <option key={j.id} value={j.id}>{j.title} — {j.client}</option>
-                ))}
-              </select>
-            </div>
-
-            {scanError && <p className="text-critical" style={{ marginTop: '0.75rem' }}>{scanError}</p>}
-
+            {folderError && <p className="text-critical" style={{ marginTop: '0.75rem' }}>{folderError}</p>}
             <div className="form-actions">
               <button type="button" className="button-pill button-secondary" onClick={() => navigate('/candidates')}>Cancel</button>
-              <button
-                type="button"
-                className="button-pill button-primary"
-                disabled={!folderPath.trim() || scanning}
-                onClick={handleScan}
-              >
-                {scanning ? 'Scanning…' : 'Scan Folder →'}
-              </button>
             </div>
           </div>
         )}
@@ -183,21 +214,26 @@ export default function ImportCandidatesFolderPage() {
         {step === 'preview' && (
           <div className="card">
             <p className="text-muted">
-              Found <strong>{candidates.length}</strong> candidates from <strong>{totalPdfs}</strong> PDFs
-              ({totalFiles} total files in folder)
+              Folder: <strong>{folderName}</strong> — found <strong>{rows.length}</strong> candidate rows and{' '}
+              <strong>{totalPdfs}</strong> PDFs ({totalFiles} total files).
             </p>
+            {missingCount > 0 && (
+              <p className="text-critical" style={{ marginTop: '0.5rem' }}>
+                {missingCount} row{missingCount === 1 ? '' : 's'} cannot be selected because the matching PDF is missing or ambiguous.
+              </p>
+            )}
 
             <div className="form-group" style={{ marginTop: '1rem' }}>
-              <label className="form-label" htmlFor="default-job-preview">Default Job (when role column is empty)</label>
+              <label className="form-label" htmlFor="default-job-folder">Default Job (when role column is empty)</label>
               <select
-                id="default-job-preview"
+                id="default-job-folder"
                 className="input-field"
                 value={defaultJobId}
-                onChange={(e) => setDefaultJobId(e.target.value)}
+                onChange={(event) => setDefaultJobId(event.target.value)}
               >
                 <option value="">Select job (optional)…</option>
-                {jobs.map((j) => (
-                  <option key={j.id} value={j.id}>{j.title} — {j.client}</option>
+                {jobs.map((job) => (
+                  <option key={job.id} value={job.id}>{job.title} — {job.client}</option>
                 ))}
               </select>
             </div>
@@ -209,7 +245,7 @@ export default function ImportCandidatesFolderPage() {
                     <th style={{ width: '40px' }}>
                       <input
                         type="checkbox"
-                        checked={selected.size === candidates.length && candidates.length > 0}
+                        checked={selectableIndexes.length > 0 && selectableIndexes.every((index) => selected.has(index))}
                         onChange={toggleSelectAll}
                       />
                     </th>
@@ -222,21 +258,32 @@ export default function ImportCandidatesFolderPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {candidates.map((c, i) => (
-                    <tr key={i}>
+                  {rows.map((row, index) => (
+                    <tr key={`${row.rowNumber}-${row.candidate.filename}`}>
                       <td>
                         <input
                           type="checkbox"
-                          checked={selected.has(i)}
-                          onChange={() => toggleSelect(i)}
+                          checked={selected.has(index)}
+                          disabled={row.pdfStatus !== 'matched'}
+                          onChange={() => toggleSelect(index)}
                         />
                       </td>
-                      <td>{c.name || '—'}</td>
-                      <td className="text-muted">{c.email || '—'}</td>
-                      <td className="text-muted">{c.phone || '—'}</td>
-                      <td>{c.role || '—'}</td>
-                      <td className="text-muted">{c.experience || '—'}</td>
-                      <td className="text-muted" style={{ fontSize: '0.75rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.filename}</td>
+                      <td>{row.candidate.name}</td>
+                      <td className="text-muted">{row.candidate.email || '—'}</td>
+                      <td className="text-muted">{row.candidate.phone || '—'}</td>
+                      <td>{row.candidate.role || '—'}</td>
+                      <td className="text-muted">{row.candidate.experience || '—'}</td>
+                      <td
+                        className={row.pdfStatus === 'matched' ? 'text-muted' : 'text-critical'}
+                        title={row.candidate.filename}
+                        style={{ fontSize: '0.75rem', maxWidth: '190px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {row.pdfStatus === 'matched'
+                          ? row.candidate.filename
+                          : row.pdfStatus === 'ambiguous'
+                            ? 'Ambiguous filename'
+                            : 'PDF missing'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -244,18 +291,17 @@ export default function ImportCandidatesFolderPage() {
             </div>
 
             <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {selected.size} of {candidates.length} selected
+              {selected.size} of {selectableIndexes.length} importable candidates selected
             </p>
-
             <div className="form-actions">
-              <button type="button" className="button-pill button-secondary" onClick={() => setStep('configure')}>Back</button>
+              <button type="button" className="button-pill button-secondary" onClick={resetImport}>Choose Another Folder</button>
               <button
                 type="button"
                 className="button-pill button-primary"
-                disabled={selected.size === 0 || importing}
-                onClick={handleImport}
+                disabled={selected.size === 0}
+                onClick={() => void runImport([...selected].sort((a, b) => a - b))}
               >
-                {importing ? 'Importing…' : `Import ${selected.size} Candidates with Resumes →`}
+                Import {selected.size} Candidates with Resumes →
               </button>
             </div>
           </div>
@@ -264,66 +310,53 @@ export default function ImportCandidatesFolderPage() {
         {step === 'importing' && (
           <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
             <p style={{ fontSize: '1.1rem' }}>Importing candidates and uploading resumes…</p>
-            <p className="text-muted" style={{ marginTop: '0.5rem' }}>This may take a few minutes depending on the number of files.</p>
+            <p className="text-muted" style={{ marginTop: '0.5rem' }}>
+              {processed} of {attemptTotal} processed. Keep this page open until the import finishes.
+            </p>
+            <progress value={processed} max={Math.max(attemptTotal, 1)} style={{ width: 'min(460px, 100%)', marginTop: '1rem' }} />
           </div>
         )}
 
-        {step === 'done' && importResult && (
+        {step === 'done' && (
           <div className="card">
             <div className="import-summary">
-              <span className="summary-chip success">✓ {importResult.imported} imported</span>
-              <span className="summary-chip warning">⊘ {importResult.skipped} skipped</span>
-              {importResult.errors.length > 0 && (
-                <span className="summary-chip error">✗ {importResult.errors.length} errors</span>
+              <span className="summary-chip success">✓ {importedCount} imported</span>
+              {repairedCount > 0 && <span className="summary-chip success">✓ {repairedCount} resumes attached</span>}
+              <span className="summary-chip warning">⊘ {skippedCount} duplicates skipped</span>
+              {failedIndexes.length > 0 && (
+                <span className="summary-chip error">✗ {failedIndexes.length} failed</span>
               )}
             </div>
 
-            {importResult.errors.length > 0 && (
+            {failedIndexes.length > 0 && (
               <div style={{ marginTop: '1rem' }}>
-                <p className="text-critical" style={{ marginBottom: '0.5rem' }}>Errors:</p>
+                <p className="text-critical" style={{ marginBottom: '0.5rem' }}>Failed rows:</p>
                 <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-                  {importResult.errors.map((err, i) => (
-                    <li key={i} className="text-critical" style={{ fontSize: '0.85rem' }}>{err}</li>
-                  ))}
+                  {failedIndexes.map((index) => {
+                    const attempt = attempts[index];
+                    return (
+                      <li key={index} className="text-critical" style={{ fontSize: '0.85rem' }}>
+                        {rows[index]?.candidate.name}: {attempt?.status === 'failed' ? attempt.error : 'Import failed.'}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
 
             <div className="form-actions">
-              <button type="button" className="button-pill button-secondary" onClick={() => { setStep('configure'); setImportResult(null); setCandidates([]); setSelected(new Set()); }}>
-                Import More
-              </button>
+              <button type="button" className="button-pill button-secondary" onClick={resetImport}>Import More</button>
+              {failedIndexes.length > 0 && (
+                <button
+                  type="button"
+                  className="button-pill button-secondary"
+                  onClick={() => void runImport(failedIndexes, true)}
+                >
+                  Retry {failedIndexes.length} Failed
+                </button>
+              )}
               <button type="button" className="button-pill button-primary" onClick={() => navigate('/candidates')}>
                 View Candidates →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 'done' && (
-          <div className="card" style={{ marginTop: '1rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1rem' }}>Repair Missing Resumes</h3>
-            <p className="text-muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
-              If some candidates were imported without their CV attached, this will scan the folder again and attach missing PDFs by matching name or phone.
-            </p>
-            {repairResult && (
-              <div className="import-summary" style={{ marginTop: '0.75rem' }}>
-                <span className="summary-chip success">✓ {repairResult.attached} attached</span>
-                <span className="summary-chip warning">⊘ {repairResult.already_had_resume} already had resume</span>
-                <span className="summary-chip warning">? {repairResult.not_found} not matched</span>
-                {repairResult.errors.length > 0 && (
-                  <span className="summary-chip error">✗ {repairResult.errors.length} errors</span>
-                )}
-              </div>
-            )}
-            <div className="form-actions" style={{ marginTop: '0.75rem' }}>
-              <button
-                type="button"
-                className="button-pill button-primary"
-                disabled={repairing || !folderPath.trim()}
-                onClick={handleRepair}
-              >
-                {repairing ? 'Repairing…' : 'Repair Missing Resumes'}
               </button>
             </div>
           </div>
