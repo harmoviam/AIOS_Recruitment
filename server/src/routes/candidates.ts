@@ -52,6 +52,12 @@ import {
   syncPrimaryApplication,
 } from '../services/applications.js';
 import { enforceCandidateLimit } from '../middleware/planLimits.js';
+import {
+  buildResumeWorkbook,
+  resumeWorkbookFilename,
+  type ResumeExportRow,
+} from '../services/resumeWorkbook.js';
+import { normalizeNoticePeriod } from '../services/noticePeriod.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -173,6 +179,22 @@ const OFFER_STATUSES = ['screening_rejected', 'offer_rejected', 'not_interested'
 const DISPLAY_OFFER_STATUSES = [...OFFER_STATUSES, 'doing_well', 'issue_flagged', 'no_answer'];
 const tid = (req: Request) => req.tenant!.id;
 
+const resumeReportingOnly: RequestHandler = (req, res, next) => {
+  if (req.user!.role !== 'admin' && req.user!.role !== 'hiring_manager') {
+    res.status(403).json({ error: 'Organization Admin or Hiring Manager access required' });
+    return;
+  }
+  next();
+};
+
+function parseDashboardDate(value: unknown): string | null | undefined {
+  if (value == null || value === '') return null;
+  const text = String(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return undefined;
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text ? undefined : text;
+}
+
 // `status` filters on the badge shown in the UI (offer_status when set, else stage).
 function statusFilterClause(status: string, i: number): { sql: string; nextIndex: number } {
   if (DISPLAY_OFFER_STATUSES.includes(status)) {
@@ -200,7 +222,7 @@ async function applyAdminHmFilter(
 }
 
 router.get('/', async (req, res) => {
-  const { job_id, stage, status, search, recruiter_id, scope, hot, hm_id, limit, offset } = req.query;
+  const { job_id, stage, status, notice_period, search, recruiter_id, scope, hot, hm_id, limit, offset } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.*, COUNT(*) OVER() AS total_count, j.title AS job_title, u.name AS recruiter_name,
@@ -230,6 +252,12 @@ router.get('/', async (req, res) => {
     sql += clause.sql;
     params.push(status);
     i = clause.nextIndex;
+  }
+  if (notice_period) {
+    const normalizedNoticePeriod = normalizeNoticePeriod(notice_period);
+    if (!normalizedNoticePeriod) return res.status(400).json({ error: 'Invalid notice period' });
+    sql += ` AND c.notice_period = $${i++}`;
+    params.push(normalizedNoticePeriod);
   }
   if (search) {
     // Substring match on identity fields plus full-text over skills/resume text
@@ -286,11 +314,211 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
-router.get('/export', async (req, res) => {
-  const { job_id, stage, status, search, ids, recruiter_id, scope, hm_id } = req.query;
+router.get('/resume-dashboard', resumeReportingOnly, async (req, res) => {
+  const from = parseDashboardDate(req.query.from);
+  const to = parseDashboardDate(req.query.to);
+  if (from === undefined || to === undefined) {
+    return res.status(400).json({ error: 'from and to must use YYYY-MM-DD format' });
+  }
+  if (from && to && from > to) {
+    return res.status(400).json({ error: 'from must be before or equal to to' });
+  }
+
+  const scope = candidateScopeSql(req, 'c', 2);
+  const params: unknown[] = [tid(req), ...scope.params];
+  let i = scope.nextIndex;
+  let where = `c.tenant_id = $1
+    AND c.resume_meta IS NOT NULL
+    AND COALESCE(c.resume_meta->>'storage_path', '') <> ''${scope.sql}`;
+  if (from) {
+    where += ` AND c.created_at >= $${i++}::date`;
+    params.push(from);
+  }
+  if (to) {
+    where += ` AND c.created_at < ($${i++}::date + INTERVAL '1 day')`;
+    params.push(to);
+  }
+
+  const ownershipJoins = `
+    LEFT JOIN users owner ON owner.id = c.recruiter_id AND owner.tenant_id = c.tenant_id
+    LEFT JOIN users hm ON hm.id = owner.managed_by_id AND hm.tenant_id = c.tenant_id
+      AND hm.role = 'hiring_manager'`;
+  const managerId = `CASE WHEN owner.role = 'hiring_manager' THEN owner.id ELSE hm.id END`;
+  const managerName = `CASE WHEN owner.role = 'hiring_manager' THEN owner.name ELSE hm.name END`;
+
+  const [totals, jobs, statuses, managers] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*)::int AS resumes,
+        COUNT(DISTINCT c.job_id)::int AS jobs,
+        COUNT(DISTINCT ${managerId})::int AS hiring_managers,
+        COUNT(DISTINCT CASE WHEN owner.role = 'recruiter' THEN owner.id END)::int AS recruiters
+       FROM candidates c${ownershipJoins}
+       WHERE ${where}`,
+      params
+    ),
+    pool.query(
+      `SELECT c.job_id, COALESCE(j.title, 'Unassigned Job') AS job_title,
+        COALESCE(j.client, '—') AS client, COUNT(*)::int AS count
+       FROM candidates c
+       LEFT JOIN jobs j ON j.id = c.job_id AND j.tenant_id = c.tenant_id
+       WHERE ${where}
+       GROUP BY c.job_id, j.title, j.client
+       ORDER BY count DESC, job_title`,
+      params
+    ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(c.offer_status, ''), c.stage) AS status, COUNT(*)::int AS count
+       FROM candidates c
+       WHERE ${where}
+       GROUP BY COALESCE(NULLIF(c.offer_status, ''), c.stage)
+       ORDER BY count DESC, status`,
+      params
+    ),
+    pool.query(
+      `SELECT ${managerId} AS hiring_manager_id,
+        COALESCE(${managerName}, 'Unassigned Hiring Manager') AS hiring_manager_name,
+        CASE WHEN owner.role = 'recruiter' THEN owner.id ELSE NULL END AS recruiter_id,
+        CASE
+          WHEN owner.role = 'recruiter' THEN owner.name
+          WHEN owner.role = 'hiring_manager' THEN 'Direct / Unassigned Recruiter'
+          ELSE 'Unassigned Recruiter'
+        END AS recruiter_name,
+        COUNT(*)::int AS count
+       FROM candidates c${ownershipJoins}
+       WHERE ${where}
+       GROUP BY ${managerId}, ${managerName},
+         CASE WHEN owner.role = 'recruiter' THEN owner.id ELSE NULL END,
+         CASE
+           WHEN owner.role = 'recruiter' THEN owner.name
+           WHEN owner.role = 'hiring_manager' THEN 'Direct / Unassigned Recruiter'
+           ELSE 'Unassigned Recruiter'
+         END
+       ORDER BY hiring_manager_name, count DESC, recruiter_name`,
+      params
+    ),
+  ]);
+
+  const managerMap = new Map<string, {
+    hiringManagerId: number | null;
+    hiringManagerName: string;
+    count: number;
+    recruiters: { recruiterId: number | null; recruiterName: string; count: number }[];
+  }>();
+  for (const row of managers.rows) {
+    const key = row.hiring_manager_id == null ? 'unassigned' : String(row.hiring_manager_id);
+    const manager = managerMap.get(key) || {
+      hiringManagerId: row.hiring_manager_id == null ? null : Number(row.hiring_manager_id),
+      hiringManagerName: row.hiring_manager_name,
+      count: 0,
+      recruiters: [] as { recruiterId: number | null; recruiterName: string; count: number }[],
+    };
+    const count = Number(row.count) || 0;
+    manager.count += count;
+    manager.recruiters.push({
+      recruiterId: row.recruiter_id == null ? null : Number(row.recruiter_id),
+      recruiterName: row.recruiter_name,
+      count,
+    });
+    managerMap.set(key, manager);
+  }
+
+  res.json({
+    filters: { from, to },
+    totals: {
+      resumes: Number(totals.rows[0]?.resumes) || 0,
+      jobs: Number(totals.rows[0]?.jobs) || 0,
+      hiringManagers: Number(totals.rows[0]?.hiring_managers) || 0,
+      recruiters: Number(totals.rows[0]?.recruiters) || 0,
+    },
+    byJob: jobs.rows.map((row) => ({
+      jobId: row.job_id == null ? null : Number(row.job_id),
+      jobTitle: row.job_title,
+      client: row.client,
+      count: Number(row.count) || 0,
+    })),
+    byStatus: statuses.rows.map((row) => ({ status: row.status, count: Number(row.count) || 0 })),
+    byManager: [...managerMap.values()].sort((a, b) => b.count - a.count || a.hiringManagerName.localeCompare(b.hiringManagerName)),
+  });
+});
+
+router.get('/export.xlsx', resumeReportingOnly, async (req, res) => {
+  const jobId = Number(req.query.job_id);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({ error: 'A valid job_id is required' });
+  }
+  const { rows: jobRows } = await pool.query(
+    'SELECT id, title, client, location FROM jobs WHERE id = $1 AND tenant_id = $2',
+    [jobId, tid(req)]
+  );
+  if (!jobRows[0]) return res.status(404).json({ error: 'Job not found in this workspace' });
+
+  const params: unknown[] = [tid(req), jobId];
+  let i = 3;
+  let where = `c.tenant_id = $1 AND c.job_id = $2
+    AND c.resume_meta IS NOT NULL
+    AND COALESCE(c.resume_meta->>'storage_path', '') <> ''`;
+  const scope = candidateScopeSql(
+    req,
+    'c',
+    i,
+    req.query.scope === 'my' || req.query.scope === 'team' ? req.query.scope : undefined
+  );
+  where += scope.sql;
+  params.push(...scope.params);
+  i = scope.nextIndex;
+
+  const hmFilter = await applyAdminHmFilter(req, req.query.hm_id, 'c', i);
+  if (hmFilter) {
+    where += hmFilter.sql;
+    params.push(...hmFilter.params);
+    i = hmFilter.nextIndex;
+  }
+  if (req.query.recruiter_id) {
+    const recruiterId = Number(req.query.recruiter_id);
+    if (!Number.isFinite(recruiterId) || recruiterId <= 0) {
+      return res.status(400).json({ error: 'Invalid recruiter_id' });
+    }
+    where += ` AND c.recruiter_id = $${i++}`;
+    params.push(recruiterId);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.email, c.phone, COALESCE(NULLIF(c.offer_status, ''), c.stage) AS effective_status,
+      CASE WHEN owner.role = 'hiring_manager' THEN owner.name ELSE hm.name END AS hiring_manager_name,
+      CASE WHEN owner.role = 'recruiter' THEN owner.name ELSE NULL END AS recruiter_name,
+      c.experience_years, c.current_company, c.current_location, c.preferred_location,
+      c.notice_period, c.current_salary, c.salary_expectation, c.highest_qualification,
+      c.skills, c.technical_skills, c.linkedin, c.github, c.portfolio, c.ats_score, c.ai_score,
+      c.resume_meta->>'original_filename' AS resume_filename, c.created_at, c.updated_at
+     FROM candidates c
+     LEFT JOIN users owner ON owner.id = c.recruiter_id AND owner.tenant_id = c.tenant_id
+     LEFT JOIN users hm ON hm.id = owner.managed_by_id AND hm.tenant_id = c.tenant_id
+       AND hm.role = 'hiring_manager'
+     WHERE ${where}
+     ORDER BY c.name, c.id`,
+    params
+  );
+
+  const workbook = await buildResumeWorkbook({
+    tenantName: req.tenant!.name,
+    brandColor: req.tenant!.primary_color,
+    job: jobRows[0],
+    rows: rows as ResumeExportRow[],
+  });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${resumeWorkbookFilename(jobRows[0].title)}"`);
+  res.send(workbook);
+});
+
+router.get('/export', resumeReportingOnly, async (req, res) => {
+  const { job_id, stage, status, notice_period, search, hot, ids, recruiter_id, scope, hm_id } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
-    SELECT c.name, c.email, c.phone, c.stage, j.title AS job_title, u.name AS recruiter_name, c.ai_score, c.updated_at
+    SELECT c.name, c.email, c.phone, c.stage, c.offer_status, j.title AS job_title,
+      u.name AS recruiter_name, c.ai_score, c.updated_at, c.skills, c.education,
+      c.highest_qualification, c.experience_years, c.notice_period,
+      c.technical_skills AS primary_skills, c.soft_skills AS secondary_skills,
+      c.current_salary, c.salary_expectation
     FROM candidates c
     LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
     LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
@@ -320,10 +548,19 @@ router.get('/export', async (req, res) => {
     params.push(status);
     i = clause.nextIndex;
   }
+  if (notice_period) {
+    const normalizedNoticePeriod = normalizeNoticePeriod(notice_period);
+    if (!normalizedNoticePeriod) return res.status(400).json({ error: 'Invalid notice period' });
+    sql += ` AND c.notice_period = $${i++}`;
+    params.push(normalizedNoticePeriod);
+  }
   if (search) {
     sql += ` AND (c.name ILIKE $${i} OR c.email ILIKE $${i})`;
     params.push(`%${search}%`);
     i++;
+  }
+  if (hot === 'true') {
+    sql += ' AND c.is_hot = TRUE';
   }
 
   const userScope = candidateScopeSql(req, 'c', i, scope === 'my' || scope === 'team' ? scope : undefined);
@@ -346,15 +583,59 @@ router.get('/export', async (req, res) => {
   sql += ' ORDER BY c.updated_at DESC';
 
   const { rows } = await pool.query(sql, params);
-  const headers = ['name', 'email', 'phone', 'stage', 'job_title', 'recruiter_name', 'ai_score', 'updated_at'];
+  const listText = (value: unknown): string => {
+    if (Array.isArray(value)) return value.map(String).filter(Boolean).join(', ');
+    return value == null ? '' : String(value);
+  };
+  const educationText = (value: unknown, highestQualification: unknown): string => {
+    const entries = Array.isArray(value)
+      ? value.map((entry) => {
+          if (!entry || typeof entry !== 'object') return String(entry || '');
+          const item = entry as { degree?: unknown; institution?: unknown; year?: unknown };
+          const degree = String(item.degree || '').trim();
+          const institution = String(item.institution || '').trim();
+          const year = String(item.year || '').trim();
+          return [degree, institution && `— ${institution}`, year && `(${year})`].filter(Boolean).join(' ');
+        }).filter(Boolean)
+      : [];
+    const qualification = String(highestQualification || '').trim();
+    if (qualification && !entries.some((entry) => entry.toLowerCase().includes(qualification.toLowerCase()))) {
+      entries.unshift(qualification);
+    }
+    return entries.join('; ');
+  };
+  const columns = [
+    ['Name', (row: Record<string, unknown>) => row.name],
+    ['Email', (row: Record<string, unknown>) => row.email],
+    ['Phone', (row: Record<string, unknown>) => row.phone],
+    ['Status', (row: Record<string, unknown>) => row.offer_status || row.stage],
+    ['Job', (row: Record<string, unknown>) => row.job_title],
+    ['Recruiter', (row: Record<string, unknown>) => row.recruiter_name],
+    ['Skills', (row: Record<string, unknown>) => listText(row.skills)],
+    ['Education', (row: Record<string, unknown>) => educationText(row.education, row.highest_qualification)],
+    ['Total Years of Experience', (row: Record<string, unknown>) => row.experience_years],
+    ['Notice Period', (row: Record<string, unknown>) => row.notice_period],
+    ['Current Salary', (row: Record<string, unknown>) => row.current_salary],
+    ['Expected Salary', (row: Record<string, unknown>) => row.salary_expectation],
+    ['Primary Skills', (row: Record<string, unknown>) => listText(row.primary_skills)],
+    ['Secondary Skills', (row: Record<string, unknown>) => listText(row.secondary_skills)],
+    ['AI Score', (row: Record<string, unknown>) => row.ai_score],
+    ['Updated At', (row: Record<string, unknown>) => row.updated_at],
+  ] as const;
+  const csvValue = (value: unknown): string => {
+    let text = value == null ? '' : String(value);
+    // Prevent spreadsheet applications from interpreting candidate data as formulas.
+    if (/^[=+@-]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
   const csv = [
-    headers.join(','),
-    ...rows.map((r) => headers.map((h) => JSON.stringify(r[h] ?? '')).join(',')),
+    columns.map(([label]) => csvValue(label)).join(','),
+    ...rows.map((row) => columns.map(([, getValue]) => csvValue(getValue(row))).join(',')),
   ].join('\n');
 
-  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="candidates.csv"');
-  res.send(csv);
+  res.send(`\uFEFF${csv}`);
 });
 
 router.post('/import/validate', async (req, res) => {
@@ -1208,6 +1489,10 @@ router.post('/', enforceCandidateLimit(), async (req, res) => {
   } = req.body;
 
   if (!name) return res.status(400).json({ error: 'Name required' });
+  const normalizedNoticePeriod = normalizeNoticePeriod(notice_period);
+  if (notice_period && !normalizedNoticePeriod) {
+    return res.status(400).json({ error: 'Invalid notice period' });
+  }
 
   // Multi-job submit: job_ids[] creates one application per job; the first
   // (or legacy job_id) becomes the candidate's primary application.
@@ -1267,7 +1552,7 @@ router.post('/', enforceCandidateLimit(), async (req, res) => {
       current_company || null,
       current_location || null,
       preferred_location || null,
-      notice_period || null,
+      normalizedNoticePeriod,
       current_salary || null,
       professional_summary || null,
       JSON.stringify(education || []),
@@ -1541,8 +1826,12 @@ router.patch('/:id', async (req, res) => {
     params.push(preferred_location || null);
   }
   if (notice_period !== undefined) {
+    const normalizedNoticePeriod = normalizeNoticePeriod(notice_period);
+    if (notice_period && !normalizedNoticePeriod) {
+      return res.status(400).json({ error: 'Invalid notice period' });
+    }
     updates.push(`notice_period = $${i++}`);
-    params.push(notice_period || null);
+    params.push(normalizedNoticePeriod);
   }
   if (current_salary !== undefined) {
     updates.push(`current_salary = $${i++}`);

@@ -31,8 +31,6 @@ export default function AdminDashboard() {
         </p>
 
         <div className="kpi-grid">
-          <KpiCard title="Hiring Managers" value={kpis?.hiring_managers ?? '—'} href="/hiring-managers" />
-          <KpiCard title="Recruiters" value={kpis?.recruiters ?? '—'} href="/recruiters" />
           <KpiCard title="Total Candidates" value={kpis?.candidates ?? '—'} href="/candidates" />
           <KpiCard title="Selected" value={kpis?.selected ?? '—'} meta="Offer stage" href="/candidates?filter=selected" />
           <KpiCard title="Joined" value={kpis?.joined ?? '—'} meta={`${kpis?.joinings_mtd ?? 0} this month`} href="/candidates?filter=joined" />

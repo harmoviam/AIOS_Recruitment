@@ -1,4 +1,15 @@
 export type UserRole = 'super_admin' | 'admin' | 'recruiter' | 'hiring_manager';
+
+export const NOTICE_PERIOD_OPTIONS = [
+  'Immediate',
+  'Within 15 Days',
+  'Within 30 Days',
+  'Within 45 Days',
+  'Within 60 Days',
+  'Within 90 Days',
+] as const;
+
+export type NoticePeriod = (typeof NOTICE_PERIOD_OPTIONS)[number];
 export type TenantPlan = 'starter' | 'pro' | 'enterprise';
 export type TenantStatus = 'active' | 'trial' | 'suspended' | 'churned';
 
@@ -1129,6 +1140,33 @@ export interface OrganizationOverview {
   hiringManagers: OrgHmSummary[];
   recruiters: OrgRecruiterSummary[];
   funnel: { stage: string; count: number }[];
+}
+
+export interface ResumeDashboardResponse {
+  filters: { from: string | null; to: string | null };
+  totals: {
+    resumes: number;
+    jobs: number;
+    hiringManagers: number;
+    recruiters: number;
+  };
+  byJob: {
+    jobId: number | null;
+    jobTitle: string;
+    client: string;
+    count: number;
+  }[];
+  byStatus: { status: string; count: number }[];
+  byManager: {
+    hiringManagerId: number | null;
+    hiringManagerName: string;
+    count: number;
+    recruiters: {
+      recruiterId: number | null;
+      recruiterName: string;
+      count: number;
+    }[];
+  }[];
 }
 
 export interface TeamPerformanceRecruiter {

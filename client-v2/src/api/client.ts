@@ -146,7 +146,7 @@ async function postSse(
   }
 }
 
-async function download(path: string, filename: string) {
+async function download(path: string, filename?: string) {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -154,14 +154,30 @@ async function download(path: string, filename: string) {
   if (tenantSlug) headers['X-Tenant-Slug'] = tenantSlug;
 
   const res = await fetch(`${API}${path}`, { headers });
-  if (!res.ok) throw new Error('Export failed');
+  if (!res.ok) {
+    const text = await res.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      /* non-JSON download error */
+    }
+    throw new Error(parseApiError(res, data, text));
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const serverFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  a.download = filename || serverFilename || 'download';
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  // Revoking synchronously can cancel downloads in Chrome/Safari before the
+  // browser has consumed the object URL.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function uploadRequest<T>(path: string, formData: FormData, method = 'POST'): Promise<T> {
@@ -278,6 +294,14 @@ export const api = {
   exportCandidates: (params?: Record<string, string>) => {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
     return download(`/candidates/export${q}`, 'candidates.csv');
+  },
+  getResumeDashboard: (params?: { from?: string; to?: string }) => {
+    const q = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+    return request<import('../types').ResumeDashboardResponse>(`/candidates/resume-dashboard${q}`);
+  },
+  exportJobResumes: (params: Record<string, string>) => {
+    const q = new URLSearchParams(params).toString();
+    return download(`/candidates/export.xlsx?${q}`);
   },
   validateImport: (rows: Record<string, string>[], defaultJobId?: number) =>
     request<import('../types').ImportValidation>('/candidates/import/validate', {

@@ -6,12 +6,20 @@ import CandidateLocationFields from '../components/CandidateLocationFields';
 import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
 import TopBar from '../components/ui/TopBar';
 import PageHeader from '../components/ui/PageHeader';
-import { atsScoreClass, type AtsScoreResult, type ExperienceConsistencyResult, type ExperienceGateResult, type Job, type ParsedProfile, type ResumeParseResponse } from '../types';
+import { NOTICE_PERIOD_OPTIONS, atsScoreClass, type AtsScoreResult, type ExperienceConsistencyResult, type ExperienceGateResult, type Job, type ParsedProfile, type ResumeParseResponse } from '../types';
 import { inferJobIndustry, isBpoIndustry } from '../utils/industries';
 
 function mergeSkills(parsed: ParsedProfile): string[] {
   const all = [...(parsed.skills || []), ...(parsed.technical_skills || [])];
   return [...new Set(all.map((s) => s.trim()).filter(Boolean))];
+}
+
+function normalizedParsedNoticePeriod(value?: string | null): string {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized.includes('immediate')) return 'Immediate';
+  const days = normalized.match(/\b(15|30|45|60|90)\b/)?.[1];
+  return days ? `Within ${days} Days` : '';
 }
 
 function applyParsedToForm(parsed: ParsedProfile) {
@@ -31,7 +39,7 @@ function applyParsedToForm(parsed: ParsedProfile) {
     current_company: parsed.current_company || '',
     current_location: parsed.current_location || '',
     preferred_location: parsed.preferred_location || '',
-    notice_period: parsed.notice_period || '',
+    notice_period: normalizedParsedNoticePeriod(parsed.notice_period),
     current_salary: parsed.current_salary || '',
     professional_summary: parsed.professional_summary || '',
   };
@@ -496,7 +504,10 @@ export default function AddCandidatePage() {
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="notice">Notice period</label>
-              <input id="notice" className="input-field" value={form.notice_period} onChange={(e) => setForm({ ...form, notice_period: e.target.value })} placeholder="Immediate / 30 days" />
+              <select id="notice" className="input-field" value={form.notice_period} onChange={(e) => setForm({ ...form, notice_period: e.target.value })}>
+                <option value="">Select notice period</option>
+                {NOTICE_PERIOD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="salary">Expected salary</label>

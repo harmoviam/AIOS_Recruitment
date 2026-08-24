@@ -51,6 +51,7 @@ import SourcingDashboardPage from './pages/sourcing/DashboardPage';
 import SourcingContentStudioPage from './pages/sourcing/ContentStudioPage';
 import SourcingSourcesPage from './pages/sourcing/SourcesPage';
 import AiSourcingPage from './pages/ai-sourcing/AiSourcingPage';
+import ResumeDashboardPage from './pages/ResumeDashboardPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -79,6 +80,12 @@ function OrgWorkspaceRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (user?.role !== 'admin') return <Navigate to="/settings/profile" replace />;
+  return <>{children}</>;
+}
+
+function AdminOrHiringManagerRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'admin' && user?.role !== 'hiring_manager') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -141,6 +148,7 @@ function AppRoutes() {
         <Route path="interviews/:id/evaluate" element={<OrgWorkspaceRoute><InterviewEvaluationPage /></OrgWorkspaceRoute>} />
         <Route path="reports" element={<OrgWorkspaceRoute><ReportsPage /></OrgWorkspaceRoute>} />
         <Route path="analytics" element={<OrgWorkspaceRoute><AnalyticsPage /></OrgWorkspaceRoute>} />
+        <Route path="resume-dashboard" element={<OrgWorkspaceRoute><AdminOrHiringManagerRoute><ResumeDashboardPage /></AdminOrHiringManagerRoute></OrgWorkspaceRoute>} />
         <Route path="ai-sourcing" element={<OrgWorkspaceRoute><AiSourcingPage /></OrgWorkspaceRoute>} />
         <Route path="sourcing" element={<OrgWorkspaceRoute><AdminRoute><SourcingDashboardPage /></AdminRoute></OrgWorkspaceRoute>} />
         <Route path="sourcing/search" element={<OrgWorkspaceRoute><AdminRoute><SourcingSearchPage /></AdminRoute></OrgWorkspaceRoute>} />

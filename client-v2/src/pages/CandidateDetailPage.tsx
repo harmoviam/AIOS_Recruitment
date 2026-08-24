@@ -6,7 +6,7 @@ import NearbyCompaniesPanel from '../components/NearbyCompaniesPanel';
 import RecommendedJobsPanel from '../components/RecommendedJobsPanel';
 import Tabs from '../components/ui/Tabs';
 import ScorePicker from '../components/ui/ScorePicker';
-import { FALLBACK_RED_FLAG_QUESTIONS, RED_FLAG_SIGNALS, SCREENING_QUESTIONS, atsScoreClass, formatQuestionDuration, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel, type JobScreeningQuestions, type RedFlagPack, type RedFlagQuestion, type ScreeningQuestionDef } from '../types';
+import { FALLBACK_RED_FLAG_QUESTIONS, NOTICE_PERIOD_OPTIONS, RED_FLAG_SIGNALS, SCREENING_QUESTIONS, atsScoreClass, formatQuestionDuration, interviewEvaluationSummary, riskBadgeClass, screeningRiskLevel, type JobScreeningQuestions, type RedFlagPack, type RedFlagQuestion, type ScreeningQuestionDef } from '../types';
 import type { Application, Candidate, Interview, Job, Message, TimelineEvent } from '../types';
 import { inferJobIndustry, isBpoIndustry } from '../utils/industries';
 
@@ -100,6 +100,7 @@ export default function CandidateDetailPage() {
     email: '',
     experience_years: 0,
     salary_expectation: '',
+    notice_period: '',
     skills: '',
   });
   const [profileError, setProfileError] = useState('');
@@ -270,6 +271,9 @@ export default function CandidateDetailPage() {
       email: candidate.email || '',
       experience_years: candidate.experience_years,
       salary_expectation: candidate.salary_expectation || '',
+      notice_period: NOTICE_PERIOD_OPTIONS.includes(candidate.notice_period as (typeof NOTICE_PERIOD_OPTIONS)[number])
+        ? candidate.notice_period || ''
+        : '',
       skills: skills.join(', '),
     });
     setProfileError('');
@@ -322,6 +326,7 @@ export default function CandidateDetailPage() {
         email: profileForm.email.trim() || undefined,
         experience_years: profileForm.experience_years,
         salary_expectation: profileForm.salary_expectation.trim() || undefined,
+        notice_period: profileForm.notice_period,
         skills: skillsList,
       });
       setCandidate({ ...candidate, ...updated });
@@ -464,6 +469,18 @@ export default function CandidateDetailPage() {
                         />
                       </div>
                       <div className="form-group">
+                        <label className="form-label" htmlFor="edit-notice-period">Notice period</label>
+                        <select
+                          id="edit-notice-period"
+                          className="input-field"
+                          value={profileForm.notice_period}
+                          onChange={(e) => setProfileForm({ ...profileForm, notice_period: e.target.value })}
+                        >
+                          <option value="">Not specified</option>
+                          {NOTICE_PERIOD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group">
                         <label className="form-label" htmlFor="edit-skills">Skills (comma-separated)</label>
                         <input
                           id="edit-skills"
@@ -488,6 +505,7 @@ export default function CandidateDetailPage() {
                     <p>{candidate.phone || '—'}</p>
                     <p>Recruiter: {candidate.recruiter_name || '—'}</p>
                     <p>Salary: {candidate.salary_expectation || '—'}</p>
+                    <p>Notice period: {candidate.notice_period || '—'}</p>
                   </>
                 )}
               </div>

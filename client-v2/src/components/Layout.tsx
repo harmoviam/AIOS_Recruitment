@@ -5,7 +5,7 @@ import { useTenant } from '../context/TenantContext';
 import PlanBadge from './ui/PlanBadge';
 import { ROLE_LABELS } from '../types';
 
-type NavItem = { to: string; label: string; end?: boolean; badge?: number; platformOnly?: boolean; orgOnly?: boolean; feature?: string; recruiterLabel?: string; hmLabel?: string; adminOnly?: boolean; hmHidden?: boolean; recruiterOnly?: boolean; hmOnly?: boolean };
+type NavItem = { to: string; label: string; end?: boolean; badge?: number; platformOnly?: boolean; orgOnly?: boolean; feature?: string; recruiterLabel?: string; hmLabel?: string; adminOnly?: boolean; adminOrHmOnly?: boolean; hmHidden?: boolean; recruiterOnly?: boolean; hmOnly?: boolean };
 type NavSection = { title?: string; orgOnly?: boolean; items: NavItem[] };
 
 const navSections: NavSection[] = [
@@ -20,6 +20,7 @@ const navSections: NavSection[] = [
       { to: '/candidates?scope=my', label: 'My Candidates', hmOnly: true, orgOnly: true },
       { to: '/candidates?scope=team', label: 'My Team Candidates', hmOnly: true, orgOnly: true },
       { to: '/pipeline', label: 'Pipeline (Kanban)', orgOnly: true },
+      { to: '/resume-dashboard', label: 'Resume Dashboard', adminOrHmOnly: true, orgOnly: true },
       { to: '/candidates/import-folder', label: 'Import from Folder', orgOnly: true, adminOnly: true },
     ],
   },
@@ -128,6 +129,7 @@ function iconFor(to: string): string {
     case '/candidates': return to.includes('filter=new') ? 'userPlus' : 'users';
     case '/follow-ups': return 'bell';
     case '/pipeline': return 'kanban';
+    case '/resume-dashboard': return 'chart';
     case '/jobs': return 'briefcase';
     case '/recruiters': return 'userCheck';
     case '/hiring-managers': return 'users';
@@ -202,6 +204,7 @@ export default function Layout() {
         if (item.orgOnly && isPlatformAdmin) return false;
         if (item.to === '/recruiters' && !canManageRecruiters) return false;
         if (item.adminOnly && !isOrgAdmin) return false;
+        if (item.adminOrHmOnly && !isOrgAdmin && !isHm) return false;
         if (item.recruiterOnly && !isRecruiter) return false;
         if (item.hmOnly && !isHm) return false;
         if (item.hmHidden && isHm) return false;

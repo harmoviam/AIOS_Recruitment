@@ -7,7 +7,7 @@ import PageHeader from '../components/ui/PageHeader';
 import StatusBadge from '../components/ui/StatusBadge';
 import SideDrawer from '../components/ui/SideDrawer';
 import Tabs from '../components/ui/Tabs';
-import { riskBadgeClass } from '../types';
+import { NOTICE_PERIOD_OPTIONS, riskBadgeClass } from '../types';
 import type { Candidate, HiringManager, Job, RecruiterStat } from '../types';
 
 type HmScope = 'my' | 'team';
@@ -17,6 +17,7 @@ export default function CandidatesListPage() {
   const isRecruiter = user?.role === 'recruiter';
   const isHm = user?.role === 'hiring_manager';
   const isAdmin = user?.role === 'admin';
+  const canExport = isAdmin || isHm;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -26,6 +27,7 @@ export default function CandidatesListPage() {
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [jobFilter, setJobFilter] = useState('');
+  const [noticePeriodFilter, setNoticePeriodFilter] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [hmScope, setHmScope] = useState<HmScope>('team');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -65,6 +67,7 @@ export default function CandidatesListPage() {
     if (search) params.search = search;
     if (jobFilter) params.job_id = jobFilter;
     if (stageFilter) params.status = stageFilter;
+    if (noticePeriodFilter) params.notice_period = noticePeriodFilter;
     if (filterParam === 'new') params.stage = 'applied';
     if (filterParam === 'joined') params.stage = 'joined';
     if (filterParam === 'selected') params.stage = 'selected';
@@ -107,7 +110,7 @@ export default function CandidatesListPage() {
     setSelected(new Set());
     loadCandidates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, jobFilter, stageFilter, filterParam, hmScope, recruiterFilter, hmFilter]);
+  }, [search, jobFilter, stageFilter, noticePeriodFilter, filterParam, hmScope, recruiterFilter, hmFilter]);
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -172,6 +175,20 @@ export default function CandidatesListPage() {
   const bulkExport = () => {
     const params: Record<string, string> = { ids: [...selected].join(','), ...scopeParams() };
     api.exportCandidates(params);
+  };
+
+  const exportFilterParams = (): Record<string, string> => {
+    const params = scopeParams();
+    if (search) params.search = search;
+    if (jobFilter) params.job_id = jobFilter;
+    if (stageFilter) params.status = stageFilter;
+    if (noticePeriodFilter) params.notice_period = noticePeriodFilter;
+    if (filterParam === 'new') params.stage = 'applied';
+    if (filterParam && ['joined', 'selected', 'rejected', 'email_sent', 'ho_pending'].includes(filterParam)) {
+      params.stage = filterParam;
+    }
+    if (filterParam === 'hot') params.hot = 'true';
+    return params;
   };
 
   return (
@@ -254,6 +271,10 @@ export default function CandidatesListPage() {
               <option key={j.id} value={j.id}>{j.title}</option>
             ))}
           </select>
+          <select className="input-field filter-select" value={noticePeriodFilter} onChange={(e) => setNoticePeriodFilter(e.target.value)}>
+            <option value="">All notice periods</option>
+            {NOTICE_PERIOD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
           {isAdmin && (
             <select
               className="input-field filter-select"
@@ -291,6 +312,7 @@ export default function CandidatesListPage() {
                 <th>Phone</th>
                 <th>Job</th>
                 <th>Status</th>
+                <th>Notice Period</th>
                 <th>Risk</th>
                 <th>Interview Date</th>
                 <th>Joining Date</th>
@@ -319,6 +341,7 @@ export default function CandidatesListPage() {
                   <td>{c.phone || '—'}</td>
                   <td>{c.job_title || '—'}</td>
                   <td><StatusBadge status={c.offer_status || c.stage} /></td>
+                  <td>{c.notice_period || '—'}</td>
                   <td>
                     {c.screening ? (
                       <span
@@ -344,7 +367,11 @@ export default function CandidatesListPage() {
 
         <div className="table-footer">
           <span className="text-muted">Showing {candidates.length} candidates</span>
-          <button type="button" className="button-pill button-secondary btn-sm" onClick={() => api.exportCandidates(scopeParams())}>Export CSV</button>
+          {canExport && (
+            <div className="page-header-actions">
+              <button type="button" className="button-pill button-secondary btn-sm" onClick={() => api.exportCandidates(exportFilterParams())}>Export CSV</button>
+            </div>
+          )}
         </div>
 
         {selected.size > 0 && (
@@ -366,7 +393,7 @@ export default function CandidatesListPage() {
             <button type="button" className="button-pill button-secondary btn-sm" onClick={bulkUpdateStage} disabled={!bulkStage}>
               Apply
             </button>
-            <button type="button" className="button-pill button-secondary btn-sm" onClick={bulkExport}>Export</button>
+            {canExport && <button type="button" className="button-pill button-secondary btn-sm" onClick={bulkExport}>Export CSV</button>}
           </div>
         )}
       </div>
