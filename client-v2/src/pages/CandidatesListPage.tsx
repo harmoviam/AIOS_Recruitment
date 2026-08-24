@@ -12,6 +12,25 @@ import type { Candidate, HiringManager, Job, RecruiterStat } from '../types';
 
 type HmScope = 'my' | 'team';
 
+const STATUS_FILTER_LABELS: Record<string, string> = {
+  applied: 'Applied',
+  screening: 'Screening',
+  interview: 'Interview',
+  selected: 'Selected',
+  email_sent: 'Email Sent',
+  ho_pending: 'HO Pending',
+  joined: 'Joined',
+  rejected: 'Rejected',
+  screening_rejected: 'Screening Rejected',
+  offer_rejected: 'Offer Rejected',
+  not_interested: 'Not Interested',
+  joined_elsewhere: 'Joined Elsewhere',
+  left_company: 'Left Company',
+  doing_well: 'Doing Well',
+  issue_flagged: 'Issue Flagged',
+  no_answer: 'No Answer',
+};
+
 export default function CandidatesListPage() {
   const { user } = useAuth();
   const isRecruiter = user?.role === 'recruiter';
@@ -60,7 +79,11 @@ export default function CandidatesListPage() {
       : selectedHm
         ? `${selectedHm.name}'s Candidates`
         : 'All Candidates';
-  const listTitle = filterParam === 'hot' ? `🔥 Hot Candidates` : baseTitle;
+  const listTitle = filterParam === 'hot'
+    ? `🔥 Hot Candidates`
+    : filterParam && STATUS_FILTER_LABELS[filterParam]
+      ? `${STATUS_FILTER_LABELS[filterParam]} Candidates`
+      : baseTitle;
 
   const loadCandidates = () => {
     const params: Record<string, string> = {};
@@ -69,11 +92,7 @@ export default function CandidatesListPage() {
     if (stageFilter) params.status = stageFilter;
     if (noticePeriodFilter) params.notice_period = noticePeriodFilter;
     if (filterParam === 'new') params.stage = 'applied';
-    if (filterParam === 'joined') params.stage = 'joined';
-    if (filterParam === 'selected') params.stage = 'selected';
-    if (filterParam === 'rejected') params.stage = 'rejected';
-    if (filterParam === 'email_sent') params.stage = 'email_sent';
-    if (filterParam === 'ho_pending') params.stage = 'ho_pending';
+    else if (filterParam && STATUS_FILTER_LABELS[filterParam]) params.status = filterParam;
     if (filterParam === 'hot') params.hot = 'true';
     if (isHm) {
       params.scope = hmScope;
@@ -184,9 +203,7 @@ export default function CandidatesListPage() {
     if (stageFilter) params.status = stageFilter;
     if (noticePeriodFilter) params.notice_period = noticePeriodFilter;
     if (filterParam === 'new') params.stage = 'applied';
-    if (filterParam && ['joined', 'selected', 'rejected', 'email_sent', 'ho_pending'].includes(filterParam)) {
-      params.stage = filterParam;
-    }
+    else if (filterParam && STATUS_FILTER_LABELS[filterParam]) params.status = filterParam;
     if (filterParam === 'hot') params.hot = 'true';
     return params;
   };
@@ -313,9 +330,6 @@ export default function CandidatesListPage() {
                 <th>Job</th>
                 <th>Status</th>
                 <th>Notice Period</th>
-                <th>Risk</th>
-                <th>Interview Date</th>
-                <th>Joining Date</th>
                 <th>Recruiter</th>
                 <th>Updated</th>
               </tr>
@@ -342,20 +356,6 @@ export default function CandidatesListPage() {
                   <td>{c.job_title || '—'}</td>
                   <td><StatusBadge status={c.offer_status || c.stage} /></td>
                   <td>{c.notice_period || '—'}</td>
-                  <td>
-                    {c.screening ? (
-                      <span
-                        className={riskBadgeClass(c.screening.risk_level)}
-                        title={`Screening ${c.screening.total_score}/25 · Red flags ${c.screening.total_red_flags}/35`}
-                      >
-                        {c.screening.risk_level}
-                      </span>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>{c.interview_date ? new Date(c.interview_date).toLocaleDateString() : '—'}</td>
-                  <td>{c.joined_at ? new Date(c.joined_at).toLocaleDateString() : '—'}</td>
                   <td>{c.recruiter_name || '—'}</td>
                   <td className="text-muted">{new Date(c.updated_at).toLocaleDateString()}</td>
                 </tr>

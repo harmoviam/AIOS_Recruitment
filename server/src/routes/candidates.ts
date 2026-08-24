@@ -518,7 +518,7 @@ router.get('/export', resumeReportingOnly, async (req, res) => {
       u.name AS recruiter_name, c.ai_score, c.updated_at, c.skills, c.education,
       c.highest_qualification, c.experience_years, c.notice_period,
       c.technical_skills AS primary_skills, c.soft_skills AS secondary_skills,
-      c.current_salary, c.salary_expectation
+      c.current_salary, c.salary_expectation, c.current_location, c.relocation_allowed
     FROM candidates c
     LEFT JOIN jobs j ON c.job_id = j.id AND j.tenant_id = c.tenant_id
     LEFT JOIN users u ON c.recruiter_id = u.id AND u.tenant_id = c.tenant_id
@@ -615,6 +615,8 @@ router.get('/export', resumeReportingOnly, async (req, res) => {
     ['Education', (row: Record<string, unknown>) => educationText(row.education, row.highest_qualification)],
     ['Total Years of Experience', (row: Record<string, unknown>) => row.experience_years],
     ['Notice Period', (row: Record<string, unknown>) => row.notice_period],
+    ['Current City', (row: Record<string, unknown>) => row.current_location],
+    ['Ready to Relocate', (row: Record<string, unknown>) => row.relocation_allowed ? 'Yes' : 'No'],
     ['Current Salary', (row: Record<string, unknown>) => row.current_salary],
     ['Expected Salary', (row: Record<string, unknown>) => row.salary_expectation],
     ['Primary Skills', (row: Record<string, unknown>) => listText(row.primary_skills)],

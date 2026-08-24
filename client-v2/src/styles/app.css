@@ -809,6 +809,48 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 
 .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.admin-total-grid { display: grid; grid-template-columns: minmax(220px, 320px); margin-bottom: 1rem; }
+.candidate-status-section { margin-bottom: 1.5rem; }
+.candidate-status-flow {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(112px, 1fr));
+    gap: 1.4rem;
+    overflow-x: auto;
+    padding: 0.2rem 0.15rem 0.65rem;
+}
+.candidate-status-step {
+    position: relative;
+    min-width: 112px;
+    padding: 0.9rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--text);
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.candidate-status-step:not(:last-child)::after {
+    content: '→';
+    position: absolute;
+    right: -1.05rem;
+    top: 50%;
+    transform: translate(50%, -50%);
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+.candidate-outcome-heading { margin: 0.75rem 0 0.55rem; color: var(--text-secondary); font-size: 0.85rem; }
+.candidate-status-flow.outcomes { padding-top: 0; }
+.candidate-status-flow.outcomes .candidate-status-step::after { content: none; }
+.candidate-status-step:hover { transform: translateY(-2px); border-color: var(--primary); box-shadow: var(--shadow-md); }
+.candidate-status-label { display: block; color: var(--text-secondary); font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.candidate-status-count { display: block; margin-top: 0.35rem; font-size: 1.65rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.candidate-status-step.success { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
+.candidate-status-step.success .candidate-status-count { color: var(--success); }
+.candidate-status-step.danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.candidate-status-step.danger .candidate-status-count { color: var(--danger); }
+.candidate-status-step.warning { border-color: color-mix(in srgb, var(--warning) 40%, var(--border)); }
+.candidate-status-step.warning .candidate-status-count { color: var(--warning); }
 
 .resume-period-controls { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.25rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 .resume-custom-range { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
@@ -3103,6 +3145,7 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
     .page-content { padding: 1rem; }
     .section-title { font-size: 1.25rem; }
     .kpi-grid { gap: 0.7rem; }
+    .admin-total-grid { grid-template-columns: 1fr; }
     .grid, .dashboard-grid { gap: 0.9rem; }
     .card { padding: 1.1rem; }
     .card-value { font-size: 1.6rem; }

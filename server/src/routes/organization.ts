@@ -22,7 +22,7 @@ router.use(adminOnly);
 router.get('/overview', async (req, res) => {
   const tenantId = tid(req);
 
-  const [kpis, hiringManagers, recruiters, funnel] = await Promise.all([
+  const [kpis, hiringManagers, recruiters, funnel, statusCounts] = await Promise.all([
     pool.query(
       `SELECT
         (SELECT COUNT(*)::int FROM users WHERE tenant_id = $1 AND role = 'hiring_manager') AS hiring_managers,
@@ -72,6 +72,13 @@ router.get('/overview', async (req, res) => {
       `SELECT stage, COUNT(*)::int AS count FROM candidates WHERE tenant_id = $1 GROUP BY stage ORDER BY count DESC`,
       [tenantId]
     ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(offer_status, ''), stage) AS status, COUNT(*)::int AS count
+       FROM candidates
+       WHERE tenant_id = $1
+       GROUP BY COALESCE(NULLIF(offer_status, ''), stage)`,
+      [tenantId]
+    ),
   ]);
 
   res.json({
@@ -97,6 +104,7 @@ router.get('/overview', async (req, res) => {
       rank: idx + 1,
     })),
     funnel: funnel.rows,
+    statusCounts: statusCounts.rows,
   });
 });
 

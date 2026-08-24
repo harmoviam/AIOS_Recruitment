@@ -107,6 +107,8 @@ describe('resume reporting routes', () => {
           highest_qualification: 'B.Tech',
           experience_years: 3.5,
           notice_period: 'Within 30 Days',
+          current_location: 'Bengaluru',
+          relocation_allowed: true,
           current_salary: '6 LPA',
           salary_expectation: '8 LPA',
           primary_skills: ['Linux', 'SQL'],
@@ -126,6 +128,8 @@ describe('resume reporting routes', () => {
     expect(response.text).toContain('"Education"');
     expect(response.text).toContain('"Total Years of Experience"');
     expect(response.text).toContain('"Notice Period"');
+    expect(response.text).toContain('"Current City"');
+    expect(response.text).toContain('"Ready to Relocate"');
     expect(response.text).toContain('"Current Salary"');
     expect(response.text).toContain('"Expected Salary"');
     expect(response.text).toContain('"Primary Skills"');
@@ -136,6 +140,8 @@ describe('resume reporting routes', () => {
     expect(response.text).toContain('Teamwork, Empathy');
     expect(response.text).toContain('"6 LPA"');
     expect(response.text).toContain('"8 LPA"');
+    expect(response.text).toContain('"Bengaluru"');
+    expect(response.text).toContain('"Yes"');
     const [sql, params] = mocks.poolQuery.mock.calls[0];
     expect(String(sql)).toContain('c.notice_period = $2');
     expect(params).toContain('Within 30 Days');

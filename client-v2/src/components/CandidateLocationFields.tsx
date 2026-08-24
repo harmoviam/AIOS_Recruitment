@@ -14,7 +14,7 @@ interface Props {
   disabled?: boolean;
 }
 
-/** Location autocomplete for candidate current location with lat/lng capture. */
+/** City autocomplete for the candidate's current location with lat/lng capture. */
 export default function CandidateLocationFields({ value, onChange, disabled }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
@@ -73,7 +73,7 @@ export default function CandidateLocationFields({ value, onChange, disabled }: P
   return (
     <div className="candidate-location-fields">
       <div className="form-group">
-        <label className="form-label" htmlFor="candidate-location">Current location</label>
+        <label className="form-label" htmlFor="candidate-location">Current City</label>
         <input
           id="candidate-location"
           ref={inputRef}
@@ -89,12 +89,12 @@ export default function CandidateLocationFields({ value, onChange, disabled }: P
             })
           }
           disabled={disabled}
-          placeholder="Start typing, then pick a Google suggestion"
+          placeholder="Start typing a city, then pick a Google suggestion"
           autoComplete="off"
         />
         {hint && <p className="text-muted" style={{ fontSize: '0.85rem' }}>{hint}</p>}
         <p className="text-muted" style={{ fontSize: '0.85rem' }}>
-          Choose a suggestion from the list — do not only type and press Enter.
+          Choose a city from the suggestions to save its map coordinates.
         </p>
       </div>
       <label className="checkbox-row">
@@ -104,7 +104,7 @@ export default function CandidateLocationFields({ value, onChange, disabled }: P
           onChange={(e) => onChange({ ...value, relocation_allowed: e.target.checked })}
           disabled={disabled}
         />
-        Willing to relocate
+        Ready to Relocate
       </label>
       {(value.latitude != null || value.longitude != null) && (
         <p className="text-muted" style={{ fontSize: '0.85rem' }}>

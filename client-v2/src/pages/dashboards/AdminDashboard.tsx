@@ -7,6 +7,34 @@ import KpiCard from '../../components/ui/KpiCard';
 import { useRefetchOnFocus } from '../../utils/useRefetchOnFocus';
 import type { OrganizationOverview } from '../../types';
 
+type StatusStep = {
+  status: string;
+  label: string;
+  tone?: 'success' | 'danger' | 'warning';
+};
+
+const CANDIDATE_STATUS_FLOW: readonly StatusStep[] = [
+  { status: 'applied', label: 'Applied' },
+  { status: 'screening', label: 'Screening' },
+  { status: 'interview', label: 'Interview' },
+  { status: 'selected', label: 'Selected' },
+  { status: 'email_sent', label: 'Email Sent' },
+  { status: 'ho_pending', label: 'HO Pending' },
+  { status: 'joined', label: 'Joined', tone: 'success' },
+  { status: 'rejected', label: 'Rejected', tone: 'danger' },
+];
+
+const CANDIDATE_OUTCOMES: readonly StatusStep[] = [
+  { status: 'screening_rejected', label: 'Screening Rejected', tone: 'danger' },
+  { status: 'offer_rejected', label: 'Offer Rejected', tone: 'danger' },
+  { status: 'not_interested', label: 'Not Interested', tone: 'danger' },
+  { status: 'joined_elsewhere', label: 'Joined Elsewhere', tone: 'warning' },
+  { status: 'doing_well', label: 'Doing Well', tone: 'success' },
+  { status: 'issue_flagged', label: 'Issue Flagged', tone: 'warning' },
+  { status: 'no_answer', label: 'No Answer', tone: 'warning' },
+  { status: 'left_company', label: 'Left Company', tone: 'danger' },
+];
+
 export default function AdminDashboard() {
   const [data, setData] = useState<OrganizationOverview | null>(null);
 
@@ -20,6 +48,20 @@ export default function AdminDashboard() {
   useRefetchOnFocus(load);
 
   const kpis = data?.kpis;
+  const statusCounts = new Map((data?.statusCounts ?? []).map((item) => [item.status, Number(item.count) || 0]));
+  const statusFlow = CANDIDATE_STATUS_FLOW.map((item) => ({
+    ...item,
+    count: statusCounts.get(item.status) ?? 0,
+  }));
+  const outcomeCounts = CANDIDATE_OUTCOMES.map((item) => ({
+    ...item,
+    count: statusCounts.get(item.status) ?? 0,
+  }));
+  const stageCounts = new Map((data?.funnel ?? []).map((item) => [item.stage, Number(item.count) || 0]));
+  const funnelData = CANDIDATE_STATUS_FLOW.map((item) => ({
+    ...item,
+    count: stageCounts.get(item.status) ?? 0,
+  }));
 
   return (
     <>
@@ -30,11 +72,44 @@ export default function AdminDashboard() {
           Monitor all hiring managers, recruiters, and placement progress across your organization.
         </p>
 
-        <div className="kpi-grid">
+        <div className="admin-total-grid">
           <KpiCard title="Total Candidates" value={kpis?.candidates ?? '—'} href="/candidates" />
-          <KpiCard title="Selected" value={kpis?.selected ?? '—'} meta="Offer stage" href="/candidates?filter=selected" />
-          <KpiCard title="Joined" value={kpis?.joined ?? '—'} meta={`${kpis?.joinings_mtd ?? 0} this month`} href="/candidates?filter=joined" />
         </div>
+
+        <section className="candidate-status-section" aria-labelledby="candidate-status-heading">
+          <div className="card-header-row">
+            <div>
+              <h2 id="candidate-status-heading" className="card-heading">Candidate Status Flow</h2>
+              <p className="text-muted">Every pipeline stage in hiring order. Select a status to view its candidates.</p>
+            </div>
+            <span className="pipeline-total">Joined this month: <strong>{kpis?.joinings_mtd ?? 0}</strong></span>
+          </div>
+          <div className="candidate-status-flow">
+            {statusFlow.map((item) => (
+              <Link
+                key={item.status}
+                to={`/candidates?filter=${item.status}`}
+                className={`candidate-status-step${item.tone ? ` ${item.tone}` : ''}`}
+              >
+                <span className="candidate-status-label">{item.label}</span>
+                <strong className="candidate-status-count">{item.count}</strong>
+              </Link>
+            ))}
+          </div>
+          <h3 className="candidate-outcome-heading">Outcome &amp; Follow-up Statuses</h3>
+          <div className="candidate-status-flow outcomes">
+            {outcomeCounts.map((item) => (
+              <Link
+                key={item.status}
+                to={`/candidates?filter=${item.status}`}
+                className={`candidate-status-step${item.tone ? ` ${item.tone}` : ''}`}
+              >
+                <span className="candidate-status-label">{item.label}</span>
+                <strong className="candidate-status-count">{item.count}</strong>
+              </Link>
+            ))}
+          </div>
+        </section>
 
         <div className="dashboard-grid">
           <div className="card">
@@ -73,8 +148,8 @@ export default function AdminDashboard() {
           <div className="card">
             <h3 className="card-heading">Org Pipeline Funnel</h3>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={data?.funnel ?? []}>
-                <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
+              <BarChart data={funnelData}>
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Bar dataKey="count" fill="var(--primary)" radius={[4, 4, 0, 0]} />

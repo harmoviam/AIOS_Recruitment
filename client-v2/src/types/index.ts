@@ -1140,6 +1140,7 @@ export interface OrganizationOverview {
   hiringManagers: OrgHmSummary[];
   recruiters: OrgRecruiterSummary[];
   funnel: { stage: string; count: number }[];
+  statusCounts: { status: string; count: number }[];
 }
 
 export interface ResumeDashboardResponse {

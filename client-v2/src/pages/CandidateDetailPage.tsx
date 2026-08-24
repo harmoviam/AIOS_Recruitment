@@ -276,11 +276,23 @@ export default function CandidateDetailPage() {
         : '',
       skills: skills.join(', '),
     });
+    setStayLocation({
+      current_location: candidate.current_location || '',
+      latitude: candidate.latitude ?? null,
+      longitude: candidate.longitude ?? null,
+      relocation_allowed: Boolean(candidate.relocation_allowed),
+    });
     setProfileError('');
     setEditingProfile(true);
   };
 
   const cancelEditProfile = () => {
+    setStayLocation({
+      current_location: candidate.current_location || '',
+      latitude: candidate.latitude ?? null,
+      longitude: candidate.longitude ?? null,
+      relocation_allowed: Boolean(candidate.relocation_allowed),
+    });
     setEditingProfile(false);
     setProfileError('');
   };
@@ -328,6 +340,10 @@ export default function CandidateDetailPage() {
         salary_expectation: profileForm.salary_expectation.trim() || undefined,
         notice_period: profileForm.notice_period,
         skills: skillsList,
+        current_location: stayLocation.current_location.trim(),
+        latitude: stayLocation.latitude,
+        longitude: stayLocation.longitude,
+        relocation_allowed: stayLocation.relocation_allowed,
       });
       setCandidate({ ...candidate, ...updated });
       setEditingProfile(false);
@@ -489,6 +505,11 @@ export default function CandidateDetailPage() {
                           onChange={(e) => setProfileForm({ ...profileForm, skills: e.target.value })}
                         />
                       </div>
+                      <CandidateLocationFields
+                        value={stayLocation}
+                        onChange={setStayLocation}
+                        disabled={profileSaving}
+                      />
                     </div>
                     <div className="form-actions" style={{ marginTop: '0.75rem' }}>
                       <button type="button" className="button-pill button-secondary" onClick={cancelEditProfile} disabled={profileSaving}>
@@ -506,6 +527,8 @@ export default function CandidateDetailPage() {
                     <p>Recruiter: {candidate.recruiter_name || '—'}</p>
                     <p>Salary: {candidate.salary_expectation || '—'}</p>
                     <p>Notice period: {candidate.notice_period || '—'}</p>
+                    <p>Current City: {candidate.current_location || '—'}</p>
+                    <p>Ready to Relocate: {candidate.relocation_allowed ? 'Yes' : 'No'}</p>
                   </>
                 )}
               </div>
