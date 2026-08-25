@@ -129,9 +129,9 @@ export async function extractAndParseResume(
 ): Promise<HybridParseResult> {
   const py = await parseWithPythonService(buffer, filename, mimeType);
 
-  let text = py?.text?.trim() || '';
+  let text = (py?.text?.trim() || '').replace(/\0/g, '');
   if (!text) {
-    text = (await extractResumeText(buffer, mimeType)).trim();
+    text = (await extractResumeText(buffer, mimeType)).trim().replace(/\0/g, '');
   }
   if (!text) {
     return {

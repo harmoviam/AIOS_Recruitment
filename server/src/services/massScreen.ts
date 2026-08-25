@@ -128,25 +128,39 @@ async function loadJob(tenantId: number, jobId: number): Promise<JobScreenContex
   };
 }
 
+function stripNullBytes(obj: unknown): unknown {
+  if (typeof obj === 'string') return obj.replace(/\0/g, '');
+  if (Array.isArray(obj)) return obj.map(stripNullBytes);
+  if (obj && typeof obj === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      out[k] = stripNullBytes(v);
+    }
+    return out;
+  }
+  return obj;
+}
+
 async function saveBatchSlots(
   batchId: string,
   tenantId: number,
   slots: MassScreenSlot[],
   status?: MassScreenBatch['status']
 ): Promise<void> {
+  const safe = stripNullBytes(slots) as MassScreenSlot[];
   if (status) {
     await pool.query(
       `UPDATE mass_screen_batches
        SET slots = $1::jsonb, status = $2, updated_at = NOW()
        WHERE id = $3 AND tenant_id = $4`,
-      [JSON.stringify(slots), status, batchId, tenantId]
+      [JSON.stringify(safe), status, batchId, tenantId]
     );
   } else {
     await pool.query(
       `UPDATE mass_screen_batches
        SET slots = $1::jsonb, updated_at = NOW()
        WHERE id = $2 AND tenant_id = $3`,
-      [JSON.stringify(slots), batchId, tenantId]
+      [JSON.stringify(safe), batchId, tenantId]
     );
   }
 }
