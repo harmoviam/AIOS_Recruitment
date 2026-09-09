@@ -119,11 +119,27 @@ export function buildCriteriaClauses(
     i += 1;
   }
 
-  if (criteria.noticePeriodMaxDays != null) {
-    // Soft filter: keep rows with unknown notice OR parseable notice <= max
+  if (criteria.immediateJoinerOnly) {
+    // Only candidates who can join right away: notice is "Immediate", 0 days,
+    // a non-numeric/blank value left unparsed, or a parseable number of 0 days.
     sql += ` AND (
       c.notice_period IS NULL
       OR TRIM(c.notice_period) = ''
+      OR LOWER(COALESCE(c.notice_period, '')) ~ 'immediate|immediately|0\\s?days|can\\s+join|available\\s+(right\\s+)?now|serving'
+      OR (
+        SUBSTRING(c.notice_period FROM '\\d+') ~ '^[0-9]+$'
+        AND CAST(SUBSTRING(c.notice_period FROM '\\d+') AS INTEGER) = 0
+      )
+    )`;
+  }
+
+  if (criteria.noticePeriodMaxDays != null && !criteria.immediateJoinerOnly) {
+    // Treat zero/unparsed notice ("Immediate", free text) as 0 days so the most
+    // available candidates are always included when a notice cap is applied.
+    sql += ` AND (
+      c.notice_period IS NULL
+      OR TRIM(c.notice_period) = ''
+      OR LOWER(COALESCE(c.notice_period, '')) ~ 'immediate|immediately|0\\s?days|can\\s+join|available\\s+(right\\s+)?now|serving'
       OR (
         SUBSTRING(c.notice_period FROM '\\d+') ~ '^[0-9]+$'
         AND CAST(SUBSTRING(c.notice_period FROM '\\d+') AS INTEGER) <= $${i}
@@ -134,12 +150,20 @@ export function buildCriteriaClauses(
   }
 
   if (criteria.maxSalaryLpa != null) {
+    // Reported salary may be stored as a plain LPA number (e.g. "6 LPA") or as an
+    // absolute annual rupee figure (e.g. "700000" = 7 LPA). Normalize both to LPA
+    // before comparing so the cap filters consistently: values >= 500 are treated
+    // as absolute rupees / 1e5, otherwise they are already in LPA.
+    const big = `CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC)`;
     sql += ` AND (
       c.salary_expectation IS NULL
       OR TRIM(c.salary_expectation) = ''
       OR (
         SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') ~ '^[0-9]+(\\.[0-9]+)?$'
-        AND CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC) <= $${i}
+        AND CASE
+              WHEN ${big} >= 500 THEN ${big} / 100000.0
+              ELSE ${big}
+            END <= $${i}
       )
     )`;
     params.push(criteria.maxSalaryLpa);
@@ -151,17 +175,28 @@ export function buildCriteriaClauses(
   if (criteria.roles?.length) ftsParts.push(...criteria.roles);
   if (criteria.keywords?.length) ftsParts.push(...criteria.keywords);
   if (criteria.seniority) ftsParts.push(criteria.seniority);
-  if (ftsParts.length) {
-    const q = ftsParts.join(' ');
-    sql += ` AND (
-      c.search_tsv @@ websearch_to_tsquery('english', $${i})
-      OR c.name ILIKE $${i + 1}
-      OR COALESCE(j.title, '') ILIKE $${i + 1}
-      OR COALESCE(c.skills::text, '') ILIKE $${i + 1}
-      OR COALESCE(c.resume_text, '') ILIKE $${i + 1}
-    )`;
-    params.push(q, `%${criteria.jobTitle || criteria.roles?.[0] || ftsParts[0]}%`);
-    i += 2;
+  // Drop noise tokens the heuristic parser sometimes emits (number ranges like
+  // "0-3"/"5-6", salary strings like "4lpa", single letters). websearch_to_tsquery
+  // ANDs every term, so one junk token silently zeroes otherwise-good results.
+  const cleanFts = ftsParts.map((t) => t.trim()).filter((t) => t.length >= 3 && !/^\d/.test(t));
+  if (cleanFts.length) {
+    // Tolerant keyword matching: any single non-noise term may match (tsv or any
+    // text column) instead of one strict AND-ed tsquery over all terms.
+    const termClauses = cleanFts.map((_term) => {
+      const n = i;
+      i += 2;
+      return `(
+        c.search_tsv @@ websearch_to_tsquery('english', $${n})
+        OR c.name ILIKE $${n + 1}
+        OR COALESCE(j.title, '') ILIKE $${n + 1}
+        OR COALESCE(c.skills::text, '') ILIKE $${n + 1}
+        OR COALESCE(c.resume_text, '') ILIKE $${n + 1}
+      )`;
+    });
+    sql += ` AND (${termClauses.join(' OR ')})`;
+    for (const term of cleanFts) {
+      params.push(term, `%${term}%`);
+    }
   }
 
   return { sql, params, nextIndex: i };

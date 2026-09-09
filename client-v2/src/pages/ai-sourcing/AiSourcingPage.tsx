@@ -31,6 +31,7 @@ function emptyCriteria(): CandidateSearchCriteria {
     maxSalaryLpa: null,
     stage: null,
     minAiScore: null,
+    immediateJoinerOnly: null,
   };
 }
 
@@ -442,6 +443,31 @@ export default function AiSourcingPage() {
                       }))
                     }
                   />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'end' }}>
+                  <label
+                    htmlFor="crit-immediate"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      id="crit-immediate"
+                      type="checkbox"
+                      checked={!!criteria.immediateJoinerOnly}
+                      onChange={(e) =>
+                        setCriteria((c) => ({
+                          ...c,
+                          immediateJoinerOnly: e.target.checked ? true : null,
+                        }))
+                      }
+                    />
+                    Immediate joiners only
+                  </label>
                 </div>
                 <div>
                   <label className="form-label" htmlFor="crit-salary">

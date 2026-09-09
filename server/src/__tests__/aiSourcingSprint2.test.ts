@@ -90,6 +90,32 @@ describe('Hybrid criteria SQL builder', () => {
     expect(params).toContain(55);
     expect(params).toContainEqual(['eks', 'kubernetes', 'aws']);
   });
+
+  it('treats immediate/blank notice as available when a notice cap is set', () => {
+    const criteria = parseCriteria({ noticePeriodMaxDays: 30 });
+    const { sql, params } = buildCriteriaClauses(criteria, 2);
+    expect(sql).toMatch(/immediate|immediately/);
+    expect(params).toContain(30);
+  });
+
+  it('builds an immediate-joiners-only clause and avoids notice-cap duplication', () => {
+    const criteria = parseCriteria({
+      noticePeriodMaxDays: 30,
+      immediateJoinerOnly: true,
+    });
+    const { sql, params } = buildCriteriaClauses(criteria, 2);
+    expect(sql).toMatch(/immediate/);
+    // Cap duplicates would produce two "<= $N" notice clauses; ensure only immediate scope applies
+    const capCount = (sql.match(/CAST\(SUBSTRING\(c\.notice_period FROM '\\d\+'\) AS INTEGER\) <= /g) || []).length;
+    expect(capCount).toBe(0);
+    expect(criteriaHasSignal(criteria)).toBe(true);
+  });
+
+  it('normalizes absolute rupee salaries to LPA when building the cap', () => {
+    const criteria = parseCriteria({ maxSalaryLpa: 55 });
+    const { sql } = buildCriteriaClauses(criteria, 2);
+    expect(sql).toMatch(/100000\.0/);
+  });
 });
 
 describe('Skill ontology normalize', () => {

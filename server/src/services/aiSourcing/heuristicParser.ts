@@ -263,6 +263,17 @@ export function heuristicParseRequirements(query: string): {
     criteria.noticePeriodMaxDays = Number(notice[1]);
     fieldConfidence.noticePeriodMaxDays = 0.9;
   }
+  // "immediate joiner" / "immediately available" / "0 days notice" → 0-day notice / immediate joiners only
+  const immediateRe =
+    /(?:^|[\s,.;:!?])(?:immediate(?:ly)?\s+(?:available|joiners?|joining)\b|immediate(?:ly)?\s*$|0\s*days?(?:\s*notice(?:\s*period)?)?\b|right\s+away\b|asap\b)/i;
+  if (immediateRe.test(text)) {
+    if (criteria.noticePeriodMaxDays == null || criteria.noticePeriodMaxDays > 0) {
+      criteria.noticePeriodMaxDays = 0;
+      fieldConfidence.noticePeriodMaxDays = 0.9;
+    }
+    criteria.immediateJoinerOnly = true;
+    fieldConfidence.immediateJoinerOnly = 0.9;
+  }
 
   const salary =
     text.match(/(?:salary|ctc|package)\s*(?:below|under|less\s+than|<)\s*(?:₹|rs\.?\s*)?(\d+(?:\.\d+)?)\s*(?:lpa|lakh)/i) ||

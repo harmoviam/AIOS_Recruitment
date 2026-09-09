@@ -1084,6 +1084,13 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 }
 .filter-bar.sticky { position: sticky; top: 0; z-index: 30; }
 .filter-select { max-width: 190px; min-height: 40px; }
+.filter-num { max-width: 140px; min-height: 40px; }
+.filter-date { max-width: 155px; min-height: 40px; }
+.filter-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); align-self: center; text-transform: uppercase; letter-spacing: 0.03em; }
+.range-presets { display: inline-flex; gap: 0.35rem; align-items: center; }
+.preset-btn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.78rem; cursor: pointer; white-space: nowrap; }
+.preset-btn:hover { background: var(--border); }
+.filter-bar .input-field { min-height: 40px; }
 
 .bulk-bar {
     position: fixed;

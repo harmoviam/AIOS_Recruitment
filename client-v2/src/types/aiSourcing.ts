@@ -13,6 +13,7 @@ export type CandidateSearchCriteria = {
   maxSalaryLpa?: number | null;
   stage?: string | null;
   minAiScore?: number | null;
+  immediateJoinerOnly?: boolean | null;
 };
 
 export type FieldConfidence = Record<string, number>;

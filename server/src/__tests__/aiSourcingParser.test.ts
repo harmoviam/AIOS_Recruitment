@@ -37,6 +37,24 @@ describe('heuristicParseRequirements', () => {
     expect(criteria.minExperienceYears).toBe(1);
     expect(criteria.jobTitle).toMatch(/voice/i);
   });
+
+  it('detects immediate joiners and sets notice to 0 days', () => {
+    const { criteria, fieldConfidence } = heuristicParseRequirements(
+      'Immediate joiners in Delhi with AWS skills'
+    );
+    expect(criteria.immediateJoinerOnly).toBe(true);
+    expect(criteria.noticePeriodMaxDays).toBe(0);
+    expect(fieldConfidence.immediateJoinerOnly).toBeGreaterThan(0.5);
+  });
+
+  it('keeps a numeric notice cap when no immediate mention is present', () => {
+    const { criteria, fieldConfidence } = heuristicParseRequirements(
+      'Candidates with notice period less than 45 days'
+    );
+    expect(criteria.immediateJoinerOnly).not.toBe(true);
+    expect(criteria.noticePeriodMaxDays).toBe(45);
+    expect(fieldConfidence.noticePeriodMaxDays).toBeGreaterThan(0.5);
+  });
 });
 
 describe('RequirementParserService', () => {

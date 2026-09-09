@@ -222,7 +222,12 @@ async function applyAdminHmFilter(
 }
 
 router.get('/', async (req, res) => {
-  const { job_id, stage, status, notice_period, search, recruiter_id, scope, hot, hm_id, limit, offset } = req.query;
+  const {
+    job_id, stage, status, notice_period, search, keyword, location,
+    min_experience, max_experience, min_salary, max_salary,
+    date_from, date_to,
+    recruiter_id, scope, hot, hm_id, limit, offset,
+  } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.*, COUNT(*) OVER() AS total_count, j.title AS job_title, u.name AS recruiter_name,
@@ -267,6 +272,67 @@ router.get('/', async (req, res) => {
     params.push(`%${search}%`, String(search));
     i += 2;
   }
+  if (keyword) {
+    // Keyword search scoped to skills and resume content (not identity fields).
+    sql += ` AND (
+      LOWER(COALESCE(c.skills::text, '')) ILIKE $${i}
+      OR LOWER(COALESCE(c.technical_skills::text, '')) ILIKE $${i}
+      OR LOWER(COALESCE(c.soft_skills::text, '')) ILIKE $${i}
+      OR LOWER(COALESCE(c.resume_text, '')) ILIKE $${i}
+      OR LOWER(COALESCE(c.professional_summary, '')) ILIKE $${i}
+      OR c.search_tsv @@ websearch_to_tsquery('english', $${i + 1})
+    )`;
+    params.push(`%${String(keyword).toLowerCase()}%`, String(keyword));
+    i += 2;
+  }
+  if (location) {
+    sql += ` AND (
+      c.current_location ILIKE $${i}
+      OR c.preferred_location ILIKE $${i}
+      OR COALESCE(j.city, '') ILIKE $${i}
+      OR COALESCE(j.location, '') ILIKE $${i}
+    )`;
+    params.push(`%${location}%`);
+    i += 1;
+  }
+  if (min_experience != null && min_experience !== '') {
+    sql += ` AND COALESCE(c.experience_years, 0) >= $${i++}`;
+    params.push(Number(min_experience));
+  }
+  if (max_experience != null && max_experience !== '') {
+    sql += ` AND COALESCE(c.experience_years, 0) <= $${i++}`;
+    params.push(Number(max_experience));
+  }
+  // Normalize an absolute annual rupee figure (>= 500 is rupees / 1e5) to LPA for comparison.
+  const salaryLpaExpr =
+    `CASE
+       WHEN CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC) >= 500
+       THEN CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC) / 100000.0
+       ELSE CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC)
+     END`;
+  if (min_salary != null && min_salary !== '') {
+    sql += ` AND (${salaryLpaExpr} >= $${i++})`;
+    params.push(Number(min_salary));
+  }
+  if (max_salary != null && max_salary !== '') {
+    sql += ` AND (c.salary_expectation IS NULL OR TRIM(c.salary_expectation) = '' OR ${salaryLpaExpr} <= $${i++})`;
+    params.push(Number(max_salary));
+  }
+
+  const parsedDateFrom = parseDashboardDate(date_from);
+  const parsedDateTo = parseDashboardDate(date_to);
+  if (parsedDateFrom === undefined || parsedDateTo === undefined) {
+    return res.status(400).json({ error: 'date_from and date_to must use YYYY-MM-DD format' });
+  }
+  if (parsedDateFrom) {
+    sql += ` AND c.created_at >= ($${i++}::date)`;
+    params.push(parsedDateFrom);
+  }
+  if (parsedDateTo) {
+    sql += ` AND c.created_at < (($${i++}::date) + interval '1 day')`;
+    params.push(parsedDateTo);
+  }
+
   if (hot === 'true') {
     sql += ' AND c.is_hot = TRUE';
   }
@@ -511,7 +577,7 @@ router.get('/export.xlsx', resumeReportingOnly, async (req, res) => {
 });
 
 router.get('/export', resumeReportingOnly, async (req, res) => {
-  const { job_id, stage, status, notice_period, search, hot, ids, recruiter_id, scope, hm_id } = req.query;
+  const { job_id, stage, status, notice_period, search, keyword, location, min_experience, max_experience, min_salary, max_salary, hot, ids, date_from, date_to, recruiter_id, scope, hm_id } = req.query;
   const t = tenantClause(tid(req), 'c', 1);
   let sql = `
     SELECT c.name, c.email, c.phone, c.stage, c.offer_status, j.title AS job_title,
@@ -559,8 +625,63 @@ router.get('/export', resumeReportingOnly, async (req, res) => {
     params.push(`%${search}%`);
     i++;
   }
+  if (keyword) {
+    sql += ` AND (
+      LOWER(COALESCE(c.skills::text, '')) ILIKE $${i}
+      OR LOWER(COALESCE(c.technical_skills::text, '')) ILIKE $${i}
+      OR LOWER(COALESCE(c.resume_text, '')) ILIKE $${i}
+    )`;
+    params.push(`%${String(keyword).toLowerCase()}%`);
+    i++;
+  }
+  if (location) {
+    sql += ` AND (
+      c.current_location ILIKE $${i}
+      OR c.preferred_location ILIKE $${i}
+      OR COALESCE(j.city, '') ILIKE $${i}
+      OR COALESCE(j.location, '') ILIKE $${i}
+    )`;
+    params.push(`%${location}%`);
+    i++;
+  }
+  const salaryLpaExpr =
+    `CASE
+       WHEN CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC) >= 500
+       THEN CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC) / 100000.0
+       ELSE CAST(SUBSTRING(c.salary_expectation FROM '\\d+(?:\\.\\d+)?') AS NUMERIC)
+     END`;
+  if (min_experience != null && min_experience !== '') {
+    sql += ` AND COALESCE(c.experience_years, 0) >= $${i++}`;
+    params.push(Number(min_experience));
+  }
+  if (max_experience != null && max_experience !== '') {
+    sql += ` AND COALESCE(c.experience_years, 0) <= $${i++}`;
+    params.push(Number(max_experience));
+  }
+  if (min_salary != null && min_salary !== '') {
+    sql += ` AND (${salaryLpaExpr} >= $${i++})`;
+    params.push(Number(min_salary));
+  }
+  if (max_salary != null && max_salary !== '') {
+    sql += ` AND (c.salary_expectation IS NULL OR TRIM(c.salary_expectation) = '' OR ${salaryLpaExpr} <= $${i++})`;
+    params.push(Number(max_salary));
+  }
   if (hot === 'true') {
     sql += ' AND c.is_hot = TRUE';
+  }
+
+  const parsedDateFrom = parseDashboardDate(date_from);
+  const parsedDateTo = parseDashboardDate(date_to);
+  if (parsedDateFrom === undefined || parsedDateTo === undefined) {
+    return res.status(400).json({ error: 'date_from and date_to must use YYYY-MM-DD format' });
+  }
+  if (parsedDateFrom) {
+    sql += ` AND c.created_at >= ($${i++}::date)`;
+    params.push(parsedDateFrom);
+  }
+  if (parsedDateTo) {
+    sql += ` AND c.created_at < (($${i++}::date) + interval '1 day')`;
+    params.push(parsedDateTo);
   }
 
   const userScope = candidateScopeSql(req, 'c', i, scope === 'my' || scope === 'team' ? scope : undefined);

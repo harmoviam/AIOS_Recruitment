@@ -93,6 +93,7 @@ export class RequirementParserService {
       maxSalaryLpa: preferDefined(l.maxSalaryLpa, h.maxSalaryLpa) ?? null,
       stage: preferDefined(l.stage, h.stage) ?? null,
       minAiScore: preferDefined(l.minAiScore, h.minAiScore) ?? null,
+      immediateJoinerOnly: l.immediateJoinerOnly ?? h.immediateJoinerOnly ?? null,
     });
 
     // Boost confidence for fields the LLM filled; keep heuristic scores otherwise.

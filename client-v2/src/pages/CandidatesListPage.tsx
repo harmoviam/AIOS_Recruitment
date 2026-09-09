@@ -12,6 +12,10 @@ import type { Candidate, HiringManager, Job, RecruiterStat } from '../types';
 
 type HmScope = 'my' | 'team';
 
+function localDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const STATUS_FILTER_LABELS: Record<string, string> = {
   applied: 'Applied',
   screening: 'Screening',
@@ -39,14 +43,23 @@ export default function CandidatesListPage() {
   const canExport = isAdmin || isHm;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const today = localDate(new Date());
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [teamRecruiters, setTeamRecruiters] = useState<RecruiterStat[]>([]);
   const [hiringManagers, setHiringManagers] = useState<HiringManager[]>([]);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [jobFilter, setJobFilter] = useState('');
   const [noticePeriodFilter, setNoticePeriodFilter] = useState('');
+  const [keywordFilter, setKeywordFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [minExp, setMinExp] = useState('');
+  const [maxExp, setMaxExp] = useState('');
+  const [minSalary, setMinSalary] = useState('');
+  const [maxSalary, setMaxSalary] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [hmScope, setHmScope] = useState<HmScope>('team');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -88,6 +101,14 @@ export default function CandidatesListPage() {
   const loadCandidates = () => {
     const params: Record<string, string> = {};
     if (search) params.search = search;
+    if (keywordFilter.trim()) params.keyword = keywordFilter.trim();
+    if (locationFilter.trim()) params.location = locationFilter.trim();
+    if (minExp) params.min_experience = minExp;
+    if (maxExp) params.max_experience = maxExp;
+    if (minSalary) params.min_salary = minSalary;
+    if (maxSalary) params.max_salary = maxSalary;
+    params.date_from = dateFrom;
+    params.date_to = dateTo;
     if (jobFilter) params.job_id = jobFilter;
     if (stageFilter) params.status = stageFilter;
     if (noticePeriodFilter) params.notice_period = noticePeriodFilter;
@@ -129,7 +150,7 @@ export default function CandidatesListPage() {
     setSelected(new Set());
     loadCandidates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, jobFilter, stageFilter, noticePeriodFilter, filterParam, hmScope, recruiterFilter, hmFilter]);
+  }, [search, keywordFilter, locationFilter, minExp, maxExp, minSalary, maxSalary, dateFrom, dateTo, jobFilter, stageFilter, noticePeriodFilter, filterParam, hmScope, recruiterFilter, hmFilter]);
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -199,6 +220,14 @@ export default function CandidatesListPage() {
   const exportFilterParams = (): Record<string, string> => {
     const params = scopeParams();
     if (search) params.search = search;
+    if (keywordFilter.trim()) params.keyword = keywordFilter.trim();
+    if (locationFilter.trim()) params.location = locationFilter.trim();
+    if (minExp) params.min_experience = minExp;
+    if (maxExp) params.max_experience = maxExp;
+    if (minSalary) params.min_salary = minSalary;
+    if (maxSalary) params.max_salary = maxSalary;
+    params.date_from = dateFrom;
+    params.date_to = dateTo;
     if (jobFilter) params.job_id = jobFilter;
     if (stageFilter) params.status = stageFilter;
     if (noticePeriodFilter) params.notice_period = noticePeriodFilter;
@@ -259,6 +288,30 @@ export default function CandidatesListPage() {
         )}
 
         <div className="filter-bar sticky">
+          <span className="filter-label">From</span>
+          <input
+            className="input-field filter-date"
+            type="date"
+            value={dateFrom}
+            max={dateTo}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="From date"
+          />
+          <span className="filter-label">To</span>
+          <input
+            className="input-field filter-date"
+            type="date"
+            value={dateTo}
+            min={dateFrom}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="To date"
+          />
+          <div className="range-presets">
+            <button type="button" className="preset-btn" onClick={() => { setDateFrom(today); setDateTo(today); }}>Today</button>
+            <button type="button" className="preset-btn" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 6); setDateFrom(localDate(d)); setDateTo(today); }}>7 days</button>
+            <button type="button" className="preset-btn" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 29); setDateFrom(localDate(d)); setDateTo(today); }}>30 days</button>
+            <button type="button" className="preset-btn" onClick={() => { setDateFrom(''); setDateTo(''); }}>All</button>
+          </div>
           <select className="input-field filter-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
             <option value="">All statuses</option>
             <optgroup label="Pipeline stage">
@@ -318,6 +371,59 @@ export default function CandidatesListPage() {
               ))}
             </select>
           )}
+        </div>
+
+        <div className="filter-bar sticky" style={{ flexWrap: 'wrap' }}>
+          <input
+            className="input-field"
+            placeholder="Keyword (skills, resume)…"
+            value={keywordFilter}
+            onChange={(e) => setKeywordFilter(e.target.value)}
+            aria-label="Keyword search"
+          />
+          <input
+            className="input-field"
+            placeholder="Location…"
+            value={locationFilter}
+            onChange={(e) => setLocationFilter(e.target.value)}
+            aria-label="Location"
+          />
+          <input
+            className="input-field filter-num"
+            type="number"
+            min={0}
+            placeholder="Min exp (yrs)"
+            value={minExp}
+            onChange={(e) => setMinExp(e.target.value)}
+            aria-label="Min experience"
+          />
+          <input
+            className="input-field filter-num"
+            type="number"
+            min={0}
+            placeholder="Max exp (yrs)"
+            value={maxExp}
+            onChange={(e) => setMaxExp(e.target.value)}
+            aria-label="Max experience"
+          />
+          <input
+            className="input-field filter-num"
+            type="number"
+            min={0}
+            placeholder="Min salary (LPA)"
+            value={minSalary}
+            onChange={(e) => setMinSalary(e.target.value)}
+            aria-label="Min salary"
+          />
+          <input
+            className="input-field filter-num"
+            type="number"
+            min={0}
+            placeholder="Max salary (LPA)"
+            value={maxSalary}
+            onChange={(e) => setMaxSalary(e.target.value)}
+            aria-label="Max salary"
+          />
         </div>
 
         <div className="table-wrap card flush">

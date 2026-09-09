@@ -48,6 +48,7 @@ const criteriaInputSchema = z
       .nullable()
       .optional(),
     minAiScore: z.number().min(0).max(10).nullable().optional(),
+    immediateJoinerOnly: z.boolean().nullable().optional(),
   })
   .optional();
 

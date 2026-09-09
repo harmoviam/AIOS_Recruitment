@@ -19,6 +19,7 @@ export const candidateSearchCriteriaSchema = z.object({
     .optional()
     .nullable(),
   minAiScore: z.number().min(0).max(10).optional().nullable(),
+  immediateJoinerOnly: z.boolean().optional().nullable(),
 });
 
 export type CandidateSearchCriteria = z.infer<typeof candidateSearchCriteriaSchema>;
@@ -43,6 +44,7 @@ export function emptyCriteria(): CandidateSearchCriteria {
     maxSalaryLpa: null,
     stage: null,
     minAiScore: null,
+    immediateJoinerOnly: null,
   };
 }
 
@@ -83,6 +85,7 @@ export function criteriaHasSignal(c: CandidateSearchCriteria): boolean {
       c.noticePeriodMaxDays != null ||
       c.maxSalaryLpa != null ||
       c.stage ||
-      c.minAiScore != null
+      c.minAiScore != null ||
+      c.immediateJoinerOnly != null
   );
 }
