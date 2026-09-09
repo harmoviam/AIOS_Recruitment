@@ -412,7 +412,16 @@ router.get('/resume-dashboard', resumeReportingOnly, async (req, res) => {
   const managerId = `CASE WHEN owner.role = 'hiring_manager' THEN owner.id ELSE hm.id END`;
   const managerName = `CASE WHEN owner.role = 'hiring_manager' THEN owner.name ELSE hm.name END`;
 
-  const [totals, jobs, statuses, managers] = await Promise.all([
+  // A single city per candidate — the first segment of current_location, falling
+  // back to preferred_location, with pincodes stripped and blanks grouped as
+  // "Not Specified". Common spelling variants are folded in JS before display.
+  const cityExpr = `COALESCE(NULLIF(TRIM(REGEXP_REPLACE(
+    CASE
+      WHEN NULLIF(TRIM(c.current_location), '') IS NOT NULL THEN SPLIT_PART(c.current_location, ',', 1)
+      ELSE COALESCE(NULLIF(TRIM(c.preferred_location), ''), '')
+    END, '\\d{6}', '', 'g')), ''), 'Not Specified')`;
+
+  const [totals, jobs, statuses, managers, byDate, byNotice, byCity] = await Promise.all([
     pool.query(
       `SELECT COUNT(*)::int AS resumes,
         COUNT(DISTINCT c.job_id)::int AS jobs,
@@ -452,14 +461,39 @@ router.get('/resume-dashboard', resumeReportingOnly, async (req, res) => {
         COUNT(*)::int AS count
        FROM candidates c${ownershipJoins}
        WHERE ${where}
-       GROUP BY ${managerId}, ${managerName},
-         CASE WHEN owner.role = 'recruiter' THEN owner.id ELSE NULL END,
-         CASE
-           WHEN owner.role = 'recruiter' THEN owner.name
-           WHEN owner.role = 'hiring_manager' THEN 'Direct / Unassigned Recruiter'
-           ELSE 'Unassigned Recruiter'
-         END
-       ORDER BY hiring_manager_name, count DESC, recruiter_name`,
+GROUP BY ${managerId}, ${managerName},
+          CASE WHEN owner.role = 'recruiter' THEN owner.id ELSE NULL END,
+          CASE
+            WHEN owner.role = 'recruiter' THEN owner.name
+            WHEN owner.role = 'hiring_manager' THEN 'Direct / Unassigned Recruiter'
+            ELSE 'Unassigned Recruiter'
+          END
+        ORDER BY hiring_manager_name, count DESC, recruiter_name`,
+      params
+    ),
+    pool.query(
+      `SELECT to_char(c.created_at::date, 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
+       FROM candidates c${ownershipJoins}
+       WHERE ${where}
+       GROUP BY c.created_at::date
+       ORDER BY date ASC`,
+      params
+    ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(TRIM(c.notice_period), ''), 'Not Specified') AS notice_period,
+        COUNT(*)::int AS count
+       FROM candidates c${ownershipJoins}
+       WHERE ${where}
+       GROUP BY 1
+       ORDER BY count DESC, notice_period`,
+      params
+    ),
+    pool.query(
+      `SELECT ${cityExpr} AS city, COUNT(*)::int AS count
+       FROM candidates c${ownershipJoins}
+       WHERE ${where}
+       GROUP BY 1
+       ORDER BY count DESC, city`,
       params
     ),
   ]);
@@ -504,6 +538,12 @@ router.get('/resume-dashboard', resumeReportingOnly, async (req, res) => {
     })),
     byStatus: statuses.rows.map((row) => ({ status: row.status, count: Number(row.count) || 0 })),
     byManager: [...managerMap.values()].sort((a, b) => b.count - a.count || a.hiringManagerName.localeCompare(b.hiringManagerName)),
+    byDate: byDate.rows.map((row) => ({ date: row.date, count: Number(row.count) || 0 })),
+    byNoticePeriod: byNotice.rows.map((row) => ({
+      noticePeriod: row.notice_period,
+      count: Number(row.count) || 0,
+    })),
+    byCity: byCity.rows.map((row) => ({ city: row.city, count: Number(row.count) || 0 })),
   });
 });
 

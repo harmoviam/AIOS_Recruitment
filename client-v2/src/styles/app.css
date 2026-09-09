@@ -858,6 +858,7 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; line-height: 1.25; }
 .resume-dashboard-grid { grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr); }
 .resume-status-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; }
 .resume-status-list > div { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.65rem; border-radius: var(--radius); background: var(--surface-2); }
+.resume-status-list .notice-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.85rem; }
 
 .kpi-card-link { text-decoration: none; color: inherit; transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; display: block; }
 .kpi-card-link:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }

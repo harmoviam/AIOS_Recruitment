@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/client';
 import KpiCard from '../components/ui/KpiCard';
 import PageHeader from '../components/ui/PageHeader';
@@ -10,6 +10,39 @@ import type { ResumeDashboardResponse } from '../types';
 type Period = 'all' | '7' | '30' | '90' | 'custom';
 
 const CHART_COLORS = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4', '#64748B', '#EC4899'];
+
+// Fold common spelling variants of the same city into a single bucket.
+const CITY_ALIASES: Record<string, string> = {
+  bengaluru: 'Bengaluru',
+  bangalore: 'Bengaluru',
+  banglore: 'Bengaluru',
+  benguluru: 'Bengaluru',
+  "b'lore": 'Bengaluru',
+  bombay: 'Mumbai',
+  hyderabad: 'Hyderabad',
+  secunderabad: 'Hyderabad',
+  hyd: 'Hyderabad',
+  chennai: 'Chennai',
+  madras: 'Chennai',
+  kolkata: 'Kolkata',
+  calcutta: 'Kolkata',
+  pune: 'Pune',
+  poona: 'Pune',
+  delhi: 'Delhi NCR',
+  'new delhi': 'Delhi NCR',
+  noida: 'Delhi NCR',
+  gurgaon: 'Delhi NCR',
+  gurugram: 'Delhi NCR',
+  faridabad: 'Delhi NCR',
+  ghaziabad: 'Delhi NCR',
+  ahmedabad: 'Ahmedabad',
+};
+
+function foldCity(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (CITY_ALIASES[normalized]) return CITY_ALIASES[normalized];
+  return raw.trim().replace(/\s+/g, ' ');
+}
 
 function localDate(date: Date): string {
   const year = date.getFullYear();
@@ -61,13 +94,35 @@ export default function ResumeDashboardPage() {
     [data]
   );
 
+  const dateChart = useMemo(
+    () => (data?.byDate || []).map((row) => {
+      const label = row.date.slice(5).replace('-', '/');
+      return { ...row, label };
+    }),
+    [data]
+  );
+
+  const noticeChart = useMemo(() => (data?.byNoticePeriod || []), [data]);
+
+  const cityChart = useMemo(() => {
+    const merged = new Map<string, number>();
+    for (const row of data?.byCity || []) {
+      const city = foldCity(row.city);
+      merged.set(city, (merged.get(city) || 0) + row.count);
+    }
+    return [...merged.entries()]
+      .map(([city, count]) => ({ city, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+  }, [data]);
+
   return (
     <>
       <TopBar breadcrumbs={[{ label: 'Dashboard', href: '/' }, { label: 'Resume Dashboard' }]} />
       <div className="page-content">
         <PageHeader
           title="Resume Analytics"
-          description="Uploaded-resume coverage by job, candidate status, hiring manager, and recruiter."
+          description="Sourcing summary by job, date, notice period, city, candidate status, hiring manager, and recruiter."
           actions={
             <div className="resume-period-controls" aria-label="Resume dashboard date range">
               {(['all', '7', '30', '90', 'custom'] as Period[]).map((item) => (
@@ -140,6 +195,75 @@ export default function ResumeDashboardPage() {
                       {data!.byStatus.map((row) => <div key={row.status}><StatusBadge status={row.status} /><strong>{row.count}</strong></div>)}
                     </div>
                   </>
+                )}
+              </section>
+            </div>
+
+            <section className="card">
+              <div className="card-header-row">
+                <h2 className="card-heading">Candidates Sourced by Date</h2>
+                <span className="text-muted">Uploaded-resume volume per day</span>
+              </div>
+              {dateChart.length === 0 ? <p className="empty-inline">No data in this period.</p> : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={dateChart} margin={{ top: 10, right: 16, left: 0, bottom: 4 }}>
+                    <defs>
+                      <linearGradient id="sourcedGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={24} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(value) => [value, 'Candidates']} labelFormatter={(_, payload) => payload[0]?.payload?.date || ''} />
+                    <Area type="monotone" dataKey="count" stroke="var(--primary)" strokeWidth={2} fill="url(#sourcedGradient)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </section>
+
+            <div className="dashboard-grid resume-dashboard-grid">
+              <section className="card">
+                <h2 className="card-heading">Notice Period</h2>
+                {noticeChart.length === 0 ? <p className="empty-inline">No notice period data available.</p> : (
+                  <>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie data={noticeChart} dataKey="count" nameKey="noticePeriod" innerRadius={58} outerRadius={92} paddingAngle={2}>
+                          {noticeChart.map((row, index) => <Cell key={row.noticePeriod} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip formatter={(value) => [value, 'Candidates']} />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="resume-status-list">
+                      {noticeChart.map((row) => (
+                        <div key={row.noticePeriod} className="resume-status-row">
+                          <span className="notice-label">{row.noticePeriod}</span>
+                          <strong>{row.count}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              <section className="card">
+                <div className="card-header-row">
+                  <h2 className="card-heading">City-wise Candidates</h2>
+                  <span className="text-muted">Top {Math.min(cityChart.length, 8)} cities</span>
+                </div>
+                {cityChart.length === 0 ? <p className="empty-inline">No location data available.</p> : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={cityChart} layout="vertical" margin={{ left: 12, right: 28 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <YAxis type="category" dataKey="city" width={145} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(value) => [value, 'Candidates']} />
+                      <Bar dataKey="count" fill="var(--primary)" radius={[0, 5, 5, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 )}
               </section>
             </div>
