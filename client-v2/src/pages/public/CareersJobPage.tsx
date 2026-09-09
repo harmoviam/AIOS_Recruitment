@@ -1,212 +1,271 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
 import { api } from '../../api/client';
-import { mixWithWhite, withAlpha } from '../../lib/brandColor';
 import type { CareersTenant, PublicJob } from '../../types';
+import '../../styles/careers.css';
+import ApplicationWizard from '../../components/careers/ApplicationWizard';
+import CareersFooter from '../../components/careers/CareersFooter';
+import CareersNav from '../../components/careers/CareersNav';
+import { CareersPageError } from '../../components/careers/CareerStates';
+import {
+  employmentType,
+  formatExperience,
+  formatOpenings,
+  formatPosted,
+  jobCity,
+  parseSalary,
+  workMode,
+} from '../../components/careers/careers';
+import { IconArrowRight, IconBriefcase, IconClock, IconCoins, IconOffice, IconPin } from '../../components/careers/icons';
+import { usePageMeta } from '../../components/careers/usePageMeta';
+
+/** Minimal inline formatter: **bold** and line/paragraph structure only. */
+function renderDescription(text: string): ReactNode {
+  const clean = text.replace(/\r/g, '');
+  const blocks = clean.split(/\n{2,}/).filter((b) => b.trim());
+  return (
+    <div className="careers-prose">
+      {blocks.map((block, bi) => {
+        const lines = block.split('\n');
+        const isList = lines.length > 1 && lines.every((l) => /^[-•*]\s+/.test(l.trim()));
+        if (isList) {
+          return (
+            <ul key={bi}>
+              {lines.map((l, i) => (
+                <li key={i}>{inline(l.trim().replace(/^[-•*]\s+/, ''))}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (lines.length === 1 && /^[-•*]\s+/.test(lines[0].trim())) {
+          return <p key={bi}>{inline(lines[0].trim().replace(/^[-•*]\s+/, ''))}</p>;
+        }
+        return <p key={bi}>{inline(lines.join(' '))}</p>;
+      })}
+    </div>
+  );
+}
+
+function inline(text: string): ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4 ? <strong key={i}>{part.slice(2, -2)}</strong> : part
+  );
+}
+
+interface Fact {
+  dt: string;
+  dd: ReactNode;
+}
 
 export default function CareersJobPage() {
   const { tenantSlug, jobId } = useParams();
+  const [searchParams] = useSearchParams();
   const [tenant, setTenant] = useState<CareersTenant | null>(null);
   const [job, setJob] = useState<PublicJob | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [applyOpen, setApplyOpen] = useState(false);
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [resume, setResume] = useState<File | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [applied, setApplied] = useState(false);
-  const [applyError, setApplyError] = useState('');
-
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!tenantSlug || !jobId) return;
+    setLoading(true);
+    setError(null);
     Promise.all([api.careersGetTenant(tenantSlug), api.careersGetJob(tenantSlug, Number(jobId))])
       .then(([t, j]) => {
         setTenant(t);
         setJob(j);
       })
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load this role.'))
       .finally(() => setLoading(false));
   }, [tenantSlug, jobId]);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tenantSlug || !jobId) return;
-    setApplyError('');
-    setSubmitting(true);
-    try {
-      await api.careersApply(tenantSlug, Number(jobId), { name, email, phone, resume });
-      setApplied(true);
-    } catch (err) {
-      setApplyError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  useEffect(() => {
+    load();
+    window.scrollTo(0, 0);
+  }, [load]);
+
+  const urlCity = searchParams.get('city') || undefined;
+  const defaultCity = useMemo(() => urlCity || job?.city || undefined, [urlCity, job]);
+
+  const facts: Fact[] = useMemo(() => {
+    if (!job) return [];
+    const salary = parseSalary(job.salary);
+    const type = employmentType(job);
+    const mode = workMode(job);
+    const items: Fact[] = [];
+    if (jobCity(job)) items.push({ dt: 'Location', dd: jobCity(job) });
+    if (job.state) items.push({ dt: 'State', dd: job.state });
+    if (salary.label) items.push({ dt: 'Salary', dd: salary.label });
+    const exp = formatExperience(job.min_experience, job.max_experience);
+    if (exp) items.push({ dt: 'Experience', dd: exp });
+    if (type) items.push({ dt: 'Role type', dd: type });
+    if (mode) items.push({ dt: 'Work mode', dd: mode });
+    if (job.shift) items.push({ dt: 'Shift', dd: job.shift });
+    if (job.industry) items.push({ dt: 'Industry', dd: job.industry });
+    const openings = formatOpenings(job.open_positions);
+    if (openings) items.push({ dt: 'Openings', dd: openings });
+    items.push({ dt: 'Posted', dd: formatPosted(job.created_at) });
+    return items;
+  }, [job]);
+
+  usePageMeta(
+    job && tenant ? `${job.title} | ${tenant.name} Careers` : tenant ? `${tenant.name} Careers` : 'Careers',
+    job && tenant
+      ? `${job.title} at ${tenant.name}${jobCity(job) ? ` in ${jobCity(job)}` : ''}${parseSalary(job.salary).label ? ` · ${parseSalary(job.salary).label}` : ''}. Free to apply.`
+      : undefined
+  );
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Loading…</div>
-    );
-  }
-  if (error || !tenant || !job) {
-    return (
-      <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
-        <h1>Job not found</h1>
-        <p style={{ color: '#6b7280' }}>{error || 'This position is no longer available.'}</p>
+      <div className="careers-shell" >
+        <div className="careers-container" style={{ paddingTop: 40, display: 'grid', gap: 16 }}>
+          <div className="careers-skeleton"><div className="careers-skeleton-line short" /><div className="careers-skeleton-line" style={{ height: 30 }} /><div className="careers-skeleton-line tiny" /></div>
+          <div className="careers-skeleton"><div className="careers-skeleton-line short" /><div className="careers-skeleton-line tiny" /></div>
+        </div>
       </div>
     );
   }
 
-  const brand = tenant.primary_color || '#2563EB';
-  const wash = mixWithWhite(brand, 0.92);
-  const soft = mixWithWhite(brand, 0.85);
-  const input = {
-    width: '100%',
-    padding: '0.7rem 0.85rem',
-    borderRadius: 10,
-    border: `1px solid ${soft}`,
-    fontSize: '0.95rem',
-    boxSizing: 'border-box' as const,
-    background: '#fff',
-  };
+  if (error || !tenant || !job) {
+    return (
+      <div className="careers-shell" >
+        <CareersPageError title="Role not found" message={error || 'This position is no longer available.'} />
+      </div>
+    );
+  }
+
+  const skills = Array.isArray(job.required_skills) ? job.required_skills : [];
+  const salaryLabel = parseSalary(job.salary).label;
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: `radial-gradient(900px 420px at 20% -5%, ${withAlpha(brand, 0.22)}, transparent 55%), linear-gradient(180deg, ${wash} 0%, #f8fafc 40%, #f8fafc 100%)`,
-        fontFamily: '"Source Sans 3", "Segoe UI", sans-serif',
-        color: '#0f172a',
-      }}
-    >
-      <header
-        style={{
-          background: `linear-gradient(160deg, ${brand} 0%, ${mixWithWhite(brand, 0.18)} 100%)`,
-          color: '#fff',
-          padding: '1.75rem 1.5rem 2rem',
-        }}
-      >
-        <div style={{ maxWidth: 760, margin: '0 auto' }}>
-          <Link
-            to={`/careers/${tenantSlug}`}
-            style={{ color: '#fff', opacity: 0.9, textDecoration: 'none', fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}
-          >
-            {tenant.logo_url ? (
-              <img
-                src={tenant.logo_url}
-                alt=""
-                width={28}
-                height={28}
-                style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 3 }}
-              />
-            ) : null}
-            ← All jobs at {tenant.name}
-          </Link>
-          <h1
-            style={{
-              margin: '0.85rem 0 0',
-              fontSize: 'clamp(1.5rem, 3.5vw, 2rem)',
-              fontFamily: '"Fraunces", Georgia, serif',
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            {job.title}
-          </h1>
-          <p style={{ margin: '0.4rem 0 0', opacity: 0.92 }}>{job.location}</p>
-        </div>
-      </header>
+    <div className="careers-shell careers-detail-page"  data-city={defaultCity || ''}>
+      <div>
+        <CareersNav tenant={tenant} page="job" onApply={() => setApplyOpen(true)} />
 
-      <main style={{ maxWidth: 760, margin: '0 auto', padding: '2rem 1rem 3rem', display: 'grid', gap: '1.25rem' }}>
-        {job.description && (
-          <section>
-            <h2 style={{ marginTop: 0, fontSize: '1.05rem', color: brand }}>About this role</h2>
-            <div style={{ whiteSpace: 'pre-wrap', color: '#334155', lineHeight: 1.7, fontSize: '0.97rem' }}>
-              {job.description}
-            </div>
-          </section>
-        )}
+        <main className="careers-detail">
+          <div className="careers-container">
+            <Link className="careers-back" to={`/careers/${tenant.slug}`}>
+              <IconArrowRight width={16} height={16} style={{ transform: 'rotate(180deg)' }} />
+              All jobs at {tenant.name}
+            </Link>
 
-        <section
-          style={{
-            background: '#fff',
-            borderRadius: 16,
-            padding: '1.5rem',
-            border: `1px solid ${soft}`,
-            boxShadow: `0 10px 30px ${withAlpha(brand, 0.08)}`,
-          }}
-        >
-          {applied ? (
-            <div style={{ textAlign: 'center', padding: '1.25rem 0' }}>
-              <h2 style={{ margin: '0.25rem 0', fontFamily: '"Fraunces", Georgia, serif' }}>Application received</h2>
-              <p style={{ color: '#64748b', lineHeight: 1.55 }}>
-                Thanks {name.split(' ')[0]} — the {tenant.name} recruitment team will review your profile and get in touch.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={submit}>
-              <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Apply for this position</h2>
-              {applyError && (
-                <div style={{ background: '#fef2f2', color: '#b91c1c', borderRadius: 8, padding: '0.6rem 0.9rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
-                  {applyError}
+            <header className="careers-detail-hero">
+              <div className="careers-detail-head">
+                <div className="careers-detail-main">
+                  <h1 className="careers-detail-title">{job.title}</h1>
+                  {job.client && <div className="careers-detail-company">{job.client}</div>}
+                  <div className="careers-detail-chips">
+                    {jobCity(job) && (
+                      <span className="careers-detail-chip">
+                        <IconPin /> {jobCity(job)}
+                      </span>
+                    )}
+                    {(employmentType(job) || workMode(job)) && (
+                      <span className="careers-detail-chip">
+                        <IconBriefcase /> {employmentType(job) || workMode(job)}
+                      </span>
+                    )}
+                    {formatExperience(job.min_experience, job.max_experience) && (
+                      <span className="careers-detail-chip">
+                        <IconClock /> {formatExperience(job.min_experience, job.max_experience)}
+                      </span>
+                    )}
+                    {salaryLabel && (
+                      <span className="careers-detail-chip">
+                        <IconCoins /> {salaryLabel}
+                      </span>
+                    )}
+                    {job.open_positions > 1 && (
+                      <span className="careers-detail-chip">
+                        <IconOffice /> {job.open_positions} openings
+                      </span>
+                    )}
+                    {job.shift && <span className="careers-detail-chip">{job.shift}</span>}
+                  </div>
                 </div>
-              )}
-              <div style={{ display: 'grid', gap: '0.9rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.3rem' }}>Full name *</label>
-                  <input style={input} value={name} onChange={(e) => setName(e.target.value)} required />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.3rem' }}>Phone *</label>
-                  <input style={input} value={phone} onChange={(e) => setPhone(e.target.value)} required placeholder="+91" />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.3rem' }}>Email</label>
-                  <input style={input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.3rem' }}>
-                    Resume (PDF or Word)
-                  </label>
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx"
-                    onChange={(e) => setResume(e.target.files?.[0] || null)}
-                  />
-                </div>
-                <input
-                  type="text"
-                  name="website"
-                  tabIndex={-1}
-                  autoComplete="off"
-                  style={{ position: 'absolute', left: '-9999px', height: 0, width: 0, border: 0, padding: 0 }}
-                  aria-hidden="true"
-                />
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  style={{
-                    background: brand,
-                    color: '#fff',
-                    border: 0,
-                    borderRadius: 999,
-                    padding: '0.8rem 1.5rem',
-                    fontSize: '1rem',
-                    fontWeight: 600,
-                    cursor: submitting ? 'wait' : 'pointer',
-                  }}
-                >
-                  {submitting ? 'Submitting…' : 'Submit application'}
-                </button>
               </div>
-            </form>
-          )}
-        </section>
+            </header>
 
-        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.78rem' }}>Powered by HarmiRecruit</p>
-      </main>
+            <div className="careers-detail-grid">
+              <div className="careers-detail-body">
+                {job.description?.trim() ? (
+                  <section className="careers-detail-panel">
+                    <h2>About the role</h2>
+                    {renderDescription(job.description)}
+                  </section>
+                ) : null}
+
+                {skills.length > 0 && (
+                  <section className="careers-detail-panel">
+                    <h2>Key skills</h2>
+                    <div className="careers-job-skills">
+                      {skills.map((s) => (
+                        <span key={s} className="careers-skill-tag">{s}</span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {!job.description?.trim() && skills.length === 0 && (
+                  <section className="careers-detail-panel">
+                    <p className="careers-muted" style={{ margin: 0 }}>
+                      Full details for this role are shared at the interview stage.
+                    </p>
+                  </section>
+                )}
+              </div>
+
+              <aside className="careers-detail-aside">
+                <div className="careers-apply-sticky">
+                  <div className="careers-apply-card">
+                    <h2 className="careers-apply-lead">Ready when you are.</h2>
+                    <p className="careers-muted" style={{ fontSize: 14, margin: 0 }}>
+                      Apply in about 2 minutes — free, and your details stay private until you submit.
+                    </p>
+                    <button
+                      type="button"
+                      className="careers-btn careers-btn-primary careers-btn-block"
+                      onClick={() => setApplyOpen(true)}
+                      data-action="apply-now"
+                    >
+                      Apply for this role
+                    </button>
+                    <p className="careers-apply-note">No account needed. Multiple formats welcome.</p>
+                  </div>
+
+                  <dl className="careers-quick-facts">
+                    {facts.map((f) => (
+                      <div key={String(f.dt)} className="careers-quick-fact">
+                        <dt>{f.dt}</dt>
+                        <dd>{f.dd}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </main>
+
+        <div className="careers-mobile-cta">
+          <button
+            type="button"
+            className="careers-btn careers-btn-primary"
+            onClick={() => setApplyOpen(true)}
+            data-action="apply-now"
+          >
+            Apply for this role
+          </button>
+        </div>
+      </div>
+
+      <CareersFooter tenant={tenant} onApply={() => setApplyOpen(true)} />
+
+      {applyOpen && (
+        <ApplicationWizard open={applyOpen} job={job} tenantSlug={tenant.slug} defaultCity={defaultCity} onClose={() => setApplyOpen(false)} />
+      )}
     </div>
   );
 }

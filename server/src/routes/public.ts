@@ -68,7 +68,9 @@ async function tenantOr404(
   return tenant;
 }
 
-const PUBLIC_JOB_FIELDS = `j.id, j.title, j.location, j.description, j.open_positions, j.created_at`;
+const PUBLIC_JOB_FIELDS = `j.id, j.title, j.client, j.location, j.city, j.state, j.description,
+  j.open_positions, j.salary, j.job_type, j.shift, j.industry,
+  j.min_experience, j.max_experience, j.required_skills, j.created_at`;
 
 const LOGO_MIME_BY_EXT: Record<string, string> = Object.fromEntries(
   Object.entries(ALLOWED_LOGO_MIME_TYPES).map(([mime, ext]) => [ext, mime])
@@ -110,6 +112,61 @@ router.get('/:tenantSlug/jobs', async (req, res) => {
     [tenant.id]
   );
   res.json(rows);
+});
+
+router.get('/:tenantSlug/jobs/meta', async (req, res) => {
+  const tenant = await tenantOr404(req.params.tenantSlug);
+  if (!tenant) return res.status(404).json({ error: 'Careers page not found' });
+  // Facets derived from live active jobs so cities/industries stay data-driven
+  // and never hard-coded in the client. Jobs without a city fall back to the
+  // first comma segment of `location` so places like "Mohali" still surface.
+  const [total, cities, states, jobTypes, industries] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*)::int AS total FROM jobs WHERE tenant_id = $1 AND status = 'active'`,
+      [tenant.id]
+    ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(TRIM(j.city), ''),
+        NULLIF(TRIM(SPLIT_PART(j.location, ',', 1)), '')) AS city,
+        NULLIF(TRIM(j.state), '') AS state,
+        COUNT(*)::int AS count
+       FROM jobs j WHERE j.tenant_id = $1 AND j.status = 'active'
+       GROUP BY 1, 2 ORDER BY count DESC, city`,
+      [tenant.id]
+    ),
+    pool.query(
+      `SELECT NULLIF(TRIM(j.state), '') AS state, COUNT(*)::int AS count
+       FROM jobs j WHERE j.tenant_id = $1 AND j.status = 'active'
+         AND NULLIF(TRIM(j.state), '') IS NOT NULL
+       GROUP BY 1 ORDER BY count DESC, state`,
+      [tenant.id]
+    ),
+    pool.query(
+      `SELECT NULLIF(TRIM(j.job_type), '') AS job_type, COUNT(*)::int AS count
+       FROM jobs j WHERE j.tenant_id = $1 AND j.status = 'active'
+         AND NULLIF(TRIM(j.job_type), '') IS NOT NULL
+       GROUP BY 1 ORDER BY count DESC, job_type`,
+      [tenant.id]
+    ),
+    pool.query(
+      `SELECT NULLIF(TRIM(j.industry), '') AS industry, COUNT(*)::int AS count
+       FROM jobs j WHERE j.tenant_id = $1 AND j.status = 'active'
+         AND NULLIF(TRIM(j.industry), '') IS NOT NULL
+       GROUP BY 1 ORDER BY count DESC, industry`,
+      [tenant.id]
+    ),
+  ]);
+  res.json({
+    total: Number(total.rows[0]?.total) || 0,
+    cities: cities.rows.map((row) => ({
+      city: row.city,
+      state: row.state,
+      count: Number(row.count) || 0,
+    })),
+    states: states.rows.map((row) => ({ state: row.state, count: Number(row.count) || 0 })),
+    jobTypes: jobTypes.rows.map((row) => ({ jobType: row.job_type, count: Number(row.count) || 0 })),
+    industries: industries.rows.map((row) => ({ industry: row.industry, count: Number(row.count) || 0 })),
+  });
 });
 
 router.get('/:tenantSlug/jobs/:id', async (req, res) => {
@@ -160,6 +217,33 @@ router.post(
       return res.status(400).json({ error: 'Resume must be PDF, DOC, or DOCX' });
     }
 
+    // Optional profile fields captured by the multi-step application flow.
+    const city = String(req.body?.city || '').trim();
+    const education = String(req.body?.education || '').trim();
+    const currentRole = String(req.body?.current_role || '').trim();
+    const explicitExperience =
+      req.body?.experience != null && String(req.body.experience).trim() !== ''
+        ? Number(req.body.experience)
+        : NaN;
+    const experienceYearsField = Number.isFinite(explicitExperience) && explicitExperience >= 0
+      ? explicitExperience
+      : undefined;
+    let extraSkills: string[] = [];
+    if (typeof req.body?.skills === 'string' && req.body.skills.trim() !== '') {
+      try {
+        const parsed = JSON.parse(req.body.skills);
+        if (Array.isArray(parsed)) {
+          extraSkills = parsed.map((s) => String(s).trim()).filter(Boolean).slice(0, 40);
+        }
+      } catch {
+        // Ignore malformed skills; resume parsing still applies below.
+      }
+    }
+    const profileNotes = [currentRole && `Current/previous role: ${currentRole}`, city && `Applied from: ${city}`]
+      .filter(Boolean)
+      .join('\n');
+    const applyProfileValues = () => [city || null, education || null, profileNotes || null];
+
     // Dedupe on email or last-10-digit phone (same trick as WhatsApp inbound
     // matching): an existing candidate gets a new application, not a duplicate.
     const phoneDigits = phone.replace(/\D/g, '').slice(-10);
@@ -186,13 +270,25 @@ router.post(
       );
       if (inserted.length === 0) {
         // Already applied to this job — treat as success, don't leak state.
-        return res.status(201).json({ applied: true });
+        return res.status(201).json({ applied: true, applicationId: candidateId });
       }
       await pool.query(
-        `UPDATE candidates SET job_id = COALESCE(job_id, $1), updated_at = NOW()
-         WHERE id = $2 AND tenant_id = $3`,
-        [jobId, candidateId, tenant.id]
+        `UPDATE candidates SET job_id = COALESCE(job_id, $1), updated_at = NOW(),
+           current_location = COALESCE(NULLIF($2, ''), current_location),
+           highest_qualification = COALESCE(NULLIF($3, ''), highest_qualification),
+           notes = COALESCE(NULLIF($4, ''), notes),
+           experience_years = COALESCE($5, experience_years)
+         WHERE id = $6 AND tenant_id = $7`,
+        [jobId, ...applyProfileValues(), experienceYearsField ?? null, candidateId, tenant.id]
       );
+      if (extraSkills.length) {
+        await pool.query(
+          `UPDATE candidates SET skills = (
+             SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(skills || $2::jsonb)
+           ) WHERE id = $1 AND tenant_id = $3`,
+          [candidateId, JSON.stringify(extraSkills), tenant.id]
+        );
+      }
     } else {
       isNew = true;
       let parsedProfile: unknown = null;
@@ -217,19 +313,22 @@ router.post(
 
       const { rows: created } = await pool.query(
         `INSERT INTO candidates (name, email, phone, skills, experience_years, ai_score,
-           stage, job_id, tenant_id, source, parsed_profile)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'applied', $7, $8, 'careers', $9::jsonb)
+           stage, job_id, tenant_id, source, parsed_profile, current_location,
+           highest_qualification, notes)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'applied', $7, $8, 'careers', $9::jsonb,
+           $10, $11, $12)
          RETURNING id, job_id, stage, ai_score, recruiter_id, source`,
         [
           name,
           email || null,
           phone || null,
-          JSON.stringify(skills),
-          experienceYears,
-          heuristicCandidateScore(skills, experienceYears),
+          JSON.stringify([...new Set([...skills, ...extraSkills])]),
+          experienceYearsField ?? experienceYears,
+          heuristicCandidateScore([...new Set([...skills, ...extraSkills])], experienceYearsField ?? experienceYears),
           jobId,
           tenant.id,
           parsedProfile ? JSON.stringify(parsedProfile) : null,
+          ...applyProfileValues(),
         ]
       );
       candidateId = created[0].id;
@@ -291,7 +390,7 @@ router.post(
       });
     }
 
-    res.status(201).json({ applied: true });
+    res.status(201).json({ applied: true, applicationId: candidateId });
   }
 );
 

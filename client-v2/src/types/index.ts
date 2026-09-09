@@ -1168,6 +1168,9 @@ export interface ResumeDashboardResponse {
       count: number;
     }[];
   }[];
+  byDate: { date: string; count: number }[];
+  byNoticePeriod: { noticePeriod: string; count: number }[];
+  byCity: { city: string; count: number }[];
 }
 
 export interface TeamPerformanceRecruiter {
@@ -1401,8 +1404,26 @@ export interface BillingOrder {
 export interface PublicJob {
   id: number;
   title: string;
+  client: string | null;
   location: string;
+  city: string | null;
+  state: string | null;
   description: string | null;
   open_positions: number;
+  salary: string | null;
+  job_type: string | null;
+  shift: string | null;
+  industry: string | null;
+  min_experience: number | null;
+  max_experience: number | null;
+  required_skills: string[] | null;
   created_at: string;
+}
+
+export interface CareersMeta {
+  total: number;
+  cities: { city: string; state: string | null; count: number }[];
+  states: { state: string; count: number }[];
+  jobTypes: { jobType: string; count: number }[];
+  industries: { industry: string; count: number }[];
 }

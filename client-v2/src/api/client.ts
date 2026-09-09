@@ -602,19 +602,36 @@ export const api = {
     }>(`/public/${encodeURIComponent(slug)}`),
   careersGetJobs: (slug: string) =>
     publicRequest<import('../types').PublicJob[]>(`/public/${encodeURIComponent(slug)}/jobs`),
+  careersGetMeta: (slug: string) =>
+    publicRequest<import('../types').CareersMeta>(`/public/${encodeURIComponent(slug)}/jobs/meta`),
   careersGetJob: (slug: string, jobId: number) =>
     publicRequest<import('../types').PublicJob>(`/public/${encodeURIComponent(slug)}/jobs/${jobId}`),
   careersApply: (
     slug: string,
     jobId: number,
-    data: { name: string; email: string; phone: string; resume?: File | null }
+    data: {
+      name: string;
+      email: string;
+      phone: string;
+      city?: string;
+      education?: string;
+      experience?: number;
+      currentRole?: string;
+      skills?: string[];
+      resume?: File | null;
+    }
   ) => {
     const form = new FormData();
     form.append('name', data.name);
     form.append('email', data.email);
     form.append('phone', data.phone);
+    if (data.city) form.append('city', data.city);
+    if (data.education) form.append('education', data.education);
+    if (data.experience != null) form.append('experience', String(data.experience));
+    if (data.currentRole) form.append('current_role', data.currentRole);
+    if (data.skills && data.skills.length) form.append('skills', JSON.stringify(data.skills));
     if (data.resume) form.append('resume', data.resume);
-    return publicUpload<{ applied: boolean }>(
+    return publicUpload<{ applied: boolean; applicationId?: number }>(
       `/public/${encodeURIComponent(slug)}/jobs/${jobId}/apply`,
       form
     );
