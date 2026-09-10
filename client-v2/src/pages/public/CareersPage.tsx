@@ -155,7 +155,22 @@ export default function CareersPage() {
     tenant ? `${tenant.name} Careers | Find your next role` : 'Careers',
     tenant
       ? `${tenant.name} — ${metaTotal} verified open role${metaTotal === 1 ? '' : 's'} across India. Free to apply, direct recruiter contact.`
-      : undefined
+      : undefined,
+    {
+      canonicalUrl: tenant ? `${typeof window !== 'undefined' ? window.location.origin : ''}/careers/${tenant.slug}` : undefined,
+      jsonLd: tenant && jobs.length > 0
+        ? {
+            '@context': 'https://schema.org',
+            '@type': 'ItemList',
+            itemListElement: jobs.slice(0, 10).map((job, i) => ({
+              '@type': 'ListItem',
+              position: i + 1,
+              url: `${typeof window !== 'undefined' ? window.location.origin : ''}/careers/${tenant.slug}/jobs/${job.id}`,
+              name: job.title,
+            })),
+          }
+        : undefined,
+    }
   );
 
   if (loading) {

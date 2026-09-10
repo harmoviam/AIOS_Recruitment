@@ -8,6 +8,7 @@ import ApplicationWizard from '../../components/careers/ApplicationWizard';
 import CareersFooter from '../../components/careers/CareersFooter';
 import CareersNav from '../../components/careers/CareersNav';
 import { CareersPageError } from '../../components/careers/CareerStates';
+import { buildJobPostingJsonLd } from '../../components/careers/JobPostingSchema';
 import {
   employmentType,
   formatExperience,
@@ -114,7 +115,13 @@ export default function CareersJobPage() {
     job && tenant ? `${job.title} | ${tenant.name} Careers` : tenant ? `${tenant.name} Careers` : 'Careers',
     job && tenant
       ? `${job.title} at ${tenant.name}${jobCity(job) ? ` in ${jobCity(job)}` : ''}${parseSalary(job.salary).label ? ` · ${parseSalary(job.salary).label}` : ''}. Free to apply.`
-      : undefined
+      : undefined,
+    {
+      type: 'article',
+      canonicalUrl: `${typeof window !== 'undefined' ? window.location.origin : ''}/careers/${tenantSlug}/jobs/${jobId}`,
+      image: tenant?.logo_url || undefined,
+      jsonLd: job && tenant ? buildJobPostingJsonLd(job, tenant) : undefined,
+    }
   );
 
   if (loading) {
