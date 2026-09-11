@@ -7,6 +7,10 @@ import {
   type FieldConfidence,
 } from '../../dto/aiSourcing/criteria.js';
 import {
+  toMvpCriteria,
+  type MvpSourcingCriteria,
+} from '../../dto/aiSourcing/mvpCriteria.js';
+import {
   candidateSearchService,
   type AiSourcingCandidateHit,
 } from './candidateSearchService.js';
@@ -21,6 +25,7 @@ export type SavedSearchResponse = {
   id: string;
   query: string;
   criteria: CandidateSearchCriteria;
+  mvpCriteria: MvpSourcingCriteria;
   fieldConfidence: FieldConfidence;
   parserMode: string;
   resultCount: number;
@@ -81,10 +86,15 @@ export class SearchRequirementService {
       parserMode = parsed.parserMode;
     }
 
-    const page = await candidateSearchService.search(req, criteria, {
-      limit: input.limit,
-      offset: input.offset,
-    });
+    const page = await candidateSearchService.search(
+      req,
+      criteria,
+      {
+        limit: input.limit,
+        offset: input.offset,
+      },
+      query
+    );
 
     const preview = page.results.slice(0, 25);
     const { rows } = await pool.query(
@@ -109,6 +119,7 @@ export class SearchRequirementService {
       id: rows[0].id as string,
       query: query || '',
       criteria,
+      mvpCriteria: page.mvpCriteria,
       fieldConfidence,
       parserMode,
       resultCount: page.resultCount,
@@ -160,6 +171,7 @@ export class SearchRequirementService {
       id: rows[0].id as string,
       query: rows[0].query_text as string,
       criteria,
+      mvpCriteria: toMvpCriteria({ criteria, rawText: (rows[0].query_text as string) || null }),
       fieldConfidence: (rows[0].field_confidence as FieldConfidence) || {},
       parserMode: rows[0].parser_mode as string,
       resultCount: Number(rows[0].result_count) || 0,

@@ -75,28 +75,66 @@ function heuristicFromJob(job: JobRow): JobIntelligence {
 }
 
 export function intelligenceToCriteria(intel: JobIntelligence): CandidateSearchCriteria {
-  const skills = [...(intel.requiredSkills || [])];
-  const preferred = [...(intel.preferredSkills || [])];
-  const keywords = [
-    ...(intel.technicalCompetencies || []),
-    ...(intel.domainExperience || []),
-  ].slice(0, 20);
+  // JD rows and LLM output are not validated user input — sanitize here so a
+  // dirty job (overlong title/skill, 40+ skills, minExp > maxExp, salary > 500
+  // LPA, notice > 365d) degrades gracefully instead of throwing 500 downstream.
+  const skills = cleanStrArray(intel.requiredSkills, 64, 30);
+  const preferred = cleanStrArray(intel.preferredSkills, 64, 30);
+  const keywords = cleanStrArray(
+    [...(intel.technicalCompetencies || []), ...(intel.domainExperience || [])],
+    64,
+    20
+  );
+  const roles = cleanStrArray(
+    intel.roles?.length ? intel.roles : intel.role ? [intel.role] : [],
+    120,
+    10
+  );
+
+  let minExperienceYears = clampNum(intel.minExperienceYears, 0, 50);
+  let maxExperienceYears = clampNum(intel.maxExperienceYears, 0, 50);
+  if (minExperienceYears != null && maxExperienceYears != null && minExperienceYears > maxExperienceYears) {
+    maxExperienceYears = null;
+  }
 
   return parseCriteria({
     ...emptyCriteria(),
     skills,
     preferredSkills: preferred,
     keywords,
-    roles: intel.roles?.length ? intel.roles : intel.role ? [intel.role] : [],
-    jobTitle: intel.role || null,
-    location: intel.location || null,
-    industries: intel.industries || [],
-    seniority: intel.seniority || null,
-    minExperienceYears: intel.minExperienceYears ?? null,
-    maxExperienceYears: intel.maxExperienceYears ?? null,
-    noticePeriodMaxDays: intel.noticePeriodMaxDays ?? null,
-    maxSalaryLpa: intel.maxSalaryLpa ?? null,
+    roles,
+    jobTitle: cleanOptStr(intel.role, 120),
+    location: cleanOptStr(intel.location, 120),
+    industries: cleanStrArray(intel.industries, 80, 15),
+    seniority: cleanOptStr(intel.seniority, 40),
+    minExperienceYears,
+    maxExperienceYears,
+    noticePeriodMaxDays: clampNum(intel.noticePeriodMaxDays, 0, 365),
+    maxSalaryLpa: clampNum(intel.maxSalaryLpa, 0, 500),
   });
+}
+
+function cleanStrArray(values: unknown, maxLen: number, maxCount: number): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((v) => String(v).trim())
+    .filter(Boolean)
+    .map((s) => (s.length > maxLen ? s.slice(0, maxLen) : s))
+    .slice(0, maxCount);
+}
+
+function cleanOptStr(value: unknown, maxLen: number): string | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function clampNum(value: unknown, min: number, max: number): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(Math.max(n, min), max);
 }
 
 export class JDIntelligenceService {

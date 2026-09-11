@@ -25,8 +25,10 @@ router.post(
       const result = await jdIntelligenceService.analyze(req, jobId);
       res.json(result);
     } catch (err) {
-      const e = err as { status?: number; message?: string };
+      const e = err as { status?: number; message?: string; details?: unknown };
       if (e.status === 404) return res.status(404).json({ error: e.message || 'Job not found' });
+      if (e.status === 400)
+        return res.status(400).json({ error: e.message || 'Invalid criteria', details: e.details });
       throw err;
     }
   })

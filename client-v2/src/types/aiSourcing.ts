@@ -26,6 +26,26 @@ export type AiSourcingParseResult = {
   unresolvedFields: string[];
 };
 
+export type MvpScoreBreakdown = {
+  skills: number;
+  experience: number;
+  location: number;
+  notice: number;
+  salary: number | null;
+};
+
+export type MvpSourcingCriteria = {
+  jobTitle?: string | null;
+  requiredSkills: string[];
+  preferredSkills: string[];
+  experienceMin?: number | null;
+  experienceMax?: number | null;
+  locations: string[];
+  noticePeriodMaxDays?: number | null;
+  salaryMinLpa?: number | null;
+  salaryMaxLpa?: number | null;
+};
+
 export type AiSourcingCandidateHit = {
   id: number;
   name: string;
@@ -39,12 +59,18 @@ export type AiSourcingCandidateHit = {
   aiScore: number;
   hybridScore?: number;
   matchSignals?: string[];
+  matchScore?: number;
+  scoreBreakdown?: MvpScoreBreakdown;
+  matchedRequiredSkills?: string[];
+  missingRequiredSkills?: string[];
+  matchedPreferredSkills?: string[];
 };
 
 export type AiSourcingSearchResult = {
   id: string;
   query: string;
   criteria: CandidateSearchCriteria;
+  mvpCriteria?: MvpSourcingCriteria;
   fieldConfidence: FieldConfidence;
   parserMode: string;
   resultCount: number;
@@ -68,6 +94,19 @@ export type AiSourcingRecentItem = {
 export type AiSourcingRecommendedItem = {
   label: string;
   query: string;
+};
+
+export type AiSourcingAutoRun = {
+  jobId: number;
+  jobTitle: string | null;
+  enabled: boolean;
+  intervalMinutes: number;
+  lastRunAt: string | null;
+  lastSearchId: string | null;
+  lastResultCount: number;
+  lastError: string | null;
+  consecutiveFailures: number;
+  updatedAt: string;
 };
 
 export type JobIntelligence = {

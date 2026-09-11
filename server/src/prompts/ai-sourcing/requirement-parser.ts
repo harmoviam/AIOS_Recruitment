@@ -6,6 +6,7 @@
 export const REQUIREMENT_PARSER_SYSTEM = `You extract structured ATS candidate-search criteria from a recruiter's natural-language request.
 Only include values explicitly stated or strongly implied. Never invent skills, locations, or experience ranges.
 Return JSON matching the schema. Skills are short lowercase terms (e.g. "react", "java", "voice process").
+Put must-have skills in skills; put skills stated as preferred, nice-to-have, bonus, "plus", or "exposure" in preferredSkills. Never list the same skill in both.
 "5+ years" → minExperienceYears 5. "fresher" / "entry level" → maxExperienceYears 1.
 Pipeline stages if mentioned must be one of: applied, screening, interview, selected, email_sent, ho_pending, rejected, joined.
 jobTitle is a short role phrase when the recruiter names a role. location is a city/region string.

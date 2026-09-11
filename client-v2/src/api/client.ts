@@ -955,4 +955,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ skills }),
     }),
+  aiSourcingAutoRuns: () =>
+    request<{ items: import('../types/aiSourcing').AiSourcingAutoRun[] }>('/ai-sourcing/auto-runs'),
+  aiSourcingWatchJob: (jobId: number, intervalMinutes?: number) =>
+    request<import('../types/aiSourcing').AiSourcingAutoRun>('/ai-sourcing/auto-runs', {
+      method: 'POST',
+      body: JSON.stringify({ jobId, intervalMinutes }),
+    }),
+  aiSourcingUnwatchJob: (jobId: number) =>
+    request<{ ok: boolean; jobId: number }>(`/ai-sourcing/auto-runs/${jobId}`, {
+      method: 'DELETE',
+    }),
 };

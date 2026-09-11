@@ -35,6 +35,7 @@ import sourcingRoutes from './routes/sourcing/index.js';
 import aiSourcingRoutes from './routes/aiSourcing/index.js';
 import agentRoutes from './routes/agent.js';
 import { startHarmoviaCandidateSyncWorker } from './services/harmoviaCandidateSync.js';
+import { startAutoSourcingWorker } from './services/aiSourcing/autoSourcingService.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -286,6 +287,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 async function start() {
   await initDb();
   startHarmoviaCandidateSyncWorker();
+  startAutoSourcingWorker();
   app.listen(PORT, () => console.log(`AIOS API running on http://localhost:${PORT}`));
 }
 
