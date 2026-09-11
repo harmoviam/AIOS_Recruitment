@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { Job } from '../../types';
 import type {
+  AiSourcingAutoRun,
   AiSourcingCandidateHit,
   AiSourcingParseResult,
   AiSourcingRecentItem,
@@ -65,6 +66,8 @@ export default function AiSourcingPage() {
   const [parsing, setParsing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [analyzingJob, setAnalyzingJob] = useState(false);
+  const [autoRuns, setAutoRuns] = useState<AiSourcingAutoRun[]>([]);
+  const [watchBusy, setWatchBusy] = useState(false);
   const [skillsInput, setSkillsInput] = useState('');
   const [industriesInput, setIndustriesInput] = useState('');
 
@@ -80,6 +83,10 @@ export default function AiSourcingPage() {
     api
       .getJobs()
       .then((list) => setJobs(Array.isArray(list) ? list : []))
+      .catch(() => {});
+    api
+      .aiSourcingAutoRuns()
+      .then((r) => setAutoRuns(r.items))
       .catch(() => {});
   }, []);
 
@@ -213,6 +220,30 @@ export default function AiSourcingPage() {
     }
   }
 
+  const watchedRun =
+    selectedJobId === ''
+      ? undefined
+      : autoRuns.find((w) => w.jobId === selectedJobId && w.enabled);
+
+  async function toggleWatch() {
+    if (selectedJobId === '' || watchBusy) return;
+    setWatchBusy(true);
+    setError('');
+    try {
+      if (watchedRun) {
+        await api.aiSourcingUnwatchJob(selectedJobId);
+      } else {
+        await api.aiSourcingWatchJob(selectedJobId);
+      }
+      const r = await api.aiSourcingAutoRuns();
+      setAutoRuns(r.items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update auto-run watch');
+    } finally {
+      setWatchBusy(false);
+    }
+  }
+
   async function openRecent(item: AiSourcingRecentItem) {
     setError('');
     try {
@@ -316,7 +347,25 @@ export default function AiSourcingPage() {
             >
               {analyzingJob ? 'Analyzing JD…' : 'Analyze JD & search'}
             </button>
+            <button
+              className="button-pill button-secondary"
+              type="button"
+              onClick={toggleWatch}
+              disabled={selectedJobId === '' || watchBusy}
+              title="Re-source this job automatically in the background"
+            >
+              {watchBusy ? 'Saving…' : watchedRun ? 'Unwatch (auto ✓)' : 'Watch job (24/7 auto)'}
+            </button>
           </div>
+          {watchedRun && (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Auto-refresh every {Math.round(watchedRun.intervalMinutes / 60)}h
+              {watchedRun.lastRunAt
+                ? ` · last run ${new Date(watchedRun.lastRunAt).toLocaleString()} · ${watchedRun.lastResultCount} matches`
+                : ' · first run pending'}
+              {watchedRun.lastError ? ` · last error: ${watchedRun.lastError}` : ''}.
+            </p>
+          )}
           {jobIntel && (
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               JD role: {jobIntel.role || '—'} · Required:{' '}

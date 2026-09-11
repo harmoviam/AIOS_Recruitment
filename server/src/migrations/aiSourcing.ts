@@ -85,6 +85,29 @@ CREATE TABLE IF NOT EXISTS ai_skill_relationships (
       )
     )
 );
+
+-- 24/7 auto-runner: per-job sourcing watch. The background worker re-runs
+-- sourcing for enabled rows on their interval and links the fresh search.
+CREATE TABLE IF NOT EXISTS ai_sourcing_auto_runs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    job_id              INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    enabled_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    interval_minutes    INTEGER NOT NULL DEFAULT 360,
+    enabled             BOOLEAN NOT NULL DEFAULT TRUE,
+    last_run_at         TIMESTAMPTZ,
+    last_search_id      UUID REFERENCES ai_sourcing_searches(id) ON DELETE SET NULL,
+    last_result_count   INTEGER NOT NULL DEFAULT 0,
+    last_error          TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (tenant_id, job_id),
+    CONSTRAINT ck_ai_sourcing_auto_runs_interval
+      CHECK (interval_minutes >= 15 AND interval_minutes <= 4320)
+);
+CREATE INDEX IF NOT EXISTS ix_ai_sourcing_auto_runs_due
+    ON ai_sourcing_auto_runs(tenant_id, enabled, last_run_at);
 `;
 
 const SKILL_SEED: Array<{

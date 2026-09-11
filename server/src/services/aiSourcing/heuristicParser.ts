@@ -69,6 +69,8 @@ const SKILL_LEXICON = [
   'tableau',
   'spring boot',
   'microservices',
+  'github actions',
+  'kafka',
 ];
 
 const ROLE_PATTERNS: Array<{ re: RegExp; title: string; confidence: number }> = [
@@ -112,7 +114,7 @@ const SENIORITY_PATTERNS: Array<{ re: RegExp; value: string; confidence: number 
   { re: /\b(?:junior|jr\.?|entry[- ]level)\b/i, value: 'junior', confidence: 0.75 },
 ];
 
-const CITY_LEXICON = [
+export const CITY_LEXICON = [
   'bangalore',
   'bengaluru',
   'mumbai',
@@ -257,8 +259,8 @@ export function heuristicParseRequirements(query: string): {
   if (criteria.industries.length) fieldConfidence.industries = 0.85;
 
   const notice =
-    text.match(/notice\s+period\s*(?:under|below|less\s+than|<|within)?\s*(\d+)\s*days?/i) ||
-    text.match(/(\d+)\s*days?\s+notice/i);
+    text.match(/notice\s+period[^0-9]{0,30}(\d+)\s*days?/i) ||
+    text.match(/(\d+)\s*-?\s*days?\s+notice/i);
   if (notice) {
     criteria.noticePeriodMaxDays = Number(notice[1]);
     fieldConfidence.noticePeriodMaxDays = 0.9;

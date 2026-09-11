@@ -35,10 +35,16 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: 'AI Agents',
+    orgOnly: true,
+    items: [
+      { to: '/ai-sourcing', label: 'AI Sourcer', orgOnly: true },
+    ],
+  },
+  {
     title: 'Sourcing',
     orgOnly: true,
     items: [
-      { to: '/ai-sourcing', label: 'AI Talent Sourcing', orgOnly: true },
       { to: '/sourcing/copilot', label: 'Copilot', orgOnly: true, adminOnly: true },
       { to: '/sourcing/people', label: 'Candidate Profiles', orgOnly: true, adminOnly: true },
       { to: '/sourcing/search', label: 'Find Sources', orgOnly: true, adminOnly: true },

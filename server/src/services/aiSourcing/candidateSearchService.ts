@@ -6,6 +6,11 @@ import {
   criteriaHasSignal,
   type CandidateSearchCriteria,
 } from '../../dto/aiSourcing/criteria.js';
+import {
+  toMvpCriteria,
+  type MvpSourcingCriteria,
+} from '../../dto/aiSourcing/mvpCriteria.js';
+import { scoreCandidate, type MvpScoreBreakdown } from './mvpScorer.js';
 import { skillOntologyService } from './skillOntologyService.js';
 
 export type AiSourcingCandidateHit = {
@@ -21,6 +26,12 @@ export type AiSourcingCandidateHit = {
   aiScore: number;
   hybridScore: number;
   matchSignals: string[];
+  /** MVP explainable score (0–100) with per-component breakdown. */
+  matchScore: number;
+  scoreBreakdown: MvpScoreBreakdown;
+  matchedRequiredSkills: string[];
+  missingRequiredSkills: string[];
+  matchedPreferredSkills: string[];
 };
 
 export type CandidateSearchPage = {
@@ -29,6 +40,7 @@ export type CandidateSearchPage = {
   limit: number;
   offset: number;
   expandedSkills: string[];
+  mvpCriteria: MvpSourcingCriteria;
 };
 
 /**
@@ -244,11 +256,16 @@ export class CandidateSearchService {
   async search(
     req: Request,
     criteria: CandidateSearchCriteria,
-    opts: { limit?: number; offset?: number } = {}
+    opts: { limit?: number; offset?: number } = {},
+    rawQuery?: string
   ): Promise<CandidateSearchPage> {
     const limit = Math.min(Math.max(opts.limit ?? 25, 1), 100);
     const offset = Math.max(opts.offset ?? 0, 0);
     const tenantId = req.tenant!.id;
+
+    // MVP criteria power the explainable score; the structured criteria above
+    // continue to drive SQL/FTS retrieval.
+    const mvpCriteria = toMvpCriteria({ criteria, rawText: rawQuery ?? null });
 
     const seedSkills = [...(criteria.skills || []), ...(criteria.preferredSkills || [])];
     let expandedSkills: string[] = seedSkills.map((s) => s.toLowerCase());
@@ -263,7 +280,11 @@ export class CandidateSearchService {
     const t = tenantClause(tenantId, 'c', 1);
     let sql = `
       SELECT c.id, c.name, c.email, c.phone, c.skills, c.experience_years,
-             c.stage, c.current_location, c.ai_score, c.resume_text, j.title AS job_title,
+              c.stage, c.current_location, c.preferred_location, c.ai_score,
+              c.resume_text, c.technical_skills, c.soft_skills,
+              c.notice_period, c.salary_expectation,
+              j.title AS job_title,
+              COALESCE(j.city, j.location) AS job_city,
              COUNT(*) OVER() AS total_count,
              CASE
                WHEN c.search_tsv @@ websearch_to_tsquery(
@@ -329,6 +350,20 @@ export class CandidateSearchService {
         resume_text: (r.resume_text as string) ?? null,
         job_title: (r.job_title as string) ?? null,
       });
+      // Deterministic MVP score — advisory only, never excludes a candidate.
+      const mvpScore = scoreCandidate(mvpCriteria, {
+        skills: r.skills,
+        technicalSkills: r.technical_skills,
+        softSkills: r.soft_skills,
+        resumeText: (r.resume_text as string) ?? null,
+        experienceYears: r.experience_years != null ? Number(r.experience_years) : null,
+        currentLocation: (r.current_location as string) ?? null,
+        preferredLocation: (r.preferred_location as string) ?? null,
+        jobCity: (r.job_city as string) ?? null,
+        jobTitle: (r.job_title as string) ?? null,
+        noticePeriod: (r.notice_period as string) ?? null,
+        salaryExpectation: (r.salary_expectation as string) ?? null,
+      });
       return {
         id: r.id as number,
         name: r.name as string,
@@ -342,10 +377,15 @@ export class CandidateSearchService {
         aiScore,
         hybridScore,
         matchSignals,
+        matchScore: mvpScore.matchScore,
+        scoreBreakdown: mvpScore.scoreBreakdown,
+        matchedRequiredSkills: mvpScore.matchedRequiredSkills,
+        missingRequiredSkills: mvpScore.missingRequiredSkills,
+        matchedPreferredSkills: mvpScore.matchedPreferredSkills,
       };
     });
 
-    return { results, resultCount, limit, offset, expandedSkills };
+    return { results, resultCount, limit, offset, expandedSkills, mvpCriteria };
   }
 }
 
